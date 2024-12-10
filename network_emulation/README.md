@@ -94,6 +94,8 @@ sudo virsh net-start default
 sudo virsh net-autostart default
 ```
 
+Note that you may need to restart your computer for the "default" network to be listed.
+
 Then
 
 ```bash
