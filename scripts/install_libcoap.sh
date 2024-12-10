@@ -7,6 +7,7 @@ install_mode="default"
 install_dir=$build_dir
 groups_spec=false
 libcoap_version="cb20c482b2bb857a2f06c342ecb8c8c6d5f387ce"
+algorithm="KYBER_LEVEL1"
 
 # Parse command line arguments
 for arg in "$@"
@@ -66,6 +67,14 @@ if [ "$skip_clone" = false ]; then
     git checkout $libcoap_version
 fi
 
+# default client or not
+sudo rm $libcoap_dir/examples/coap-client.c
+cp $libcoap_dir/../libcoap-bench/coap-client.c $libcoap_dir/examples/
+
+# default server or not
+# sudo rm $libcoap_dir/examples/coap-server.c
+# cp $libcoap_dir/../libcoap-bench/coap-server.c $libcoap_dir/examples/
+
 # Configure based on custom_install flag
 if [ "$custom_install" == "wolfssl" ]; then
     echo ".........."
@@ -78,18 +87,18 @@ if [ "$custom_install" == "wolfssl" ]; then
         #-DCOAP_WOLFSSL_GROUPS=\"P-384:P-256:KYBER_LEVEL1\"
         if [ "$groups_spec" = true ]; then
             if [ "$install_dir" == "default" ]; then
-                CPPFLAGS="-DCOAP_WOLFSSL_GROUPS=\"\\\"P-256\\\"\"" \
+                CPPFLAGS="-DCOAP_WOLFSSL_GROUPS=\"\\\"$algorithm\\\"\"" \
                 ./configure --enable-dtls --with-wolfssl --disable-manpages --disable-doxygen --enable-tests
             else
-                CPPFLAGS="-DCOAP_WOLFSSL_GROUPS=\"\\\"P-256\\\"\"" \
+                CPPFLAGS="-DCOAP_WOLFSSL_GROUPS=\"\\\"$algorithm\\\"\"" \
                 ./configure --enable-dtls --with-wolfssl --disable-manpages --disable-doxygen --enable-tests --prefix=$install_dir
             fi
         elif [ "$sigalgs_spec" = true ]; then
             if [ "$install_dir" == "default" ]; then
-                CPPFLAGS="-DCOAP_WOLFSSL_SIGALGS=\"\\\"RSA+SHA256\\\"\"" \
+                CPPFLAGS="-DCOAP_WOLFSSL_SIGALGS=\"\\\"DILITHIUM_LEVEL3\\\"\"" \
                 ./configure --enable-dtls --with-wolfssl --disable-manpages --disable-doxygen --enable-tests
             else
-                CPPFLAGS="-DCOAP_WOLFSSL_SIGALGS=\"\\\"dilithium3\\\"\"" \
+                CPPFLAGS="-DCOAP_WOLFSSL_SIGALGS=\"\\\"DILITHIUM_LEVEL3\\\"\"" \
                 ./configure --enable-dtls --with-wolfssl --disable-manpages --disable-doxygen --enable-tests --prefix=$install_dir
             fi
         else
@@ -114,7 +123,7 @@ else
     if [ "$install_mode" == "default" ]; then
         ./autogen.sh
         if [ "$groups_spec" = true ]; then
-            CPPFLAGS="-DCOAP_OPENSSL_GROUPS=\"\\\"P-256\\\"\"" \
+            CPPFLAGS="-DCOAP_OPENSSL_GROUPS=\"\\\"$algorithm\\\"\"" \
             ./configure --enable-dtls --with-openssl --disable-manpages --disable-doxygen --enable-tests --prefix=$install_dir
         else
             ./configure --enable-dtls --with-openssl --disable-manpages --disable-doxygen --enable-tests --prefix=$install_dir
@@ -125,6 +134,8 @@ else
         cmake -DENABLE_DTLS=ON -DDTLS_BACKEND=openssl ..
     fi
 fi
+
+echo $algorithm > "$libcoap_dir/../algorithm.txt"
 
 # Build and install
 make
