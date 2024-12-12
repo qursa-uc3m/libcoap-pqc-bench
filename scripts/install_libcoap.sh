@@ -5,9 +5,10 @@ skip_clone=false
 build_dir="$(pwd)/libcoap/build"
 install_mode="default"
 install_dir=$build_dir
+libcoap_dir="$(pwd)/libcoap"
 groups_spec=false
 libcoap_version="cb20c482b2bb857a2f06c342ecb8c8c6d5f387ce"
-algorithm="KYBER_LEVEL1"
+algorithm="KYBER_LEVEL5"
 
 # Parse command line arguments
 for arg in "$@"
