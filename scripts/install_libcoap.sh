@@ -65,16 +65,20 @@ if [ "$skip_clone" = false ]; then
     sudo rm -rf ./libcoap
     git clone https://github.com/obgm/libcoap
     cd libcoap
-    git checkout $libcoap_version
+    #git checkout $libcoap_version
 fi
 
 # default client or not
 sudo rm $libcoap_dir/examples/coap-client.c
 cp $libcoap_dir/../libcoap-bench/coap-client.c $libcoap_dir/examples/
 
-# default server or not
-# sudo rm $libcoap_dir/examples/coap-server.c
-# cp $libcoap_dir/../libcoap-bench/coap-server.c $libcoap_dir/examples/
+read -p "Do you want to install the library in a Raspberry Pi? (y/n):" is_rpi
+
+if [ "$is_rpi" = "y" ] || [ "$is_rpi" = "Y" ]; then
+    echo "Creating default server ..."
+    sudo rm $libcoap_dir/examples/coap-server.c
+    cp $libcoap_dir/../libcoap-bench/coap-server.c $libcoap_dir/examples/
+fi
 
 # Configure based on custom_install flag
 if [ "$custom_install" == "wolfssl" ]; then
