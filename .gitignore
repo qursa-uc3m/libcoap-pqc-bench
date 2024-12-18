@@ -1,2 +1,4 @@
 .vscode/
 libcoap/
+# certificates
+*.pem
