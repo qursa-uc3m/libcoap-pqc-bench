@@ -10,6 +10,11 @@ confirm_param=""
 confirm_flag=""
 libcoap_dir="$(pwd)/libcoap"
 
+# Network variables
+bridge_interface="br0"
+server_ip="192.168.0.157"
+client_ip=""
+
 sudo rm ./time_output.txt
 
 # Function to display usage information
@@ -149,10 +154,12 @@ fi
 
 # Capture UDP conversations using tshark before the loops and save the PID of the tshark process
 if [ -n "$rasp_param" ]; then
-    #address="[192.168.0.157]"
-    bridge_ip=$(ip addr show br0 | grep -Po 'inet \K[\d.]+') # Get the IP address of the bridge
+    bridge_ip=$(ip addr show $bridge_interface | grep -Po 'inet \K[\d.]+') # Get the IP address of the bridge
+    client_ip=$(ip addr show enp3s0 | grep -Po 'inet \K[\d.]+')
+
     tshark -f "udp port $coap_port and host $bridge_ip" -w libcoap-bench/bench-data/udp_conversations.pcapng -z conv,udp &
     tshark_pid=$!
+    address="[$server_ip]"
 else
     address="[::1]"
     tshark -i loopback -w libcoap-bench/bench-data/udp_conversations.pcapng -z conv,udp &
@@ -370,8 +377,6 @@ if [ -z "$rasp_param" ]; then
     tshark -r ./libcoap-bench/bench-data/udp_conversations.pcapng -z conv,udp | grep "::1:" > ./libcoap-bench/bench-data/${filename}.txt
 
     # Energy testing
-    
-    
  
     # # Create csv
     # cpu_cycles=$(grep "cycles" ./libcoap-bench/bench-data/auxiliary_server.txt | awk '{print $1}')
@@ -411,7 +416,7 @@ else
 
     # Write captured conversations
     rm -f ./libcoap-bench/bench-data/${filename}.txt
-    tshark -r ./libcoap-bench/bench-data/udp_conversations.pcapng -z conv,udp | grep "<-> 192.168.0.157" > ./libcoap-bench/bench-data/${filename}.txt
+    tshark -r ./libcoap-bench/bench-data/udp_conversations.pcapng -z conv,udp | grep "<-> $client_ip" > ./libcoap-bench/bench-data/${filename}.txt
 
     echo $initial_time > ./libcoap-bench/initial_and_final_time.txt
     echo $final_time >> ./libcoap-bench/initial_and_final_time.txt
@@ -419,8 +424,8 @@ else
     RED='\033[0;31m'
     printf "${RED} You have 5 seconds to close the server\n"
     sleep 5
-    # scp root@192.168.0.157:~/libcoap-test/cycles_output.txt /home/vlorenzo/GitLab/libcoap-test/cycles_output.txt
-    cpu_cycles=$(ssh root@192.168.0.157 "awk '/cycles/ {print \$1}' ~/libcoap-test/libcoap-bench/bench-data/auxiliary_server.txt")
+    #scp root@$server_ip:~/libcoap-test/cycles_output.txt /home/vlorenzo/GitLab/libcoap-test/cycles_output.txt
+    cpu_cycles=$(ssh root@$server_ip "awk '/cycles/ {print \$1}' ~/libcoap-test/libcoap-bench/bench-data/auxiliary_server.txt")
     cpu_cycles=$((cpu_cycles))
     echo $cpu_cycles > $libcoap_dir/../cycles_output.txt
     
