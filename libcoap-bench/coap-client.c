@@ -21,14 +21,27 @@
 #include <time.h>
 
 
-// Function prototype
+// Function prototypes
 uint64_t get_current_time_ns(void);
+void append_time_to_file(unsigned long long total_time_ns);
 
+// Function to get the time in nanoseconds
 uint64_t get_current_time_ns(void) {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     return ts.tv_sec * 1000000000ULL + ts.tv_nsec;
 }
+
+// Function to append time in seconds to a file
+void append_time_to_file(unsigned long long total_time_ns) {
+    FILE *file = fopen("time_output.txt", "a");  // Open in append mode
+    if (file != NULL) {
+        fprintf(file, "%.3f\n", total_time_ns / 1000000000.0);
+        fclose(file);
+    } else {
+          perror("Failed to open file");
+    }
+}  
 
 #ifdef _WIN32
 #define strcasecmp _stricmp
@@ -1640,6 +1653,8 @@ get_session(coap_context_t *ctx,
   return session;
 }
 
+
+
 int
 main(int argc, char **argv) {
   coap_context_t  *ctx = NULL;
@@ -1983,7 +1998,7 @@ main(int argc, char **argv) {
   }
   repeat_count--;
 
-  uint64_t total_start_time, total_end_time, iter_start_time, iter_end_time;
+  uint64_t total_start_time, total_end_time; //iter_start_time, , iter_end_time
 
   // Initialize timing variables
   total_start_time = get_current_time_ns();
@@ -2073,23 +2088,14 @@ main(int argc, char **argv) {
       obs_ms_reset = 0;
     }
 
-  iter_end_time = get_current_time_ns();  // End iteration timing
+  // iter_end_time = get_current_time_ns();  // End iteration timing
   }
 
   total_end_time = get_current_time_ns();
   uint64_t total_time_ns = total_end_time - total_start_time;
   
-  // Function to append time in seconds to a file
-  void append_time_to_file(unsigned long long total_time_ns) {
-      FILE *file = fopen("time_output.txt", "a");  // Open in append mode
-      if (file != NULL) {
-          fprintf(file, "%.3f\n", total_time_ns / 1000000000.0);
-          fclose(file);
-      } else {
-          perror("Failed to open file");
-      }
-  }
   append_time_to_file(total_time_ns);
+
 /*  printf("Total communication time: %llu nanoseconds\n", (unsigned long long)total_time_ns);
  * printf("Total communication time: %llu milliseconds\n", (unsigned long long)(total_time_ns / 1000000));
  */
