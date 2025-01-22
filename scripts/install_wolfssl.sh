@@ -3,6 +3,7 @@
 # Version configurations
 WOLFSSL_VERSION_TAG="v5.6.4-stable"
 DTLS_VERSION="1.3"  # Can be "1.2" or "1.3"
+DEBUG_MODE="no"
 
 # Installing missing packages for Raspberry Pi
 sudo apt-get update
@@ -31,24 +32,21 @@ cd wolfssl
 mkdir build
 cd build
 
-# Configure based on DTLS version
+#WOLFSSL_FLAGS="--enable-all --enable-dtls --enable-experimental --with-liboqs --enable-kyber=ml-kem --disable-rpk"
+WOLFSSL_FLAGS="--enable-all --enable-dtls --enable-experimental --with-liboqs --disable-rpk"
+
+if [ "$DEBUG_MODE" == "yes" ]; then
+    WOLFSSL_FLAGS="$WOLFSSL_FLAGS --enable-debug"
+fi
+
 if [ "$DTLS_VERSION" == "1.3" ]; then
     echo "Installing with DTLS 1.3 support"
-    ../configure --enable-all \
-        --enable-dtls \
-        --enable-dtls13 \
-        --enable-experimental \
-        --with-liboqs \
-        --enable-dtls-frag-ch \
-        --disable-rpk
+    WOLFSSL_FLAGS="$WOLFSSL_FLAGS --enable-dtls13 --enable-dtls-frag-ch"
 else
     echo "Installing with DTLS 1.2 support"
-    ../configure --enable-all \
-        --enable-dtls \
-        --enable-experimental \
-        --with-liboqs \
-        --disable-rpk
 fi
+
+../configure $WOLFSSL_FLAGS
 
 make all
 sudo make install
