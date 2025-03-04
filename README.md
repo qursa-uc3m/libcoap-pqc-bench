@@ -1,34 +1,38 @@
 # Benchmarking Post-Quantum Cryptography in libcoap
 
-Benchmarking post-quantum cryptographic algorithms in CoAP using liboqs, wolfSSL, and libcoap libraries (note that this is currently a work in progress).
+Benchmarking post-quantum cryptographic algorithms in CoAP using liboqs, wolfSSL, and libcoap libraries.
 
 ## Installation
 
-If you want PQC, first install the dependencies
+### PQC Dependencies
+
+If you want to use Post-Quantum Cryptography, first install the dependencies:
 
 ```bash
 ./scripts/install_liboqs_for_wolfssl.sh
 ```
 
-Then build wolfssl
+Then build wolfssl:
 
 ```bash
 ./scripts/install_wolfssl.sh
 ```
 
-Install libcoap dependencies
+### libcoap Installation
+
+Install libcoap dependencies:
 
 ```bash
 sudo apt-get install -y autoconf automake libtool make gcc
 ```
 
-you may also need
+You may also need:
 
 ```bash
 sudo apt-get install autoconf-archive libwolfssl-dev libcunit1-dev pkg-config
 ```
 
-And run the installation script with the desired options
+And run the installation script with the desired options:
 
 ```bash
 ./scripts/install_libcoap.sh [wolfssl] [--groups-spec]
@@ -39,9 +43,44 @@ Flags:
 - `wolfssl`: This option indicates that you want to configure libcoap with WolfSSL as the underlying cryptographic library. If not provided, the script will configure libcoap with OpenSSL.
 - `--groups-spec`: When provided, this option will set specific cryptographic groups during the configuration phase. Indicate the desired groups in the script. If not provided, the script will configure libcoap with the default groups.
 
-## Running benchmarks
+## Certificate Management
 
-### Dependencies installation
+The framework includes a certificate management system that simplifies the use of different certificate types (RSA, Dilithium, Falcon) for benchmarking.
+
+### Available Certificate Types
+
+- **RSA**: Traditional RSA certificates (RSA_2048)
+- **Dilithium**: Post-quantum signatures at different security levels (DILITHIUM_LEVEL2, DILITHIUM_LEVEL3, DILITHIUM_LEVEL5)
+- **Falcon**: Post-quantum signatures at different security levels (FALCON_LEVEL1, FALCON_LEVEL5)
+
+### Managing Certificates
+
+Use the certificate configuration scripts to list, validate, and set up certificates:
+
+```bash
+# List available certificate configurations
+./certs/config_certs.sh --list
+
+# Validate a specific certificate configuration
+./certs/config_certs.sh --validate DILITHIUM_LEVEL3
+
+# Set up a certificate configuration for use
+./certs/config_certs.sh --setup DILITHIUM_LEVEL3
+```
+
+### Generating New Certificates
+
+If you need to generate new post-quantum certificates:
+
+```bash
+./certs/generate_certs.sh
+```
+
+This requires the [oqs-provider](https://github.com/open-quantum-safe/oqs-provider) for OpenSSL. Installation instructions are in the folder `certs/oqs_prov_install/`.
+
+## Running Benchmarks
+
+### Dependencies Installation
 
 Install `perf` and `tshark`:
 
@@ -57,8 +96,7 @@ conda activate libcoap-bench
 pip install --no-cache-dir -r ./requirements_installation/requirements.txt
 ```
 
-*Remark*: To perform the CPU cycles count in raspberry-pi without relying on perf (not recommended at this point), the instructions described in [this site](https://matthewarcus.wordpress.com/2018/01/27/using-the-cycle-counter-registers-on-the-raspberry-pi-3/) must be followed. Note that some modifications may be necessary due to particularities
-of the raspberry-pi being used. In the raspberry-pi used for our experiments the following commands must be run every time it is rebooted:
+*Remark*: To perform the CPU cycles count in Raspberry Pi without relying on perf (not recommended at this point), the instructions described in [this site](https://matthewarcus.wordpress.com/2018/01/27/using-the-cycle-counter-registers-on-the-raspberry-pi-3/) must be followed. Note that some modifications may be necessary due to particularities of the Raspberry Pi being used. In the Raspberry Pi used for our experiments the following commands must be run every time it is rebooted:
 
 ```bash
 cd enable_ccr_2024
@@ -69,110 +107,120 @@ gcc -Wall -O3 cycles.c -o cycles
 time taskset 0x1 ./cycles
 ```
 
-### Benchmark
+### Running the Benchmark
 
-In a terminal run,
-
-```bash
-./libcoap-bench/coap_benchmark_server.sh -sec-mode <pki|psk|nosec> [-rasp]
-```
-
-where:
-
-- `-sec-mode`: is the security mode.
-- `-rasp`: indicates whether the server is running in raspberry pi or not.
-
-In another terminal run,
+In one terminal, start the server:
 
 ```bash
-./libcoap-bench/coap_bench_client.sh -n <positive_integer> -sec-mode <pki|psk|nosec> -r <time|async> [-confirm <con|non>] [-s <integer>=1] [-rasp] [-parallelization <background|parallel>]
+./libcoap-bench/coap_benchmark_server.sh -sec-mode <pki|psk|nosec> [-rasp] [-cert-config <CONFIG>]
 ```
 
-(don't forget to activate the python environment)
+Where:
 
-where:
+- `-sec-mode`: Security mode (pki, psk, or nosec).
+- `-rasp`: Indicates whether the server is running on a Raspberry Pi.
+- `-cert-config`: Certificate configuration to use (for PKI mode, e.g., DILITHIUM_LEVEL3).
+- `-list-certs`: Lists available certificate configurations.
 
-- `-n`: is the number of clients that will do requests to the server.
-- `-sec-mode`: is the security mode.
-- `-r`: is the resource that the client asks for. The resource time corresponds to scenario A (resp. C) if -confirm is set to con (resp. non). The resource async corresponds to scenario B.
-- `-confirm`: whether the messages betwen the client and the server are confirmable or not. Mandatory if -r is set to time. 
-- `-s`: sets the clients in observer mode and it must be followed by a positive integer: the number of seconds the clients will observe.
-- `-rasp`: indicates whether the server is running in raspberry pi or not.
-- `-parallelization`: Only needed when the -s parameter is provided. Indicates whether the clients run in the same core (background, this is the default mode) or in different cores (parallel).
-
-A csv file with relevant statistics will be created.
-
-For instance, if libcoap was installed with KYBER_LEVEL5 algorithm:
+In another terminal, run the client (don't forget to activate the python environment):
 
 ```bash
-./libcoap-bench/coap_benchmark_server.sh -sec-mode pki rasp
+./libcoap-bench/coap_benchmark_client.sh -n <positive_integer> -sec-mode <pki|psk|nosec> -r <time|async> [-confirm <con|non>] [-s <integer>=1] [-rasp] [-parallelization <background|parallel>] [-cert-config <CONFIG>] [-client-auth <yes|no>]
 ```
 
-and
+Where:
+
+- `-n`: Number of clients making requests to the server.
+- `-sec-mode`: Security mode (pki, psk, or nosec).
+- `-r`: Resource that the client asks for. The resource "time" corresponds to scenario A (or C if `-confirm` is set to non). The resource "async" corresponds to scenario B.
+- `-confirm`: Whether messages between client and server are confirmable. Mandatory if `-r` is set to time.
+- `-s`: Sets the clients in observer mode with the specified number of seconds.
+- `-rasp`: Indicates whether the server is running on a Raspberry Pi.
+- `-parallelization`: Only needed when the `-s` parameter is provided. Indicates whether the clients run in the same core (background, default) or different cores (parallel).
+- `-cert-config`: Certificate configuration to use (for PKI mode).
+- `-client-auth`: Enable/disable client certificate authentication. Default is 'yes' (mutual authentication).
+- `-list-certs`: Lists available certificate configurations.
+
+### Output File Naming Convention
+
+The benchmark creates CSV files with a naming pattern that reflects the test parameters:
+
+```
+udp[_rasp]_conv_stats_[ALGORITHM]_n<N>[_s<S>][_<P>]_<SEC_MODE>[_<CERT_CONFIG>][_client-auth]_scenario<SCENARIO>
+```
+
+Where:
+- `_rasp`: Present if the `-rasp` flag was used
+- `ALGORITHM`: The KEM algorithm used (e.g., KYBER_LEVEL5) for PKI/PSK modes
+- `N`: Number of clients specified with `-n`
+- `_s<S>`: Present if the `-s` parameter was used
+- `_<P>`: Parallelization mode (background or parallel) if specified
+- `<SEC_MODE>`: Security mode (pki, psk, or nosec)
+- `_<CERT_CONFIG>`: Present for PKI mode, indicates the certificate type used
+- `_client-auth`: Present if client authentication was enabled in PKI mode
+- `_scenario<SCENARIO>`: Indicates the scenario (A, B, or C)
+
+Example:
+```
+udp_rasp_conv_stats_KYBER_LEVEL5_DILITHIUM_LEVEL3_n10_s30_parallel_pki_client-auth_scenarioA.csv
+```
+
+### Energy Measurement
+
+To include energy consumption measurements in the CSV:
+
+1. Install the GitHub repository [rd-usb](https://github.com/kolinger/rd-usb).
+2. Connect the energy tester to your PC via Bluetooth:
 
 ```bash
-./libcoap-bench/coap_benchmark_client.sh -n 10 -sec-mode pki -s 30 -parallelization parallel -r time -confirm con -rasp
+sudo modprobe btusb
+sudo systemctl restart bluetooth
+sudo rfcomm connect hci0 00:15:A6:01:AA:21
 ```
 
-will create the file `udp_rasp_conv_stats_KYBER_LEVEL5_n10_s30_parallel_pki_scenarioA.csv`.
+3. Run `python3 web.py` in the `rd-usb` directory to open the energy tester interface.
+4. Run the server and client as explained before.
+5. Export the energy CSV from the `rd-usb` interface.
+6. Run the `energy_analysis.sh` script:
 
-*Remark*: if the energy consumption wants to be included in the csv, these are the steps that must be followed:
+```bash
+./libcoap-bench/energy_analysis.sh ~/Downloads/2024-06-24.csv ./libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL5_n10_s30_parallel_pki_scenarioA.csv
+```
 
-1. Installing the GitHub repository <https://github.com/kolinger/rd-usb> in your computer.
-2. Connecting the energy tester to your PC via bluetooth. This may depend on your machine, but
+### Generating Plots
 
-      ```bash
-      sudo modprobe btusb
-      sudo systemctl restart bluetooth
-      sudo rfcomm connect hci0 00:15:A6:01:AA:21
-      ```
-
-    may work.
-3. Running the command `python3 web.py` in the `rd-usb` directory, which will open the energy tester interface.
-4. Running the server and client as explained before.
-5. Exporting the energy csv generated from the `rd-usb` interface.
-6. Running the script `energy_analysis.sh`, which takes the path of the `rd-usb` csv as first parameter and the metrics csv as second parameter. For instance:
-
-      ```bash
-      ./libcoap-bench/energy_analysis.sh ~/Downloads/2024-06-24.csv ./libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL5_n10_s30_parallel_pki_scenarioA.csv
-      ```
-
-Once appropriate csv's have been created, plots can be drawn via:
+Once you have created CSV files with your benchmark results, you can generate plots:
 
 ```bash
 cd libcoap-bench
 python3 coap_benchmark_barplots.py <metric> <algorithms_list> <n> <rasp> <scenarios_list> [s] [p]
 ```
 
-where:
+Where:
 
-- `metric`: is the metric we want to plot.
-- `algorithms_list`: is a list with the algorithms that we want to consider.
-- `-n`: is the number of clients considered in the csv's.
-- `-rasp`: indicates whether the server was running in raspberry pi or not (True or False).
-- `scenarios_list`: is the list of scenarios amongst A (if r=time and confirm=con), B (if r=async) and C (if r=time and confirm=non) that want to be considered.
-- `-s`: is the number of seconds the clients observed.
-- `-p`: is the parallelization mode (parallel or background).
+- `metric`: The metric to plot (e.g., 'duration', 'Wh').
+- `algorithms_list`: Comma-separated list of algorithms.
+- `n`: Number of clients used in the CSV files.
+- `rasp`: Whether the server was running on Raspberry Pi (True or False).
+- `scenarios_list`: Comma-separated list of scenarios (A, B, C).
+- `s`: Optional observer duration.
+- `p`: Optional parallelization mode.
 
-For instance, we can run
-
-```bash
-cd libcoap-bench
-python3 ./coap_benchmark_barplots.py 'duration' "KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5,P256_KYBER_LEVEL1,P384_KYBER_LEVEL3,P521_KYBER_LEVEL5" 500 True A,B,C
-```
-
-or
+Examples:
 
 ```bash
-cd libcoap-bench
-python3 ./coap_benchmark_barplots.py 'Wh' "KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5,P256_KYBER_LEVEL1,P384_KYBER_LEVEL3,P521_KYBER_LEVEL5" 20 True A,C 30 "background"
+# Plot duration metric for multiple algorithms across different scenarios
+python3 ./coap_benchmark_barplots.py 'duration' "KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5" 500 True A,B,C
+
+# Plot energy consumption for specific test configuration
+python3 ./coap_benchmark_barplots.py 'Wh' "KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5" 20 True A,C 30 "background"
 ```
 
 ## Network Emulation
 
 For information on how to set up and run network emulation with a Kernel-based Virtual Machine (KVM) and NetEm, see the [network_emulation/README.md](network_emulation/README.md).
 
-## Cleaning zombie processes
+## Cleaning Zombie Processes
 
 You can check if there are any zombie processes with the following command:
 
@@ -186,21 +234,21 @@ You can remove them with the following command (note: this is for development, y
 sudo pgrep -f 'libcoap' | while read pid; do sudo kill -9 $pid; done
 ```
 
-## Analyzing the traffic with Wireshark
+## Analyzing the Traffic with Wireshark
 
-See [OQS-wireshark](https://github.com/open-quantum-safe/oqs-demos/blob/main/wireshark/USAGE.md) for more details. Perhaps you need to run
+See [OQS-wireshark](https://github.com/open-quantum-safe/oqs-demos/blob/main/wireshark/USAGE.md) for more details. Perhaps you need to run:
 
 ```console
 xhost +si:localuser:root
 ```
 
-instead of
+instead of:
 
 ```console
 xhost +si:localuser:$USER
 ```
 
-if your user is not in the **docker** group. In that case
+if your user is not in the **docker** group. In that case:
 
 ```console
 sudo docker run --net=host --privileged --env="DISPLAY" --volume="$HOME/.Xauthority:/root/.Xauthority:rw" openquantumsafe/wireshark
