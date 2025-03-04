@@ -2,3 +2,4 @@
 libcoap/
 # certificates
 *.pem
+*.txt
