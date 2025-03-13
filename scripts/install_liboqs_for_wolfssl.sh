@@ -2,6 +2,7 @@
 
 # SEE: https://github.com/wolfSSL/wolfssl/blob/master/INSTALL
 
+#liboqs_version="0.12.0"
 liboqs_version="0.8.0"
 
 # Dir for the current script
@@ -29,5 +30,5 @@ echo "Building liboqs..."
 sudo mkdir build
 cd build
 sudo cmake -DOQS_USE_OPENSSL=0 ..
-sudo make all
+sudo make all -j$(nproc)
 sudo make install

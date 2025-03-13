@@ -92,7 +92,7 @@ if [ "$custom_install" == "wolfssl" ]; then
         #-DCOAP_WOLFSSL_GROUPS=\"P-384:P-256:KYBER_LEVEL1\"
         if [ "$groups_spec" = true ]; then
             if [ "$install_dir" == "default" ]; then
-                CPPFLAGS="-DCOAP_WOLFSSL_GROUPS=\"\\\"$algorithm\\\"\"" \
+                CPPFLAGS="-DCOAP_WOLFSSL_GROUPS=\"\\\"$algorithm\\\"\" -DDTLS_V1_3_ONLY=1" \
                 ./configure --enable-dtls --with-wolfssl --disable-manpages --disable-doxygen --enable-tests
             else
                 CPPFLAGS="-DCOAP_WOLFSSL_GROUPS=\"\\\"$algorithm\\\"\"" \
@@ -143,5 +143,5 @@ fi
 echo $algorithm > "$libcoap_dir/../algorithm.txt"
 
 # Build and install
-make
+make -j$(nproc)
 sudo make install

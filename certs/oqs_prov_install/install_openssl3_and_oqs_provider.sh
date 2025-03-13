@@ -33,7 +33,7 @@ cd $INSTALL_DIR
 echo "BUILDING OPENSSL 3.*...."
 #sudo git clone -b openssl-3.0.2 git://git.openssl.org/openssl.git
 #sudo git clone git://git.openssl.org/openssl.git
-sudo git clone https://github.com/openssl/openssl.git
+sudo git clone -b openssl-3.4.0 https://github.com/openssl/openssl.git
 cd openssl
 
 # If debug mode is set, replace the rand_lib.c file
@@ -44,30 +44,31 @@ if [ "$DEBUG" -eq 1 ]; then
 fi
 
 sudo ./config --prefix=$(echo $INSTALL_DIR/.local)
-sudo make 
+sudo make -j$(nproc)
 sudo make install_sw
 cd ..
 
 # Build liboqs
 echo "BUILDING LIBOQS...."
-#sudo git clone -b 0.8.0-rc1 https://github.com/open-quantum-safe/liboqs.git || exit 1
-sudo git clone https://github.com/open-quantum-safe/liboqs.git || exit 1
+sudo git clone -b 0.8.0 https://github.com/open-quantum-safe/liboqs.git || exit 1
+#sudo git clone -b 0.12.0 https://github.com/open-quantum-safe/liboqs.git || exit 1 
 cd liboqs
 #sudo git checkout 9f912c957bfe7f4b894aa9661168a310e8dd1a58 || exit 1
 sudo cmake -DCMAKE_INSTALL_PREFIX=$INSTALL_DIR/.local -S . -B _build || exit 1
-sudo cmake --build _build || exit 1
+sudo cmake --build _build -- -j$(nproc) || exit 1
 sudo cmake --install _build || exit 1
 cd ..
 
 
 # Build the provider
 echo "BUILDING OQS PROVIDER...."
-sudo git clone https://github.com/open-quantum-safe/oqs-provider.git || exit 1
+sudo git clone -b 0.5.1 https://github.com/open-quantum-safe/oqs-provider.git || exit 1
+#sudo git clone -b 0.8.0 https://github.com/open-quantum-safe/oqs-provider.git || exit 1 
 cd oqs-provider
 #sudo git checkout 4bf202bdbe4a1c9dbb7e88ccd0636c9848d90afc || exit 1 # This is more recent and seems to fit well with the liboqs 0.8.0 release
 #sudo git checkout c8cca2f8102805063db05071ec17acd453c4abc6 || exit 1
 sudo cmake -DOPENSSL_ROOT_DIR=$INSTALL_DIR/.local -DCMAKE_PREFIX_PATH=$INSTALL_DIR/.local -S . -B _build || exit 1
-sudo cmake --build _build || exit 1
+sudo cmake --build _build -- -j$(nproc) || exit 1
 cd ..
 
 # Create hard link
@@ -80,3 +81,7 @@ if ! grep -q "export LD_LIBRARY_PATH=\"$INSTALL_DIR/.local/lib64:\$LD_LIBRARY_PA
     echo "# CUSTOM OPENSSL3 installation" >> ~/.bashrc
     echo "export LD_LIBRARY_PATH=\"$INSTALL_DIR/.local/lib64:\$LD_LIBRARY_PATH\"" >> ~/.bashrc
 fi
+echo "Adding configuration file to the correct place...."
+sudo mkdir -p /opt/oqs_openssl3/.local/ssl
+sudo cp $SCRIPT_DIR/openssl.cnf /opt/oqs_openssl3/.local/ssl/openssl.cnf
+echo "Installation complete. Please run 'source ~/.bashrc' to apply the changes."

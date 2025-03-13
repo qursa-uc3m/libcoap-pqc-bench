@@ -1,5 +1,8 @@
 .vscode/
 libcoap/
+check_*
 # certificates
 *.pem
 *.txt
+*.der
+.qodo

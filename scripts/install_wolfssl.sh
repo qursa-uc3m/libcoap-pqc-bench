@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # Version configurations
-WOLFSSL_VERSION_TAG="v5.6.4-stable"
+WOLFSSL_VERSION_TAG="v5.7.0-stable" 
 DTLS_VERSION="1.3"  # Can be "1.2" or "1.3"
-DEBUG_MODE="no"
+DEBUG_MODE="yes"
 
 # Installing missing packages for Raspberry Pi
 sudo apt-get update
@@ -27,13 +27,22 @@ rm -rf ./wolfssl
 
 git clone --branch $WOLFSSL_VERSION_TAG --depth 1 https://github.com/wolfSSL/wolfssl.git
 cd wolfssl
+
+if [ "$WOLFSSL_VERSION_TAG" != "v5.6.4-stable" ]; then
+    echo "Replacing '_ipd' with empty string in dilithium files..."
+    sed -i 's/_ipd//g' wolfcrypt/src/dilithium.c
+    sed -i 's/_ipd//g' wolfssl/wolfcrypt/dilithium.h
+fi
+
 ./autogen.sh
 
 mkdir build
 cd build
 
 #WOLFSSL_FLAGS="--enable-all --enable-dtls --enable-experimental --with-liboqs --enable-kyber=ml-kem --disable-rpk"
-WOLFSSL_FLAGS="--enable-all --enable-dtls --enable-experimental --with-liboqs --disable-rpk"
+#WOLFSSL_FLAGS="--enable-all --enable-dtls --enable-experimental --with-liboqs --disable-rpk --enable-kyber --enable-dilithium"
+#WOLFSSL_FLAGS="--enable-all --enable-dtls --with-liboqs --enable-opensslall --enable-opensslextra --enable-kyber"
+WOLFSSL_FLAGS="--enable-all --enable-dtls --with-liboqs --enable-experimental --enable-kyber --enable-dilithium --disable-rpk"
 
 if [ "$DEBUG_MODE" == "yes" ]; then
     WOLFSSL_FLAGS="$WOLFSSL_FLAGS --enable-debug"
@@ -48,7 +57,16 @@ fi
 
 ../configure $WOLFSSL_FLAGS
 
-make all
+make all -j$(nproc)
+
+# Pause for user confirmation
+echo "----------------------------------------"
+read -p "WolfSSL Configuration complete. Do you want to continue with the installation? (y/n): " continue_install
+if [ "$continue_install" != "y" ]; then
+    echo "Installation aborted."
+    exit 1
+fi
+
 sudo make install
 
 # Update the linker cache

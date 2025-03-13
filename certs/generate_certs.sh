@@ -12,14 +12,16 @@ fi
 OPENSSL_CONF="/opt/oqs_openssl3/.local/ssl/openssl.cnf"
 
 # Create directory structure
-CERT_BASE_DIR="."
+CERT_BASE_DIR="./certs"
 DILITHIUM_DIR="${CERT_BASE_DIR}/dilithium"
 FALCON_DIR="${CERT_BASE_DIR}/falcon"
 RSA_DIR="${CERT_BASE_DIR}/rsa"
+SPHINCS_DIR="${CERT_BASE_DIR}/sphincs"
 
 mkdir -p ${DILITHIUM_DIR}
 mkdir -p ${FALCON_DIR}
 mkdir -p ${RSA_DIR}
+mkdir -p ${SPHINCS_DIR}
 
 echo "Generating certificates using OpenSSL: ${OPENSSL}"
 echo "Provider path: ${PROVIDER_PATH}"
@@ -27,6 +29,7 @@ echo "OpenSSL configuration file: ${OPENSSL_CONF}"
 echo ""
 ${OPENSSL} version
 ${OPENSSL} list -providers
+echo ""
 
 # Generate conf files.
 printf "\
@@ -123,6 +126,54 @@ echo "Generating DILITHIUM5 Level 5 entity certificate..."
 ${OPENSSL} x509 -req -in ${DILITHIUM_DIR}/dilithium5_entity_req.pem -CA ${DILITHIUM_DIR}/dilithium5_root_cert.pem -CAkey ${DILITHIUM_DIR}/dilithium5_root_key.pem -extfile entity.conf -extensions x509v3_extensions -days 1095 -set_serial 1025 -out ${DILITHIUM_DIR}/dilithium5_entity_cert.pem -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default
 
 ###############################################################################
+# SPHINCSSHA2128FSIMPLE
+###############################################################################
+echo "Generating SPHINCSSHA2128FSIMPLE keys..."
+${OPENSSL} genpkey -algorithm sphincssha2128fsimple -outform pem -out ${SPHINCS_DIR}/sphincssha2128fsimple_root_key.pem -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default
+${OPENSSL} genpkey -algorithm sphincssha2128fsimple -outform pem -out ${SPHINCS_DIR}/sphincssha2128fsimple_entity_key.pem -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default
+
+echo "Generating SPHINCSSHA2128FSIMPLE root certificate..."
+${OPENSSL} req -x509 -config root.conf -extensions ca_extensions -days 1095 -set_serial 256 -key ${SPHINCS_DIR}/sphincssha2128fsimple_root_key.pem -out ${SPHINCS_DIR}/sphincssha2128fsimple_root_cert.pem -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default
+
+echo "Generating SPHINCSSHA2128FSIMPLE entity CSR..."
+${OPENSSL} req -new -config entity.conf -key ${SPHINCS_DIR}/sphincssha2128fsimple_entity_key.pem -out ${SPHINCS_DIR}/sphincssha2128fsimple_entity_req.pem -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default
+
+echo "Generating SPHINCSSHA2128FSIMPLE entity certificate..."
+${OPENSSL} x509 -req -in ${SPHINCS_DIR}/sphincssha2128fsimple_entity_req.pem -CA ${SPHINCS_DIR}/sphincssha2128fsimple_root_cert.pem -CAkey ${SPHINCS_DIR}/sphincssha2128fsimple_root_key.pem -extfile entity.conf -extensions x509v3_extensions -days 1095 -set_serial 257 -out ${SPHINCS_DIR}/sphincssha2128fsimple_entity_cert.pem -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default
+
+###############################################################################
+# SPHINCSSHA2128SSIMPLE
+###############################################################################
+echo "Generating SPHINCSSHA2128SSIMPLE keys..."
+${OPENSSL} genpkey -algorithm sphincssha2128ssimple -outform pem -out ${SPHINCS_DIR}/sphincssha2128ssimple_root_key.pem -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default
+${OPENSSL} genpkey -algorithm sphincssha2128ssimple -outform pem -out ${SPHINCS_DIR}/sphincssha2128ssimple_entity_key.pem -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default
+
+echo "Generating SPHINCSSHA2128SSIMPLE root certificate..."
+${OPENSSL} req -x509 -config root.conf -extensions ca_extensions -days 1095 -set_serial 512 -key ${SPHINCS_DIR}/sphincssha2128ssimple_root_key.pem -out ${SPHINCS_DIR}/sphincssha2128ssimple_root_cert.pem -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default
+
+echo "Generating SPHINCSSHA2128SSIMPLE entity CSR..."
+${OPENSSL} req -new -config entity.conf -key ${SPHINCS_DIR}/sphincssha2128ssimple_entity_key.pem -out ${SPHINCS_DIR}/sphincssha2128ssimple_entity_req.pem -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default
+
+echo "Generating SPHINCSSHA2128SSIMPLE entity certificate..."
+${OPENSSL} x509 -req -in ${SPHINCS_DIR}/sphincssha2128ssimple_entity_req.pem -CA ${SPHINCS_DIR}/sphincssha2128ssimple_root_cert.pem -CAkey ${SPHINCS_DIR}/sphincssha2128ssimple_root_key.pem -extfile entity.conf -extensions x509v3_extensions -days 1095 -set_serial 513 -out ${SPHINCS_DIR}/sphincssha2128ssimple_entity_cert.pem -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default
+
+###############################################################################
+# SPHINCSSHA2192FSIMPLE
+###############################################################################
+echo "Generating SPHINCSSHA2192FSIMPLE keys..."
+${OPENSSL} genpkey -algorithm sphincssha2192fsimple -outform pem -out ${SPHINCS_DIR}/sphincssha2192fsimple_root_key.pem -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default
+${OPENSSL} genpkey -algorithm sphincssha2192fsimple -outform pem -out ${SPHINCS_DIR}/sphincssha2192fsimple_entity_key.pem -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default
+
+echo "Generating SPHINCSSHA2192FSIMPLE root certificate..."
+${OPENSSL} req -x509 -config root.conf -extensions ca_extensions -days 1095 -set_serial 1024 -key ${SPHINCS_DIR}/sphincssha2192fsimple_root_key.pem -out ${SPHINCS_DIR}/sphincssha2192fsimple_root_cert.pem -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default
+
+echo "Generating SPHINCSSHA2192FSIMPLE entity CSR..."
+${OPENSSL} req -new -config entity.conf -key ${SPHINCS_DIR}/sphincssha2192fsimple_entity_key.pem -out ${SPHINCS_DIR}/sphincssha2192fsimple_entity_req.pem -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default
+
+echo "Generating SPHINCSSHA2192FSIMPLE entity certificate..."
+${OPENSSL} x509 -req -in ${SPHINCS_DIR}/sphincssha2192fsimple_entity_req.pem -CA ${SPHINCS_DIR}/sphincssha2192fsimple_root_cert.pem -CAkey ${SPHINCS_DIR}/sphincssha2192fsimple_root_key.pem -extfile entity.conf -extensions x509v3_extensions -days 1095 -set_serial 1025 -out ${SPHINCS_DIR}/sphincssha2192fsimple_entity_cert.pem -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default
+
+###############################################################################
 # Falcon NIST Level 1
 ###############################################################################
 
@@ -177,7 +228,12 @@ ${OPENSSL} x509 -req -in ${RSA_DIR}/rsa_2048_entity_req.pem -CA ${RSA_DIR}/rsa_2
 # Verify all generated certificates.
 ###############################################################################
 echo "Verifying certificates..."
+${OPENSSL} verify -no-CApath -check_ss_sig -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default -CAfile ${DILITHIUM_DIR}/dilithium2_root_cert.pem ${DILITHIUM_DIR}/dilithium2_entity_cert.pem
 ${OPENSSL} verify -no-CApath -check_ss_sig -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default -CAfile ${DILITHIUM_DIR}/dilithium3_root_cert.pem ${DILITHIUM_DIR}/dilithium3_entity_cert.pem
+${OPENSSL} verify -no-CApath -check_ss_sig -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default -CAfile ${DILITHIUM_DIR}/dilithium5_root_cert.pem ${DILITHIUM_DIR}/dilithium5_entity_cert.pem
+${OPENSSL} verify -no-CApath -check_ss_sig -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default -CAfile ${SPHINCS_DIR}/sphincssha2128fsimple_root_cert.pem ${SPHINCS_DIR}/sphincssha2128fsimple_entity_cert.pem
+${OPENSSL} verify -no-CApath -check_ss_sig -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default -CAfile ${SPHINCS_DIR}/sphincssha2128ssimple_root_cert.pem ${SPHINCS_DIR}/sphincssha2128ssimple_entity_cert.pem
+${OPENSSL} verify -no-CApath -check_ss_sig -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default -CAfile ${SPHINCS_DIR}/sphincssha2192fsimple_root_cert.pem ${SPHINCS_DIR}/sphincssha2192fsimple_entity_cert.pem
 ${OPENSSL} verify -no-CApath -check_ss_sig -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default -CAfile ${FALCON_DIR}/falcon_level1_root_cert.pem ${FALCON_DIR}/falcon_level1_entity_cert.pem
 ${OPENSSL} verify -no-CApath -check_ss_sig -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default -CAfile ${FALCON_DIR}/falcon_level5_root_cert.pem ${FALCON_DIR}/falcon_level5_entity_cert.pem
 ${OPENSSL} verify -no-CApath -check_ss_sig -CAfile ${RSA_DIR}/rsa_2048_root_cert.pem ${RSA_DIR}/rsa_2048_entity_cert.pem
