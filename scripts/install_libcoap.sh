@@ -1,6 +1,5 @@
 #!/bin/bash
 
-custom_install=""
 skip_clone=false
 build_dir="$(pwd)/libcoap/build"
 install_mode="default"
@@ -8,15 +7,13 @@ install_dir=$build_dir
 libcoap_dir="$(pwd)/libcoap"
 groups_spec=false
 libcoap_version="cb20c482b2bb857a2f06c342ecb8c8c6d5f387ce"
-algorithm="KYBER_LEVEL5"
+algorithm="kyber768"  # Default groups including PQC. Use OPENSSL names here!
+openssl_dir="/opt/openssl_dtls13/.local"  # Default OpenSSL DTLS 1.3 directory
 
 # Parse command line arguments
 for arg in "$@"
 do
     case $arg in
-        wolfssl)
-            custom_install="wolfssl"
-            ;;
         --skip-clone)
             skip_clone=true
             ;;
@@ -26,20 +23,24 @@ do
         --groups-spec)
             groups_spec=true
             ;;
-        --sigalgs-spec)
-            sigalgs_spec=true
+        --algorithm=*)
+            algorithm="${arg#*=}"
             ;;
         --install-dir=*)
             install_dir="${arg#*=}"
-            echo "Install dir: $install_dir"
+            ;;
+        --openssl-dir=*)
+            openssl_dir="${arg#*=}"
             ;;
     esac
 done
 
 echo "---------------------------------"
-# print install dir
 echo "Install dir: $install_dir"
+echo "OpenSSL dir: $openssl_dir"
+echo "Using groups/algorithms: $algorithm"
 echo "---------------------------------"
+
 # Update package lists
 sudo apt-get update
 # Install required dependencies
@@ -68,9 +69,11 @@ if [ "$skip_clone" = false ]; then
     #git checkout $libcoap_version
 fi
 
-# default client or not
-sudo rm $libcoap_dir/examples/coap-client.c
-cp $libcoap_dir/../libcoap-bench/coap-client.c $libcoap_dir/examples/
+# Replace client file if needed
+sudo rm -f $libcoap_dir/examples/coap-client.c
+if [ -f "$libcoap_dir/../libcoap-bench/coap-client.c" ]; then
+    cp $libcoap_dir/../libcoap-bench/coap-client.c $libcoap_dir/examples/
+fi
 
 read -p "Do you want to install the library in a Raspberry Pi? (y/n):" is_rpi
 
@@ -80,64 +83,53 @@ if [ "$is_rpi" = "y" ] || [ "$is_rpi" = "Y" ]; then
     cp $libcoap_dir/../libcoap-bench/coap-server.c $libcoap_dir/examples/
 fi
 
-# Configure based on custom_install flag
-if [ "$custom_install" == "wolfssl" ]; then
-    echo ".........."
-    echo "Configuring with DTLS and WolfSSL"
-    echo ".........."
-    if [ "$install_mode" == "default" ]; then
-        echo "Using autogen.sh...."
-        ./autogen.sh
-        # add --enable-server-mode flag to enable server mode
-        #-DCOAP_WOLFSSL_GROUPS=\"P-384:P-256:KYBER_LEVEL1\"
-        if [ "$groups_spec" = true ]; then
-            if [ "$install_dir" == "default" ]; then
-                CPPFLAGS="-DCOAP_WOLFSSL_GROUPS=\"\\\"$algorithm\\\"\" -DDTLS_V1_3_ONLY=1" \
-                ./configure --enable-dtls --with-wolfssl --disable-manpages --disable-doxygen --enable-tests
-            else
-                CPPFLAGS="-DCOAP_WOLFSSL_GROUPS=\"\\\"$algorithm\\\"\"" \
-                ./configure --enable-dtls --with-wolfssl --disable-manpages --disable-doxygen --enable-tests --prefix=$install_dir
-            fi
-        elif [ "$sigalgs_spec" = true ]; then
-            if [ "$install_dir" == "default" ]; then
-                CPPFLAGS="-DCOAP_WOLFSSL_SIGALGS=\"\\\"DILITHIUM_LEVEL3\\\"\"" \
-                ./configure --enable-dtls --with-wolfssl --disable-manpages --disable-doxygen --enable-tests
-            else
-                CPPFLAGS="-DCOAP_WOLFSSL_SIGALGS=\"\\\"DILITHIUM_LEVEL3\\\"\"" \
-                ./configure --enable-dtls --with-wolfssl --disable-manpages --disable-doxygen --enable-tests --prefix=$install_dir
-            fi
-        else
-            if [ "$install_dir" == "default" ]; then
-                ./configure --enable-dtls --with-wolfssl --disable-manpages --disable-doxygen --enable-tests
-            else
-                echo "Installing in custom directory"
-                ./configure --enable-dtls --with-wolfssl --disable-manpages --disable-doxygen --enable-tests --prefix=$install_dir
-            fi
-        fi
-    else
-        echo "Using CMake...."
-        mkdir -p $build_dir
-        cd $build_dir
-        cmake -DENABLE_DTLS=ON -DDTLS_BACKEND=wolfssl ..
+# Check if OpenSSL directory exists
+if [ ! -d "$openssl_dir" ]; then
+    echo "ERROR: OpenSSL DTLS 1.3 installation not found at $openssl_dir"
+    echo "Please check the --openssl-dir parameter or run the install_openssl_dtls13.sh script first."
+    exit 1
+fi
+
+# Check if liboqs is installed for OpenSSL
+if [ ! -d "$openssl_dir/lib/ossl-modules" ] || [ ! -f "$openssl_dir/lib/ossl-modules/oqsprovider.so" ]; then
+    echo "WARNING: OQS provider not found. PQC support may not be available."
+    echo "You might want to run install_liboqs_for_openssl.sh first."
+    read -p "Continue anyway? (y/n): " continue_anyway
+    if [ "$continue_anyway" != "y" ]; then
+        exit 1
     fi
+fi
+
+echo "................................................................"
+echo "Configuring libcoap with DTLS 1.3 and PQC support using OpenSSL"
+echo "................................................................"
+
+# Set environment variables to ensure correct OpenSSL is used
+export PKG_CONFIG_PATH="$openssl_dir/lib/pkgconfig:$PKG_CONFIG_PATH"
+export LD_LIBRARY_PATH="$openssl_dir/lib:$LD_LIBRARY_PATH"
+
+# Configure with OpenSSL DTLS 1.3 and PQC
+if [ "$install_mode" == "default" ]; then
+    cd $libcoap_dir
+    ./autogen.sh
+    
+    # Always configure with groups - this includes PQC algorithms
+    # Added LDFLAGS and rpath to ensure correct linking
+    CPPFLAGS="-I$openssl_dir/include -DCOAP_OPENSSL_GROUPS=\"\\\"$algorithm\\\"\" -DCOAP_DTLS_OPENSSL_BUILDER_OPTION=\"\\\"providers\\\"\"" \
+    LDFLAGS="-L$openssl_dir/lib -Wl,-rpath,$openssl_dir/lib" \
+    ./configure --enable-dtls --with-openssl --disable-manpages --disable-doxygen --enable-tests \
+    --with-openssl-dir=$openssl_dir --prefix=$install_dir
 else
-    echo ".........."
-    echo "Configuring with DTLS and OpenSSL"
-    echo ".........."
-    # Generate build scripts
-    if [ "$install_mode" == "default" ]; then
-        ./autogen.sh
-        if [ "$groups_spec" = true ]; then
-            CPPFLAGS="-DCOAP_OPENSSL_GROUPS=\"\\\"$algorithm\\\"\"" \
-            ./configure --enable-dtls --with-openssl --disable-manpages --disable-doxygen --enable-tests --prefix=$install_dir
-        else
-            ./configure --enable-dtls --with-openssl --disable-manpages --disable-doxygen --enable-tests --prefix=$install_dir
-        fi
-    else
-        mkdir -p $build_dir
-        cd $build_dir
-        cmake -DENABLE_DTLS=ON -DDTLS_BACKEND=openssl ..
-    fi
+    echo "Using CMake...."
+    mkdir -p $build_dir
+    cd $build_dir
+    
+    # Pass the groups via a definition to CMake
+    # Added LDFLAGS and rpath to ensure correct linking
+    LDFLAGS="-L$openssl_dir/lib -Wl,-rpath,$openssl_dir/lib" \
+    cmake -DENABLE_DTLS=ON -DDTLS_BACKEND=openssl -DOPENSSL_ROOT_DIR=$openssl_dir \
+    -DCOAP_OPENSSL_GROUPS="$algorithm" -DCOAP_DTLS_OPENSSL_BUILDER_OPTION="providers" \
+    -DCMAKE_EXE_LINKER_FLAGS="-Wl,-rpath,$openssl_dir/lib" ..
 fi
 
 echo $algorithm > "$libcoap_dir/../algorithm.txt"
@@ -145,3 +137,32 @@ echo $algorithm > "$libcoap_dir/../algorithm.txt"
 # Build and install
 make -j$(nproc)
 sudo make install
+
+echo "................................................................"
+echo "libcoap with OpenSSL DTLS 1.3 and PQC support has been installed"
+echo "................................................................"
+
+# Verify the binary linking
+echo "Verifying linked libraries for coap-client:"
+ldd $build_dir/bin/coap-client | grep libssl
+ldd $build_dir/bin/coap-client | grep libcrypto
+
+echo "Verifying linked libraries for coap-server:"
+ldd $build_dir/bin/coap-server | grep libssl
+ldd $build_dir/bin/coap-server | grep libcrypto
+
+# Check if libraries are correctly linked
+if ldd $build_dir/bin/coap-client | grep -q "$openssl_dir/lib64/libssl"; then
+    echo "SUCCESS: coap-client is correctly linked to OpenSSL DTLS 1.3"
+else
+    echo "WARNING: coap-client is NOT linked to OpenSSL DTLS 1.3"
+    echo "You may need to use LD_LIBRARY_PATH when running the client"
+fi
+# Check if libraries are correctly linked
+if ldd $build_dir/bin/coap-server | grep -q "$openssl_dir/lib64/libssl"; then
+    echo "SUCCESS: coap-server is correctly linked to OpenSSL DTLS 1.3"
+else
+    echo "WARNING: coap-server is NOT linked to OpenSSL DTLS 1.3"
+    echo "You may need to use LD_LIBRARY_PATH when running the server"
+fi
+echo "................................................................"

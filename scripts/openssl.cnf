@@ -74,7 +74,7 @@ default = default_sect
 # problems including inability to remotely access the system.
 [oqsprovider_section]
 activate = 1
-module = /opt/oqs_openssl3/oqs-provider/_build/lib/oqsprovider.so
+module = /opt/openssl_dtls13/.local/lib/ossl-modules/oqsprovider.so
 [default_sect]
 activate = 1
 [legacy_sect]

@@ -2,14 +2,14 @@
 
 if [ "$OPENSSL" = "" ]; then
    #OPENSSL=/usr/local/bin/oqs_openssl
-   OPENSSL=/usr/local/bin/openssl
+   OPENSSL=/opt/openssl_dtls13/.local/bin/openssl
 fi
 # add provider path if not defined
 if [ "$PROVIDER_PATH" = "" ]; then
-   PROVIDER_PATH=/opt/oqs_openssl3/oqs-provider/_build/lib
+   PROVIDER_PATH=/opt/openssl_dtls13/oqs-provider/_build/lib
 fi
 
-OPENSSL_CONF="/opt/oqs_openssl3/.local/ssl/openssl.cnf"
+OPENSSL_CONF="/opt/openssl_dtls13/.local/ssl/openssl.cnf"
 
 # Create directory structure
 CERT_BASE_DIR="./certs"

@@ -1,57 +1,143 @@
 # Benchmarking Post-Quantum Cryptography in libcoap
 
-Benchmarking post-quantum cryptographic algorithms in CoAP using liboqs, wolfSSL, and libcoap libraries.
+Benchmarking post-quantum cryptographic algorithms in CoAP using liboqs, OpenSSL with DTLS 1.3 support, and libcoap libraries.
+
+# CoAP with DTLS 1.3 and Post-Quantum Cryptography
 
 ## Installation
 
-### PQC Dependencies
+### System Dependencies
 
-If you want to use Post-Quantum Cryptography, first install the dependencies:
-
-```bash
-./scripts/install_liboqs_for_wolfssl.sh
-```
-
-Then build wolfssl:
+Ensure you have the required system dependencies:
 
 ```bash
-./scripts/install_wolfssl.sh
+sudo apt-get update
+sudo apt-get install -y build-essential git cmake
+sudo apt-get install -y autoconf automake libtool make gcc
+sudo apt-get install -y autoconf-archive pkg-config libcunit1-dev
 ```
+
+### OpenSSL with DTLS 1.3 Support
+First, install OpenSSL with DTLS 1.3 support:
+
+```bash
+./scripts/install_ossl-dtls13.sh -p /opt/openssl_dtls13
+```
+
+Options:
+- `-p <install_dir>`: Optional. Set the installation directory. Default is `/opt/openssl_dtls13`.
+- `-d <debug>`: Optional. Enable debug mode (1) or disable (0). Default is 0.
+
+### Post-Quantum Cryptography Support
+Next, install liboqs and the oqs-provider to enable PQC support:
+
+```bash
+./scripts/install_liboqs_for_ossl-dtsl13.sh -p /opt/openssl_dtls13 -v 0.11.0
+```
+
+Options:
+- `-p <install_dir>`: The OpenSSL installation directory. Should match the one used in previous step.
+- `-v <version>`: Optional. The liboqs version to install. Default is liboqs 0.11.0 and OQS provider 0.7.0. See this page for version [alignments](https://openquantumsafe.org/applications/tls.html).
+
+### Environment Configuration
+Set up the environment to use the DTLS 1.3 OpenSSL installation:
+
+```bash
+source ./openssl-env.sh dtls13
+```
+
+You should run this before using any OpenSSL commands or building libcoap.
+
+### Certificate Generation
+Generate the certificates needed for testing:
+
+```bash
+./certs/generate_scripts.sh
+```
+
+This script creates certificates for various post-quantum signature algorithms.
 
 ### libcoap Installation
-
-Install libcoap dependencies:
-
-```bash
-sudo apt-get install -y autoconf automake libtool make gcc
-```
-
-You may also need:
+Install libcoap with OpenSSL DTLS 1.3 support:
 
 ```bash
-sudo apt-get install autoconf-archive libwolfssl-dev libcunit1-dev pkg-config
+./scripts/install_libcoap.sh --openssl-dir=$OPENSSL_DIR --algorithm="kyber768" --groups-spec
 ```
 
-And run the installation script with the desired options:
+Options:
+- `--openssl-dir=<dir>`: Path to the OpenSSL installation directory. Use `$OPENSSL_DIR` when environment is configured.
+- `--algorithm=<algs>`: Specify the supported groups/algorithms. Default is "kyber768".
+- `--groups-spec`: Enable group specification.
+- `--install-dir=<dir>`: Set a custom installation directory for libcoap.
+
+## Testing DTLS 1.3 with PQC
+
+The test script allows you to verify your DTLS 1.3 and PQC setup with different signature algorithms:
 
 ```bash
-./scripts/install_libcoap.sh [wolfssl] [--groups-spec]
+# Start the server in one terminal
+./scripts/test_dtls13_pqc.sh -m server -a dilithium5
+
+# In another terminal, run the client
+./scripts/test_dtls13_pqc.sh -m client -a dilithium5
 ```
 
-Flags:
+Options:
+- `-m <mode>`: Specify "server", "client", or "both" (default). "Both" displays instructions.
+- `-a <algorithm>`: Select the signature algorithm to use. Options include:
+  - dilithium2, dilithium3, dilithium5
+  - falcon512, falcon1024
+  - sphincssha2128fsimple
+- `-b <build_dir>`: Specify the libcoap build directory if not using the default.
 
-- `wolfssl`: This option indicates that you want to configure libcoap with WolfSSL as the underlying cryptographic library. If not provided, the script will configure libcoap with OpenSSL.
-- `--groups-spec`: When provided, this option will set specific cryptographic groups during the configuration phase. Indicate the desired groups in the script. If not provided, the script will configure libcoap with the default groups.
+## Troubleshooting
 
-## Certificate Management
+If you encounter issues:
 
-The framework includes a certificate management system that simplifies the use of different certificate types (RSA, Dilithium, Falcon) for benchmarking.
+1. Verify environment variables are set correctly:
+   ```bash
+   source ./setup-openssl-env.sh dtls13
+   echo $OPENSSL_DIR
+   echo $OPENSSL_CONF
+   ```
 
-### Available Certificate Types
+2. Check if providers are loaded correctly:
+   ```bash
+   $OPENSSL_BIN_DIR/openssl list -providers
+   ```
+
+3. Ensure certificates were generated properly:
+   ```bash
+   $OPENSSL_BIN_DIR/openssl verify -provider oqsprovider -provider default \
+       -CAfile ./certs/dilithium/dilithium5_root_cert.pem \
+       ./certs/dilithium/dilithium5_entity_cert.pem
+   ```
+
+4. Verify libcoap was built with the correct OpenSSL path:
+   ```bash
+   ldd ./libcoap/build/bin/coap-client | grep ssl
+   ```
+
+## Certificate Generation with OQS Provider
+
+The OpenSSL DTLS 1.3 installation includes the OQS provider and can be used for PQC certificate generation. Just source the environment script and use the dedicated script:
+
+```bash
+source ./openssl_env.sh dtls13
+./certs/generate_certs.sh
+```
+
+The certificates will be generated in the `./certs` folder, organized according to their type. We currently support (in development): 
 
 - **RSA**: Traditional RSA certificates (RSA_2048)
 - **Dilithium**: Post-quantum signatures at different security levels (DILITHIUM_LEVEL2, DILITHIUM_LEVEL3, DILITHIUM_LEVEL5)
 - **Falcon**: Post-quantum signatures at different security levels (FALCON_LEVEL1, FALCON_LEVEL5)
+
+
+
+## Certificate Management
+
+The framework includes a certificate management system that simplifies the use of different certificate types (RSA, Dilithium, Falcon) for benchmarking.
 
 ### Managing Certificates
 
@@ -67,16 +153,6 @@ Use the certificate configuration scripts to list, validate, and set up certific
 # Set up a certificate configuration for use
 ./certs/config_certs.sh --setup DILITHIUM_LEVEL3
 ```
-
-### Generating New Certificates
-
-If you need to generate new post-quantum certificates:
-
-```bash
-./certs/generate_certs.sh
-```
-
-This requires the [oqs-provider](https://github.com/open-quantum-safe/oqs-provider) for OpenSSL. Installation instructions are in the folder `certs/oqs_prov_install/`.
 
 ## Running Benchmarks
 
