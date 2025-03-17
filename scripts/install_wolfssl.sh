@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Version configurations
-WOLFSSL_VERSION_TAG="v5.7.0-stable" 
+# WOLFSSL_VERSION_TAG="v5.7.0-stable" # Use if cloning from wolfSSl repository
+WOLFSSL_VERSION_TAG="main"  # Use if cloning from wolfSSL fork with OQS support
 DTLS_VERSION="1.3"  # Can be "1.2" or "1.3"
 DEBUG_MODE="yes"
 
@@ -25,14 +26,18 @@ fi
 echo "Removing existing wolfSSL repository..."
 rm -rf ./wolfssl
 
-git clone --branch $WOLFSSL_VERSION_TAG --depth 1 https://github.com/wolfSSL/wolfssl.git
+#git clone --branch $WOLFSSL_VERSION_TAG --depth 1 https://github.com/wolfSSL/wolfssl.git
+#cd wolfssl
+
+# Cloning from wolfSSL fork with OQS support
+git clone --branch  $WOLFSSL_VERSION_TAG --depth 1 https://github.com/dasobral/wolfssl-liboqs.git wolfssl
 cd wolfssl
 
-if [ "$WOLFSSL_VERSION_TAG" != "v5.6.4-stable" ]; then
-    echo "Replacing '_ipd' with empty string in dilithium files..."
-    sed -i 's/_ipd//g' wolfcrypt/src/dilithium.c
-    sed -i 's/_ipd//g' wolfssl/wolfcrypt/dilithium.h
-fi
+#if [ "$WOLFSSL_VERSION_TAG" != "v5.6.4-stable" ]; then
+#    echo "Replacing '_ipd' with empty string in dilithium files..."
+#    sed -i 's/_ipd//g' wolfcrypt/src/dilithium.c
+#    sed -i 's/_ipd//g' wolfssl/wolfcrypt/dilithium.h
+#fi
 
 ./autogen.sh
 
