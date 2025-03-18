@@ -1,10 +1,44 @@
 #!/bin/bash
 
-# Version configurations
-# WOLFSSL_VERSION_TAG="v5.7.0-stable" # Use if cloning from wolfSSl repository
-WOLFSSL_VERSION_TAG="main"  # Use if cloning from wolfSSL fork with OQS support
+# Default values
+MODE="fork"  # Default mode
+WOLFSSL_VERSION_TAG="main"
+DEFAULT_RELEASE_TAG="v5.7.6-stable"
 DTLS_VERSION="1.3"  # Can be "1.2" or "1.3"
 DEBUG_MODE="yes"
+
+
+# Function to display usage
+usage() {
+    echo "Usage: $0 [--fork | --release <version>]"
+    echo "  --fork           Clone from dasobral/wolfssl-liboqs.git (default)"
+    echo "  --release [ver]  Clone from wolfSSL/wolfssl.git with specified version (default: v5.7.6-stable)"
+    echo "  -h, --help       Show this help message"
+    exit 1
+}
+
+# Parse command-line arguments
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --fork)
+      MODE="fork"
+      WOLFSSL_VERSION_TAG="main"
+      shift
+      ;;
+    --release)
+      MODE="release"
+      WOLFSSL_VERSION_TAG="${2:-$DEFAULT_RELEASE_TAG}"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      ;;
+    *)
+      echo "Unknown option: $1"
+      exit 1
+      ;;
+  esac
+done
 
 # Installing missing packages for Raspberry Pi
 sudo apt-get update
@@ -26,21 +60,26 @@ fi
 echo "Removing existing wolfSSL repository..."
 rm -rf ./wolfssl
 
-#git clone --branch $WOLFSSL_VERSION_TAG --depth 1 https://github.com/wolfSSL/wolfssl.git
-#cd wolfssl
+# Clone appropriate repository based on mode
+if [ "$MODE" == "fork" ]; then
+  echo "Cloning from wolfSSL fork with OQS support..."
+  git clone --branch $WOLFSSL_VERSION_TAG --depth 1 https://github.com/dasobral/wolfssl-liboqs.git wolfssl
+else
+  echo "Cloning from official wolfSSL release repository..."
+  git clone --branch $WOLFSSL_VERSION_TAG --depth 1 https://github.com/wolfSSL/wolfssl.git wolfssl
+fi
 
-# Cloning from wolfSSL fork with OQS support
-git clone --branch  $WOLFSSL_VERSION_TAG --depth 1 https://github.com/dasobral/wolfssl-liboqs.git wolfssl
 cd wolfssl
 
-#if [ "$WOLFSSL_VERSION_TAG" != "v5.6.4-stable" ]; then
-#    echo "Replacing '_ipd' with empty string in dilithium files..."
-#    sed -i 's/_ipd//g' wolfcrypt/src/dilithium.c
-#    sed -i 's/_ipd//g' wolfssl/wolfcrypt/dilithium.h
-#fi
+# Apply Dilithium patch if applicable
+if [ "$WOLFSSL_VERSION_TAG" != "v5.6.4-stable" ]; then
+  echo "Replacing '_ipd' with empty string in Dilithium files..."
+  sed -i 's/_ipd//g' wolfcrypt/src/dilithium.c
+  sed -i 's/_ipd//g' wolfssl/wolfcrypt/dilithium.h
+fi
 
+# Build wolfSSL
 ./autogen.sh
-
 mkdir build
 cd build
 
@@ -61,18 +100,7 @@ else
 fi
 
 ../configure $WOLFSSL_FLAGS
-
 make all -j$(nproc)
 
-# Pause for user confirmation
-echo "----------------------------------------"
-read -p "WolfSSL Configuration complete. Do you want to continue with the installation? (y/n): " continue_install
-if [ "$continue_install" != "y" ]; then
-    echo "Installation aborted."
-    exit 1
-fi
-
 sudo make install
-
-# Update the linker cache
 sudo ldconfig
