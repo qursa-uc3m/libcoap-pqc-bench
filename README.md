@@ -91,8 +91,14 @@ sudo apt install linux-tools-$(uname -r) tshark
 Install the Python requirements:
 
 ```bash
+# Using conda
 conda create -n libcoap-bench python=3.10
 conda activate libcoap-bench
+pip install --no-cache-dir -r ./requirements_installation/requirements.txt
+
+# Using venv (matches your system's python version)
+python3 -m venv .bench-env
+source .bench-env/bin/activate
 pip install --no-cache-dir -r ./requirements_installation/requirements.txt
 ```
 
@@ -175,6 +181,10 @@ To include energy consumption measurements in the CSV:
 ```bash
 sudo modprobe btusb
 sudo systemctl restart bluetooth
+
+# Use this if first time
+sudo rfcomm bind 0 00:15:A6:01:AA:21
+# Or this otherwise
 sudo rfcomm connect hci0 00:15:A6:01:AA:21
 ```
 

@@ -6,3 +6,4 @@ check_*
 *.txt
 *.der
 .qodo
+/.bench_env/

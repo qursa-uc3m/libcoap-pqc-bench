@@ -100,6 +100,9 @@ if [ -n "$rasp_option" ]; then
   echo "Rasp option is enabled."
 fi
 
+echo "Creating benchmark data directory in ${BENCH_DIR}/bench-data ..."
+mkdir -p ${BENCH_DIR}/bench-data
+
 # Determine the command based on the value of -sec-mode
 case "$SEC_MODE" in
   pki)
