@@ -2,7 +2,7 @@
 
 if [ "$OPENSSL" = "" ]; then
    #OPENSSL=/usr/local/bin/oqs_openssl
-   OPENSSL=/usr/local/bin/openssl
+   OPENSSL=/usr/bin/openssl
 fi
 # add provider path if not defined
 if [ "$PROVIDER_PATH" = "" ]; then

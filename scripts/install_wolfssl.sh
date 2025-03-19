@@ -62,17 +62,21 @@ rm -rf ./wolfssl
 
 # Clone appropriate repository based on mode
 if [ "$MODE" == "fork" ]; then
-  echo "Cloning from wolfSSL fork with OQS support..."
+  echo "--------------------------------------------------"
+  echo "Cloning from wolfSSL fork with OQS support ..."
+  echo "--------------------------------------------------"
   git clone --branch $WOLFSSL_VERSION_TAG --depth 1 https://github.com/dasobral/wolfssl-liboqs.git wolfssl
 else
-  echo "Cloning from official wolfSSL release repository..."
+  echo "--------------------------------------------------"
+  echo "Cloning from official wolfSSL repository ..."
+  echo "--------------------------------------------------"
   git clone --branch $WOLFSSL_VERSION_TAG --depth 1 https://github.com/wolfSSL/wolfssl.git wolfssl
 fi
 
 cd wolfssl
 
 # Apply Dilithium patch if applicable
-if [ "$WOLFSSL_VERSION_TAG" != "v5.6.4-stable" ]; then
+if [ "$MODE" == "release" || "$WOLFSSL_VERSION_TAG" != "v5.6.4-stable" ]; then
   echo "Replacing '_ipd' with empty string in Dilithium files..."
   sed -i 's/_ipd//g' wolfcrypt/src/dilithium.c
   sed -i 's/_ipd//g' wolfssl/wolfcrypt/dilithium.h
