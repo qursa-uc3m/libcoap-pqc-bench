@@ -94,5 +94,5 @@ sudo cp _build/lib/oqsprovider.so $INSTALL_DIR/.local/lib/ossl-modules/
 
 echo "--------------------------------------------------------------------------"
 echo "liboqs and OQS provider have been installed for OpenSSL DTLS 1.3"
-echo "You can now build libcoap with PQC and DTLS 1.3 support."
+echo "You can now build libcoap with PQC and DTLS 1.3 support running openssl_env.sh && install_libcoap.sh."
 echo "--------------------------------------------------------------------------"
