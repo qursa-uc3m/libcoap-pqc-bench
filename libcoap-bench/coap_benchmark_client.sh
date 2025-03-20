@@ -380,7 +380,7 @@ else
     sleep 5
     
     # Get CPU cycles from server
-    cpu_cycles=$(ssh root@$server_ip "awk '/cycles/ {print \$1}' $(pwd)/libcoap-bench/bench-data/auxiliary_server.txt")
+    cpu_cycles=$(ssh root@$server_ip "awk '/cycles/ {print \$1}' ~/libcoap-pqc-bench/libcoap-bench/bench-data/auxiliary_server.txt")
     cpu_cycles=$((cpu_cycles))
     echo $cpu_cycles > "${BENCH_DIR}/bench-data/cycles_output.txt"
     
