@@ -34,7 +34,7 @@ while [[ $# -gt 0 ]]; do
       shift
       shift
       ;;
-    [rR][aA][sS][pP]) # Match -rasp, -RASP, -RAsP, etc.
+    -[rR][aA][sS][pP]) # Match -rasp, -RASP, -RAsP, etc.
       rasp_option="true"
       shift
       ;;

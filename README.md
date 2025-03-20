@@ -94,12 +94,12 @@ Install the Python requirements:
 # Using conda
 conda create -n libcoap-bench python=3.10
 conda activate libcoap-bench
-pip install --no-cache-dir -r ./requirements_installation/requirements.txt
+pip install --no-cache-dir -r ./libcoap-bench/requirements.txt
 
 # Using venv (matches your system's python version)
 python3 -m venv .bench-env
 source .bench-env/bin/activate
-pip install --no-cache-dir -r ./requirements_installation/requirements.txt
+pip install --no-cache-dir -r ./libcoap-bench/requirements.txt
 ```
 
 *Remark*: To perform the CPU cycles count in Raspberry Pi without relying on perf (not recommended at this point), the instructions described in [this site](https://matthewarcus.wordpress.com/2018/01/27/using-the-cycle-counter-registers-on-the-raspberry-pi-3/) must be followed. Note that some modifications may be necessary due to particularities of the Raspberry Pi being used. In the Raspberry Pi used for our experiments the following commands must be run every time it is rebooted:

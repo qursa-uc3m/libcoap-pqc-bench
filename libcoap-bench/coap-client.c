@@ -34,7 +34,18 @@ uint64_t get_current_time_ns(void) {
 
 // Function to append time in seconds to a file
 void append_time_to_file(unsigned long long total_time_ns) {
-    FILE *file = fopen("time_output.txt", "a");  // Open in append mode
+     // Get the repository root from environment
+     char *repo_root = getenv("REPO_ROOT");
+     char filepath[512];
+     
+     if (repo_root != NULL) {
+         snprintf(filepath, sizeof(filepath), "%s/libcoap-bench/bench-data/time_output.txt", repo_root);
+     } else {
+         // Fallback to current directory
+         strcpy(filepath, "time_output.txt");
+     }
+     
+     FILE *file = fopen(filepath, "a");  // Open in append mode
     if (file != NULL) {
         fprintf(file, "%.3f\n", total_time_ns / 1000000000.0);
         fclose(file);

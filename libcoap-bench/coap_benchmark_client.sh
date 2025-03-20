@@ -3,6 +3,7 @@
 # Import certificate configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$(pwd)/certs/config_certs.sh"
+export REPO_ROOT
 BENCH_DIR="${REPO_ROOT}/libcoap-bench"
 COAP_BIN="${REPO_ROOT}/libcoap/build/bin"
 
@@ -26,7 +27,7 @@ cert_config="DEFAULT"
 client_auth="no"  # Default to mutual authentication
 
 # Cleanup temp files
-sudo rm -f "${REPO_ROOT}/time_output.txt"
+sudo rm -f "${BENCH_DIR}/bench-data/time_output.txt"
 sudo rm -f "${BENCH_DIR}/bench-data/auxiliary.txt"
 
 # Function to display usage information
@@ -379,9 +380,9 @@ else
     sleep 5
     
     # Get CPU cycles from server
-    cpu_cycles=$(ssh root@$server_ip "awk '/cycles/ {print \$1}' ~/libcoap-test/libcoap-bench/bench-data/auxiliary_server.txt")
+    cpu_cycles=$(ssh root@$server_ip "awk '/cycles/ {print \$1}' $(pwd)/libcoap-bench/bench-data/auxiliary_server.txt")
     cpu_cycles=$((cpu_cycles))
-    echo $cpu_cycles > "${REPO_ROOT}/cycles_output.txt"
+    echo $cpu_cycles > "${BENCH_DIR}/bench-data/cycles_output.txt"
     
     # Process metrics
     python3 "${BENCH_DIR}/metrics_extractor.py" "${BENCH_DIR}/bench-data/${filename}.csv"
