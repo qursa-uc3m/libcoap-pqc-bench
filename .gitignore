@@ -3,7 +3,11 @@ libcoap/
 check_*
 # certificates
 *.pem
-*.txt
 *.der
 .qodo
 /.bench_env/
+
+bench-data
+.pcapng
+.csv
+*.txt

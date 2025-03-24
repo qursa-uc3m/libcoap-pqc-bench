@@ -65,6 +65,33 @@ configure_computer() {
     sudo iptables -t nat -A PREROUTING -p udp --dport 5683 -j DNAT --to-destination $VM
     sudo iptables -t nat -A PREROUTING -p udp --dport 5684 -j DNAT --to-destination $VM
     sudo iptables -A OUTPUT -p icmp --icmp-type port-unreachable -j DROP
+
+    # First check and clean up any previous SSH route configurations
+    echo "Setting up direct SSH access to RPi..."
+    
+    # Check if ssh-route table exists, create if not
+    if ! grep -q "ssh-route" /etc/iproute2/rt_tables; then
+        echo "200 ssh-route" >> /etc/iproute2/rt_tables
+        echo -e "${GREEN}✓ Created ssh-route table${NC}"
+    fi
+    
+    # Remove any existing rules for the RPi SSH route (to avoid duplicates)
+    ip rule show | grep "$RPI dport 22" | while read -r rule; do
+        rule_prio=$(echo "$rule" | awk '{print $1}' | sed 's/://')
+        ip rule del prio "$rule_prio"
+        echo -e "${GREEN}✓ Removed old SSH routing rule${NC}"
+    done
+    
+    # Remove any existing routes in the ssh-route table
+    ip route flush table ssh-route
+    
+    # Add the new rule and route
+    ip rule add to $RPI dport 22 table ssh-route
+    ip route add $RPI dev br0 table ssh-route
+    
+    echo -e "${GREEN}✓ SSH direct routing configured${NC}"
+    echo -e "${GREEN}✓ SSH traffic to $RPI will bypass VM${NC}"
+    echo -e "${GREEN}✓ All other traffic to $RPI will go through VM${NC}"
     
     if [ $? -eq 0 ]; then
         echo -e "${GREEN}✓ Computer configuration successful${NC}"

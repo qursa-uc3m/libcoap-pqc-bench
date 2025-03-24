@@ -26,6 +26,9 @@ parallelization_mode="${default_parallelization}"
 cert_config="DEFAULT"
 client_auth="no"  # Default to mutual authentication
 
+echo "Creating benchmark data directory in ${BENCH_DIR}/bench-data ..."
+mkdir -p ${BENCH_DIR}/bench-data
+
 # Cleanup temp files
 sudo rm -f "${BENCH_DIR}/bench-data/time_output.txt"
 sudo rm -f "${BENCH_DIR}/bench-data/auxiliary.txt"
@@ -49,7 +52,7 @@ usage() {
     echo "                               'parallel': clients run in different cores"
     echo "  -cert-config <CONFIG>        Certificate configuration to use (for PKI mode)"
     echo "  -client-auth <yes|no>        Enable/disable client certificate authentication"
-    echo "                               Default is 'yes' (mutual authentication)"
+    echo "                               Default is 'no' (only server authentication)"
     echo "  -list-certs                  List available certificate configurations"
     echo "  -h, --help                   Show this help message"
     exit 1
@@ -210,8 +213,12 @@ if [ -n "$rasp_param" ]; then
     bridge_ip=$(ip addr show $bridge_interface | grep -Po 'inet \K[\d.]+') 
     client_ip=$(ip addr show enp3s0 | grep -Po 'inet \K[\d.]+')
     address="[$server_ip]"
-    
-    tshark -f "udp port $coap_port and host $bridge_ip" -w "${BENCH_DIR}/bench-data/udp_conversations.pcapng" -z conv,udp &
+    echo "Listening on $bridge_interface"
+    echo "Bridge IP: $bridge_ip"
+    echo "Client IP: $client_ip"
+    echo "Server IP: $server_ip"
+
+    tshark -i $bridge_interface -f "udp port $coap_port and host $bridge_ip" -w "${BENCH_DIR}/bench-data/udp_conversations.pcapng" -z conv,udp &
     tshark_pid=$!
 else
     address="[::1]"
@@ -368,20 +375,25 @@ else
     
     # Write captured conversations
     rm -f "${BENCH_DIR}/bench-data/${filename}.txt"
-    tshark -r "${BENCH_DIR}/bench-data/udp_conversations.pcapng" -z conv,udp | grep "<-> $client_ip" > "${BENCH_DIR}/bench-data/${filename}.txt"
+    tshark -r "${BENCH_DIR}/bench-data/udp_conversations.pcapng" -z conv,udp | grep "<-> $server_ip" > "${BENCH_DIR}/bench-data/${filename}.txt"
     
     # Save timing information
-    echo $initial_time > "${BENCH_DIR}/initial_and_final_time.txt"
-    echo $final_time >> "${BENCH_DIR}/initial_and_final_time.txt"
+    echo $initial_time > "${BENCH_DIR}/bench-data/initial_and_final_time.txt"
+    echo $final_time >> "${BENCH_DIR}/bench-data/initial_and_final_time.txt"
     
     # Wait for server to be shut down
-    RED='\033[0;31m'
-    printf "${RED} You have 5 seconds to close the server\n"
-    sleep 5
+    echo "Automatically stopping the server on the Raspberry Pi..."
+    ssh root@$server_ip "pkill -2 coap-server || pkill -2 -f coap-server" || echo "Warning: Failed to stop server"
+    sleep 5 
     
     # Get CPU cycles from server
     cpu_cycles=$(ssh root@$server_ip "awk '/cycles/ {print \$1}' ~/libcoap-pqc-bench/libcoap-bench/bench-data/auxiliary_server.txt")
-    cpu_cycles=$((cpu_cycles))
+    if [ -z "$cpu_cycles" ]; then
+        echo "Warning: Could not retrieve CPU cycles from server. Using default value of 0."
+        cpu_cycles=0
+    else
+        cpu_cycles=$((cpu_cycles))
+    fi
     echo $cpu_cycles > "${BENCH_DIR}/bench-data/cycles_output.txt"
     
     # Process metrics

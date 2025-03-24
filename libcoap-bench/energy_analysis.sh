@@ -11,7 +11,7 @@ csv_file_path_1="$1"
 csv_file_path_2="$2"
 
 # Calculate initial time
-initial_time=$(sed -n '1p' "./libcoap-bench/initial_and_final_time.txt")
+initial_time=$(sed -n '1p' "./libcoap-bench/bench-data/initial_and_final_time.txt")
 # initial_time=$(tshark -r ./libcoap-bench/bench-data/udp_conversations.pcapng -c 1 -T fields -e frame.time | awk '{print $4}' | sed 's/\..*//')
 if [ -z "$initial_time" ]; then
     echo "Error: Failed to get initial time"
@@ -19,7 +19,7 @@ if [ -z "$initial_time" ]; then
 fi
 
 # Calculate final time
-final_time=$(sed -n '2p' "./libcoap-bench/initial_and_final_time.txt")
+final_time=$(sed -n '2p' "./libcoap-bench/bench-data/initial_and_final_time.txt")
 # final_time=$(tshark -r ./libcoap-bench/bench-data/udp_conversations.pcapng -T fields -e frame.time | tail -n 1 | awk '{print $4}' | sed 's/\..*//')
 if [ -z "$final_time" ]; then
     echo "Error: Failed to get final time"
