@@ -11,3 +11,5 @@ bench-data
 .pcapng
 .csv
 *.txt
+!requirements.txt
+.old/
