@@ -8,17 +8,20 @@ COAP_BIN="${REPO_ROOT}/libcoap/build/bin"
 
 rasp_option=""
 cert_config="DEFAULT"
+client_auth="no"  # Default to no client authentication
 
 sudo rm -f "${REPO_ROOT}/cycles_output.txt"
 
 # Function to display usage/help
 show_usage() {
-    echo "Usage: ${0} -sec-mode <pki|psk|nosec> [-rasp] [-cert-config <CONFIG>]"
+    echo "Usage: ${0} -sec-mode <pki|psk|nosec> [-rasp] [-cert-config <CONFIG>] [-client-auth <yes|no>]"
     echo ""
     echo "Options:"
     echo "  -sec-mode <pki|psk|nosec>    Security mode to use (required)"
     echo "  -rasp                        Enable Raspberry Pi mode"
     echo "  -cert-config <CONFIG>        Certificate configuration to use (for PKI mode)"
+    echo "  -client-auth <yes|no>        Enable/disable client certificate authentication"
+    echo "                               Default is 'no' (only server authentication)"
     echo "  -list-certs                  List available certificate configurations"
     echo "  -h, --help                   Show this help message"
     exit 1
@@ -40,6 +43,15 @@ while [[ $# -gt 0 ]]; do
       ;;
     -cert-config)
       cert_config="$2"
+      shift
+      shift
+      ;;
+    -client-auth)
+      client_auth="$2"
+      if [[ "$client_auth" != "yes" && "$client_auth" != "no" ]]; then
+        echo "Error: -client-auth must be 'yes' or 'no'"
+        show_usage
+      fi
       shift
       shift
       ;;
@@ -93,6 +105,7 @@ if [ "$SEC_MODE" == "pki" ]; then
   echo "  Certificate: $cert_file"
   echo "  Key: $key_file"
   echo "  CA: $ca_file"
+  echo "  Client Authentication: $client_auth"
 fi
 
 # Use rasp_option as needed in your script
@@ -103,14 +116,20 @@ fi
 echo "Creating benchmark data directory in ${BENCH_DIR}/bench-data ..."
 mkdir -p ${BENCH_DIR}/bench-data
 
+# Determine if client authentication is disabled (add -n flag if yes)
+client_auth_flag=""
+if [ "$SEC_MODE" == "pki" ] && [ "$client_auth" == "no" ]; then
+  client_auth_flag="-n"
+fi
+
 # Determine the command based on the value of -sec-mode
 case "$SEC_MODE" in
   pki)
     if [ -z "$rasp_option" ]; then
-      CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH perf stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -A ::1 -c ${cert_file} -j ${key_file}"
+      CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH perf stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -A ::1 -c ${cert_file} -j ${key_file} ${client_auth_flag}"
     else
       # Add behavior when rasp_option is on for pki
-      CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH perf_5.10 stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -A 192.168.0.157 -c ${cert_file} -j ${key_file}"
+      CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH perf_5.10 stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -A 192.168.0.157 -c ${cert_file} -j ${key_file} ${client_auth_flag}"
     fi
     ;;
   psk)

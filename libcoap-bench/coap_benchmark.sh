@@ -303,7 +303,7 @@ fi
 if [ -n "$rasp_param" ]; then
         # Start the server on the Raspberry Pi
         echo "Starting server on $server_ip..."
-        ssh root@$server_ip "cd ~/libcoap-pqc-bench && ./libcoap-bench/coap_benchmark_server.sh -sec-mode $sec_mode -rasp -cert-config $cert_config" &
+        ssh root@$server_ip "cd ~/libcoap-pqc-bench && ./libcoap-bench/coap_benchmark_server.sh -sec-mode $sec_mode -rasp -cert-config $cert_config -client-auth" &
         SERVER_SSH_PID=$!
         
         # Give the server time to start
