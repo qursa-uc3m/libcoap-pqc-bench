@@ -41,6 +41,7 @@ class UM34CReader:
         self.end_time = None
         self.lock = threading.Lock()
         self.read_times = deque(maxlen=20)  # Track recent read times
+        self.max_power = 0.0  # Track maximum power observed
         
         # Device-specific parameters
         self.min_read_interval = 0.3  # Minimum time between reads (seconds)
@@ -81,6 +82,10 @@ class UM34CReader:
             
             with self.lock:
                 self.measurements.append(measurement)
+                
+                # Update max power if current reading is higher
+                if measurement['power'] > self.max_power:
+                    self.max_power = measurement['power']
                 
                 if not self.start_time:
                     self.start_time = datetime.now()
@@ -126,10 +131,11 @@ class UM34CReader:
     def calculate_energy(self):
         with self.lock:
             if not self.measurements:
-                return 0, 0
+                return 0, 0, 0
                 
             total_power = sum(m["power"] for m in self.measurements)
             avg_power = total_power / len(self.measurements)
+            max_power = self.max_power
             
             if self.start_time and self.end_time:
                 duration_seconds = (self.end_time - self.start_time).total_seconds()
@@ -144,9 +150,9 @@ class UM34CReader:
                     f.write(f"{self.start_time.strftime('%H:%M:%S')}\n")
                     f.write(f"{self.end_time.strftime('%H:%M:%S')}\n")
                     
-                return avg_power, energy_wh
+                return avg_power, max_power, energy_wh
             
-            return 0, 0
+            return 0, 0, 0
     
     def save_measurements(self, filename):
         with self.lock:
@@ -170,7 +176,7 @@ class UM34CReader:
             logging.warning(f"CSV file {csv_path} does not exist")
             return False
         
-        avg_power, energy_wh = self.calculate_energy()
+        avg_power, max_power, energy_wh = self.calculate_energy()
         
         # Read the CSV
         rows = []
@@ -188,29 +194,32 @@ class UM34CReader:
                 reader = csv.reader(csvfile, delimiter=delimiter)
                 for i, row in enumerate(reader):
                     if i == 0:  # Header row
-                        rows.append(row + ['Power (W)', 'Energy (Wh)'])
+                        rows.append(row + ['Power (W)', 'Max Power (W)', 'Energy (Wh)'])
                     else:
                         # Determine what values to add
                         power_value = f"{avg_power:.6f}"
+                        max_power_value = f"{max_power:.6f}"
                         energy_value = f"{energy_wh:.6f}"
                         
                         # Special handling for certain rows
                         if len(rows) > 3 and i >= len(rows) - 3:
                             if i == len(rows) - 3:  # Third to last row
                                 power_value = '------------'
+                                max_power_value = '------------'
                                 energy_value = '------------'
                             elif i == len(rows) - 1:  # Last row
                                 power_value = '0.0000'
+                                max_power_value = '0.0000'
                                 energy_value = '0.0000'
                         
-                        rows.append(row + [power_value, energy_value])
+                        rows.append(row + [power_value, max_power_value, energy_value])
             
             # Write back to CSV
             with open(csv_path, 'w', newline='') as csvfile:
                 writer = csv.writer(csvfile, delimiter=delimiter)
                 writer.writerows(rows)
                 
-            logging.info(f"Added energy data to {csv_path}: Power={avg_power:.6f}W, Energy={energy_wh:.6f}Wh")
+            logging.info(f"Added energy data to {csv_path}: Power={avg_power:.6f}W, Max Power={max_power:.6f}W, Energy={energy_wh:.6f}Wh")
             return True
             
         except Exception as e:
@@ -315,7 +324,7 @@ def monitor_energy(duration=0, sample_rate=0.3, port="/dev/rfcomm0", custom_name
         reader.disconnect()
         
         # Calculate energy metrics
-        avg_power, energy_wh = reader.calculate_energy()
+        avg_power, max_power, energy_wh = reader.calculate_energy()
         actual_monitoring_duration = (reader.end_time - reader.start_time).total_seconds() if reader.start_time else 0
         
         print(f"\nMonitoring completed:")
@@ -324,6 +333,7 @@ def monitor_energy(duration=0, sample_rate=0.3, port="/dev/rfcomm0", custom_name
         if samples_collected > 0:
             print(f"- Effective sample rate: {samples_collected / actual_monitoring_duration:.2f} Hz")
         print(f"- Average power: {avg_power:.6f}W")
+        print(f"- Maximum power: {max_power:.6f}W")
         print(f"- Energy consumption: {energy_wh:.6f}Wh")
         
         # Generate filename based on custom name or timestamp
@@ -349,21 +359,33 @@ def monitor_energy(duration=0, sample_rate=0.3, port="/dev/rfcomm0", custom_name
 # Merge Mode: Energy CSV Post-Processing
 # ----------------------------
 def extract_energy_data(energy_file):
-    """Extract average power and energy consumption from energy file."""
+    """Extract average power, max power and energy consumption from energy file."""
     power_w = 0
+    max_power_w = 0
     energy_wh = 0
     try:
         with open(energy_file, 'r') as f:
             reader = csv.DictReader(f)
             rows = list(reader)
-            if rows and 'Power (W)' in rows[0] and 'Energy (Wh)' in rows[0]:
-                power_w = float(rows[0]['Power (W)'])
-                energy_wh = float(rows[0]['Energy (Wh)'])
+            
+            # Calculate max power from individual measurements
+            max_power_w = max([float(row.get('power', 0)) for row in rows], default=0)
+            
+            # Calculate average power
+            total_power = sum([float(row.get('power', 0)) for row in rows])
+            power_w = total_power / len(rows) if rows else 0
+            
+            # Calculate energy consumption
+            if len(rows) > 1:
+                first_timestamp = float(rows[0].get('timestamp', 0))
+                last_timestamp = float(rows[-1].get('timestamp', 0))
+                duration_hours = (last_timestamp - first_timestamp) / 3600
+                energy_wh = power_w * duration_hours
     except Exception as e:
         print(f"Error reading energy file: {e}")
-    return power_w, energy_wh
+    return power_w, max_power_w, energy_wh
 
-def add_energy_to_udp_csv(benchmark_file, power_w, energy_wh):
+def add_energy_to_udp_csv(benchmark_file, power_w, max_power_w, energy_wh):
     """Add energy data to benchmark CSV file."""
     rows = []
     delimiter = ';'  # Default delimiter
@@ -382,22 +404,23 @@ def add_energy_to_udp_csv(benchmark_file, power_w, energy_wh):
             # Now process each row
             for i, row in enumerate(all_rows):
                 if i == 0:  # Header row
-                    rows.append(row + ['Power (W)', 'Energy (Wh)'])
+                    rows.append(row + ['Power (W)', 'Max Power (W)', 'Energy (Wh)'])
                 elif i == total_rows - 1:  # Last row (standard deviation)
                     # Set energy values to 0 for the standard deviation row
-                    rows.append(row + ['0', '0'])
+                    rows.append(row + ['0', '0', '0'])
                 elif '-----------' in row[0]:  # Separator row
-                    rows.append(row + ['------------', '------------'])
+                    rows.append(row + ['------------', '------------', '------------'])
                 else:  # Normal data rows
                     power_str = f"{power_w:.6f}"
+                    max_power_str = f"{max_power_w:.6f}"
                     energy_str = f"{energy_wh:.6f}"
-                    rows.append(row + [power_str, energy_str])
+                    rows.append(row + [power_str, max_power_str, energy_str])
                     
         with open(benchmark_file, 'w', newline='') as f:
             writer = csv.writer(f, delimiter=delimiter)
             writer.writerows(rows)
         
-        logging.info(f"Added energy data to {benchmark_file}: Power={power_w:.6f}W, Energy={energy_wh:.6f}Wh")
+        logging.info(f"Added energy data to {benchmark_file}: Power={power_w:.6f}W, Max Power={max_power_w:.6f}W, Energy={energy_wh:.6f}Wh")
         return True
         
     except Exception as e:
@@ -465,9 +488,9 @@ if __name__ == "__main__":
                 print("Error: No benchmark CSV file found")
                 exit(1)
         
-        power_w, energy_wh = extract_energy_data(energy_file)
+        power_w, max_power_w, energy_wh = extract_energy_data(energy_file)
         if power_w > 0 or energy_wh > 0:
-            if add_energy_to_udp_csv(benchmark_file, power_w, energy_wh):
+            if add_energy_to_udp_csv(benchmark_file, power_w, max_power_w, energy_wh):
                 print(f"Successfully added energy data to {benchmark_file}")
             else:
                 print(f"Failed to add energy data to {benchmark_file}")
