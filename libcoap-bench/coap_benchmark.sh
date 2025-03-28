@@ -6,6 +6,8 @@ source "$(pwd)/certs/config_certs.sh"
 export REPO_ROOT
 BENCH_DIR="${REPO_ROOT}/libcoap-bench"
 COAP_BIN="${REPO_ROOT}/libcoap/build/bin"
+PSK_DIR="${REPO_ROOT}/pskeys"
+ACTIVE_PSK="${PSK_DIR}/active_psk.txt"
 
 # Global variables and defaults
 bridge_interface="br0"
@@ -74,7 +76,7 @@ start_energy_monitoring() {
     energy_name="$energy_filename"
     
     # Start energy monitoring in the background
-    python ./libcoap-bench/energy_monitor.py --capture --name "$energy_name" --rate 0.4 &
+    python ./libcoap-bench/energy_monitor.py --capture --name "$energy_name" --rate 0.5 &
     ENERGY_PID=$!
     
     # Store the PID for later termination
@@ -82,7 +84,7 @@ start_energy_monitoring() {
     echo "Energy monitoring started with PID $ENERGY_PID"
 
      # Give it time to initialize
-    sleep 3
+    sleep 4
 }
 
 # Function to stop energy monitoring
@@ -94,7 +96,7 @@ stop_energy_monitoring() {
         rm .energy_monitor_pid
         
         # Wait for energy data to be processed
-        sleep 1
+        sleep 3
     fi
 }
 
@@ -193,6 +195,8 @@ while [ "$#" -gt 0 ]; do
     shift
 done
 
+echo "-----------------------------------------------------------------------------------------"
+
 # Validate required parameters
 if [ -z "$n" ] || [ -z "$sec_mode" ] || [ -z "$r_param" ]; then
     echo "Error: -n, -sec-mode, and -r parameters are required."
@@ -222,6 +226,33 @@ if [ "$sec_mode" == "pki" ]; then
     echo "  Client Authentication: $client_auth"
 fi
 
+# Check for active PSK key when in PSK mode
+if [ "$sec_mode" == "psk" ]; then
+    if [ ! -f "${ACTIVE_PSK}" ]; then
+        echo "Error: No active PSK key found. Please activate a key using:"
+        echo "./pskeys/psk_key_manager.sh activate <key_filename>"
+        exit 1
+    fi
+    
+    # Get the key name for display purposes
+    active_key_value=$(cat "${ACTIVE_PSK}")
+    active_key_name=""
+        
+    for key_file in "${PSK_DIR}"/*.key; do
+        if [[ -f "$key_file" ]] && [[ "$(cat "$key_file")" == "$active_key_value" ]]; then
+            active_key_name=$(basename "$key_file")
+            break
+        fi
+    done
+    
+    if [[ -n "$active_key_name" ]]; then
+        echo "Using active PSK key: $active_key_name"
+    else
+        echo "Using active PSK key: Custom key"
+    fi
+    echo "Key value: $(cat ${ACTIVE_PSK})"
+fi
+
 # Set port based on security mode
 coap_port=$([ "$sec_mode" = "nosec" ] && echo "5683" || echo "5684")
 
@@ -236,6 +267,8 @@ echo "  r        : $r_param"
 [ -n "$parallelization_mode" ] && echo "  parallelization : $parallelization_mode"
 [ "$sec_mode" == "pki" ] && echo "  cert-config : $cert_config"
 [ "$sec_mode" == "pki" ] && echo "  client-auth : $client_auth"
+
+echo "-----------------------------------------------------------------------------------------"
 
 # Set up network configuration based on rasp_param
 if [ -n "$rasp_param" ]; then
@@ -256,7 +289,20 @@ else
 fi
 
 # Allow time for tshark to start capturing
-sleep 1
+sleep 2
+
+if [ -n "$rasp_param" ]; then
+        # Start the server on the Raspberry Pi
+        echo "-----------------------------------------------------------------------------------------"
+        echo "Starting server on $server_ip..."
+        ssh root@$server_ip "cd ~/libcoap-pqc-bench && ./libcoap-bench/coap_benchmark_server.sh -sec-mode $sec_mode -rasp -cert-config $cert_config -client-auth $client_auth" &
+        SERVER_SSH_PID=$!
+        
+        # Give the server time to start
+        echo "Give a moment for the server to start..."
+        sleep 5
+        
+fi
 
 # Start energy monitoring if enabled
 if [ "${MEASURE_ENERGY:-false}" == "true" ]; then
@@ -297,18 +343,8 @@ if [ "${MEASURE_ENERGY:-false}" == "true" ]; then
     energy_filename="${energy_filename}${energy_filename_add}"
     
     # Now start energy monitoring with the correct energy_filename
+    echo "-----------------------------------------------------------------------------------------"
     start_energy_monitoring
-fi
-
-if [ -n "$rasp_param" ]; then
-        # Start the server on the Raspberry Pi
-        echo "Starting server on $server_ip..."
-        ssh root@$server_ip "cd ~/libcoap-pqc-bench && ./libcoap-bench/coap_benchmark_server.sh -sec-mode $sec_mode -rasp -cert-config $cert_config -client-auth" &
-        SERVER_SSH_PID=$!
-        
-        # Give the server time to start
-        echo "Give a moment for the server to start..."
-        sleep 3
 fi
 
 # Construct the coap client base command based on security mode
@@ -339,7 +375,8 @@ case "$sec_mode" in
         fi
         ;;
     psk)
-        client_cmd="$client_cmd -k \"$(cat ${REPO_ROOT}/psk.txt)\" -u uc3m"
+        # Use the active PSK key from the pskeys directory
+        client_cmd="$client_cmd -k \"$(cat ${ACTIVE_PSK})\" -u uc3m"
         # Read KEM algorithm from first line of algorithm.txt
         if [ -f "${REPO_ROOT}/algorithm.txt" ]; then
             kem_algorithm=$(head -n 1 "${REPO_ROOT}/algorithm.txt")
@@ -397,8 +434,9 @@ fi
 
 # Stop energy monitoring before getting CPU cycles
 if [ "${MEASURE_ENERGY:-false}" == "true" ]; then
-    stop_energy_monitoring
     echo ""
+    echo "-----------------------------------------------------------------------------------------"
+    stop_energy_monitoring
 fi
 
 # Capture final time
@@ -456,14 +494,10 @@ if [ -z "$rasp_param" ]; then
     tshark -r "${BENCH_DIR}/bench-data/udp_conversations.pcapng" -z conv,udp | grep "::1:" > "${BENCH_DIR}/bench-data/${filename}.txt"
 else
     # Process remote (Raspberry Pi) results
+    echo "-----------------------------------------------------------------------------------------"
     kill -9 $(pidof tshark) 2>/dev/null
     # Allow time for tshark to finish capturing
     sleep 2
-
-    # Wait for server to be shut down
-    echo "Automatically stopping the server on the Raspberry Pi..."
-    ssh root@$server_ip "pkill -2 coap-server || pkill -2 -f coap-server" || echo "Warning: Failed to stop server"
-    sleep 5 
 
     # Write captured conversations
     rm -f "${BENCH_DIR}/bench-data/${filename}.txt"
@@ -472,6 +506,12 @@ else
     # Save timing information
     echo $initial_time > "${BENCH_DIR}/bench-data/initial_and_final_time.txt"
     echo $final_time >> "${BENCH_DIR}/bench-data/initial_and_final_time.txt"
+
+    # Wait for server to be shut down
+    echo "Automatically stopping the server on the Raspberry Pi..."
+    ssh root@$server_ip "pkill -2 coap-server || pkill -2 -f coap-server" || echo "Warning: Failed to stop server"
+    sleep 5
+    echo "-----------------------------------------------------------------------------------------" 
     
     # Get CPU cycles from server
     cpu_cycles=$(ssh root@$server_ip "awk '/cycles/ {print \$1}' ~/libcoap-pqc-bench/libcoap-bench/bench-data/auxiliary_server.txt")

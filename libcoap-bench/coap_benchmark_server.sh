@@ -5,6 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$(pwd)/certs/config_certs.sh"
 BENCH_DIR="${REPO_ROOT}/libcoap-bench"
 COAP_BIN="${REPO_ROOT}/libcoap/build/bin"
+PSK_DIR="${REPO_ROOT}/pskeys"
+ACTIVE_PSK="${PSK_DIR}/active_psk.txt"
 
 rasp_option=""
 cert_config="DEFAULT"
@@ -108,6 +110,33 @@ if [ "$SEC_MODE" == "pki" ]; then
   echo "  Client Authentication: $client_auth"
 fi
 
+# Check for active PSK key when in PSK mode
+if [ "$SEC_MODE" == "psk" ]; then
+  if [ ! -f "${ACTIVE_PSK}" ]; then
+    echo "No active PSK key found. Please activate a key using:"
+    echo "./pskeys/psk_key_manager.sh activate <key_filename>"
+    exit 1
+  fi
+  
+  # Get the key name for display purposes
+  active_key_value=$(cat "${ACTIVE_PSK}")
+  active_key_name=""
+        
+  for key_file in "${PSK_DIR}"/*.key; do
+    if [[ -f "$key_file" ]] && [[ "$(cat "$key_file")" == "$active_key_value" ]]; then
+      active_key_name=$(basename "$key_file")
+      break
+    fi
+  done
+  
+  if [[ -n "$active_key_name" ]]; then
+    echo "Using active PSK key: $active_key_name"
+  else
+    echo "Using active PSK key: Custom key"
+  fi
+  echo "Key value: $(cat ${ACTIVE_PSK})"
+fi
+
 # Use rasp_option as needed in your script
 if [ -n "$rasp_option" ]; then
   echo "Rasp option is enabled."
@@ -134,10 +163,10 @@ case "$SEC_MODE" in
     ;;
   psk)
     if [ -z "$rasp_option" ]; then
-      CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH perf stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -k $(cat ${REPO_ROOT}/psk.txt) -h uc3m -A ::1"
+      CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH perf stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -k $(cat ${ACTIVE_PSK}) -h uc3m -A ::1"
     else
       # Add behavior when rasp_option is on for psk
-      CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH perf_5.10 stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -k $(cat ${REPO_ROOT}/psk.txt) -h uc3m -A 192.168.0.157"
+      CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH perf_5.10 stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -k $(cat ${ACTIVE_PSK}) -h uc3m -A 192.168.0.157"
     fi
     ;;
   nosec)
