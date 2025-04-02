@@ -152,7 +152,7 @@ Where:
 The benchmark creates CSV files with a naming pattern that reflects the test parameters:
 
 ```
-udp[_rasp]_conv_stats_[ALGORITHM]_n<N>[_s<S>][_<P>]_<SEC_MODE>[_<CERT_CONFIG>][_client-auth]_scenario<SCENARIO>
+udp[_rasp]_conv_stats_[ALGORITHM]_[<CERT_CONFIG>]_n<N>[_s<S>][_<P>]_<SEC_MODE>[_client-auth]_scenario<SCENARIO>
 ```
 
 Where:
@@ -199,31 +199,88 @@ sudo rfcomm connect hci0 00:15:A6:01:AA:21
 
 ### Generating Plots
 
-Once you have created CSV files with your benchmark results, you can generate plots:
+Once you have created CSV files with your benchmark results, you can generate plots to visualize the data:
+
+#### Scatter Plots for Single Scenario Analysis
+
+For detailed analysis of a single scenario (A, B, or C) with data points connected by lines:
 
 ```bash
-cd libcoap-bench
-python3 coap_benchmark_barplots.py <metric> <algorithms_list> <n> <rasp> <scenarios_list> [s] [p]
+python3 libcoap-bench/coap_benchmark_plots.py <metric> <algorithms_list> <cert_types_list> <n> <scenario> <rasp> [s] [p]
 ```
 
 Where:
 
-- `metric`: The metric to plot (e.g., 'duration', 'Wh').
-- `algorithms_list`: Comma-separated list of algorithms.
-- `n`: Number of clients used in the CSV files.
-- `rasp`: Whether the server was running on Raspberry Pi (True or False).
-- `scenarios_list`: Comma-separated list of scenarios (A, B, C).
-- `s`: Optional observer duration.
-- `p`: Optional parallelization mode.
+- `metric`: The metric to plot (e.g., 'duration', 'CPU cycles', 'Power (W)', 'Energy (Wh)')
+- `algorithms_list`: Comma-separated list of KEM algorithms (e.g., 'KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5')
+- `cert_types_list`: Comma-separated list of certificate types/signature algorithms (e.g., 'DILITHIUM_LEVEL2,RSA_2048')
+- `n`: Number of clients used in the benchmark
+- `scenario`: Single scenario to plot (A, B, or C)
+- `rasp`: Whether the server was running on Raspberry Pi (True or False)
+- `s`: Optional observer duration parameter
+- `p`: Optional parallelization mode
 
 Examples:
 
 ```bash
-# Plot duration metric for multiple algorithms across different scenarios
-python3 ./coap_benchmark_barplots.py 'duration' "KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5" 500 True A,B,C
+# Compare different KEM algorithms with DILITHIUM_LEVEL2 certificates
+python3 libcoap-bench/coap_benchmark_plots.py "duration" "KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5" "DILITHIUM_LEVEL2" 50 A True
 
-# Plot energy consumption for specific test configuration
-python3 ./coap_benchmark_barplots.py 'Wh' "KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5" 20 True A,C 30 "background"
+# Compare two certificate types for the same algorithms
+python3 libcoap-bench/coap_benchmark_plots.py "duration" "KYBER_LEVEL1,KYBER_LEVEL3" "DILITHIUM_LEVEL2,RSA_2048" 50 A True
+
+# Plot energy consumption data
+python3 libcoap-bench/coap_benchmark_plots.py "Energy (Wh)" "KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5" "DILITHIUM_LEVEL2" 50 B True
+```
+
+#### Bar Plots for Multi-Scenario Comparison
+
+For comparing multiple scenarios, algorithms, and certificate types in a single visualization:
+
+```bash
+python3 libcoap-bench/coap_benchmark_barplots.py <metric> <algorithms_list> <cert_types_list> <n> <rasp> <scenarios_list> [s] [p]
+```
+
+Where:
+
+- `metric`: The metric to plot (e.g., 'duration', 'CPU cycles', 'Power (W)', 'Energy (Wh)')
+- `algorithms_list`: Comma-separated list of KEM algorithms (e.g., 'KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5')
+- `cert_types_list`: Comma-separated list of certificate types/signature algorithms (e.g., 'DILITHIUM_LEVEL2,RSA_2048')
+- `n`: Number of clients used in the benchmark
+- `rasp`: Whether the server was running on Raspberry Pi (True or False)
+- `scenarios_list`: Comma-separated list of scenarios to compare (e.g., 'A,B,C')
+- `s`: Optional observer duration parameter
+- `p`: Optional parallelization mode
+
+Examples:
+
+```bash
+# Compare all scenarios with different algorithms and certificate types
+python3 libcoap-bench/coap_benchmark_barplots.py "duration" "KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5" "DILITHIUM_LEVEL2,RSA_2048" 50 True "A,B,C"
+
+# Focus on energy metrics for selected scenarios
+python3 libcoap-bench/coap_benchmark_barplots.py "Energy (Wh)" "KYBER_LEVEL1,KYBER_LEVEL3" "DILITHIUM_LEVEL2" 20 True "A,C"
+
+# Observer mode with parallelization
+python3 libcoap-bench/coap_benchmark_barplots.py "duration" "KYBER_LEVEL1,KYBER_LEVEL3" "DILITHIUM_LEVEL2" 20 True "A,B" 30 parallel
+```
+
+#### Understanding Metrics
+
+The scripts support various metrics available in the CSV files:
+
+- `duration`: Time taken for the benchmark (seconds)
+- `CPU cycles`: CPU cycle count on the server
+- `Power (W)`: Average power consumption
+- `Max Power (W)`: Maximum power consumption
+- `Energy (Wh)`: Total energy consumed
+
+#### Output Files
+
+All plots are saved to the `./bench-plots/` directory with filenames that reflect the parameters used, making it easy to identify specific visualizations. The format for filenames is:
+
+- Scatter plots: `[rasp_]<metric>_n<N>[_s<S>][_<P>]_<ALGORITHMS>_<CERT_TYPES>_scenario<SCENARIO>.png`
+- Bar plots: `barplot_[rasp_]<metric>_n<N>[_s<S>][_<P>]_<ALGORITHMS>_<CERT_TYPES>_<SCENARIOS>.png`
 ```
 
 ## Network Emulation

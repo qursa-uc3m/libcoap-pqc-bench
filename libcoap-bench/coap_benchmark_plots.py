@@ -1,135 +1,332 @@
-
 import sys
 import os
 import matplotlib.pyplot as plt
 import pandas as pd
 import matplotlib.colors as mcolors
 import numpy as np
+import glob
 
-color_palette = list(mcolors.LinearSegmentedColormap.from_list("", ["#9fcf69", "#33acdc"])(np.linspace(0, 1, 3)))
+# Generate the color palette
+color_palette = list(mcolors.LinearSegmentedColormap.from_list("", ["#9fcf69", "#33acdc"])(np.linspace(0, 1, 9)))
+security_mode_colors = {
+    "pki": color_palette[0],
+    "psk": color_palette[3],
+    "nosec": color_palette[6]
+}
 
 def read_csv(file_path, metric_column, rasp=False):    
-    # Read CSV file and split the complex column
-    df = pd.read_csv(file_path, sep=';')
+    """
+    Read CSV file and extract the metric value and standard deviation.
+    
+    Args:
+        file_path (str): Path to the CSV file.
+        metric_column (str): Name of the column to extract.
+        rasp (bool): Whether the data is from a Raspberry Pi.
+        
+    Returns:
+        tuple: (metric_value, std_dev_value) or (None, None) if file not found or other error.
+    """
+    try:
+        # Read CSV file with semicolon delimiter
+        df = pd.read_csv(file_path, sep=';')
+        
+        # Get the last but one row (mean value) and the specified metric column
+        metric_value = float(df.iloc[-2][metric_column])
+        # Get the last row (standard deviation) and the specified metric column
+        std_dev_value = float(df.iloc[-1][metric_column])
+        
+        return metric_value, std_dev_value
+    except (FileNotFoundError, KeyError, IndexError, ValueError) as e:
+        print(f"Error reading {file_path}: {e}")
+        return None, None
 
-    # Get the last but one row and the specified metric column
-    metric_value = float(df.iloc[-2][metric_column])
-    std_dev_value = float(df.iloc[-1][metric_column])
+def find_files(base_dir, pattern):
+    """Find files matching a pattern in the base directory"""
+    try:
+        matching_files = glob.glob(os.path.join(base_dir, pattern))
+        return matching_files
+    except Exception as e:
+        print(f"Error searching for files: {e}")
+        return []
 
-    return metric_value, std_dev_value
-
-def create_scatter_plots(metric, algorithms_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data'):
+def create_scatter_plots(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data'):
+    """
+    Create scatter plots for the specified metric and algorithms under different security modes.
+    
+    Args:
+        metric (str): The metric to be plotted.
+        algorithms_list (list): List of algorithm names.
+        cert_types_list (list): List of certificate types to include.
+        n (int): Number of repetitions.
+        scenario (str): Scenario identifier (A, B, or C).
+        rasp (bool): Whether the data is from a Raspberry Pi.
+        s (int or None): Optional 's' parameter.
+        p (str or None): Optional 'p' parameter (parallelization mode).
+        data_dir (str): Directory containing the data files.
+    """
     # Get the absolute path of the script's directory
     script_directory = os.path.dirname(os.path.realpath(__file__))
+    data_dir_path = os.path.join(script_directory, data_dir)
     
     # Create a figure and axis
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(10, 6))
 
-    # Set colors for PSK and PKI points
-    pki_color = color_palette[0]
+    # Set colors for different modes
+    pki_base_color = color_palette[0]
     psk_color = color_palette[1]
-
-    # Lists to store PSK and PKI values
-    psk_values = []
-    pki_values = []
-    psk_std_dev = []
-    pki_std_dev = []
-
-    # Plot scatter plots and lines for each algorithm
-    for i, algorithm in enumerate(algorithms_list):
-        # Read data from CSV file for psk
-        s_suffix = f"_s{s}" if s else ""
-        p_suffix = f"_{p}" if p else ""
-        scenario_suffix = f"_scenario{scenario}"
-        csv_file_path = os.path.join(script_directory, data_dir, f'udp{"_rasp" if rasp else ""}_conv_stats_{algorithm}_n{n}{s_suffix}{p_suffix}_psk{scenario_suffix}.csv')
-        metric_value_psk, std_dev_psk = read_csv(csv_file_path, metric, rasp)  # Get metric and std dev values
-        psk_values.append(metric_value_psk)
-        psk_std_dev.append(std_dev_psk)
-
-        # Read data from CSV file for pki
-        csv_file_path = os.path.join(script_directory, data_dir, f'udp{"_rasp" if rasp else ""}_conv_stats_{algorithm}_n{n}{s_suffix}{p_suffix}_pki{scenario_suffix}.csv')
-        metric_value_pki, std_dev_pki = read_csv(csv_file_path, metric, rasp)  # Get metric and std dev values
-        pki_values.append(metric_value_pki)
-        pki_std_dev.append(std_dev_pki)
-
-        print(f"Reading data for algorithm: {algorithm}, n: {n}, s: {s}, p: {p}, scenario: {scenario}")
-        print(f"CSV file path for psk: {csv_file_path}")
-        print(f"CSV file path for pki: {csv_file_path}")
+    nosec_color = color_palette[2]
     
-    # Read data for the first plot (horizontal line)
-    csv_file_path_horizontal = os.path.join(script_directory, data_dir, f'udp{"_rasp" if rasp else ""}_conv_stats_n{n}{s_suffix}{p_suffix}_nosec{scenario_suffix}.csv')
-    metric_value_horizontal, std_dev_horizontal = read_csv(csv_file_path_horizontal, metric, rasp)  # Get metric and std dev values
+    # Generate additional colors for different certificate types
+    cert_colors = {}
+    num_cert_types = len(cert_types_list)
+    if num_cert_types > 1:
+        # Generate a gradient of colors for multiple certificate types
+        cert_colors_list = list(mcolors.LinearSegmentedColormap.from_list(
+            "", [pki_base_color, "#006400"])(np.linspace(0, 1, num_cert_types)))
+        for i, cert_type in enumerate(cert_types_list):
+            cert_colors[cert_type] = cert_colors_list[i]
+    else:
+        # Just use the base PKI color if there's only one certificate type
+        for cert_type in cert_types_list:
+            cert_colors[cert_type] = pki_base_color
 
-    # Plot scatter plots for psk and pki with error bars
-    ax.errorbar(algorithms_list, pki_values, yerr=pki_std_dev, label='PKI', color=pki_color, fmt='o', capsize=5)
-    ax.errorbar(algorithms_list, psk_values, yerr=psk_std_dev, label='PSK', color=psk_color, fmt='o', capsize=5)
+    # Construct the common file pattern parts
+    s_suffix = f"_s{s}" if s else ""
+    p_suffix = f"_{p}" if p else ""
+    scenario_suffix = f"_scenario{scenario}"
+    rasp_prefix = "_rasp" if rasp else ""
 
-    # Plot lines connecting points for psk and pki
-    ax.plot(algorithms_list, pki_values, '--', color=pki_color, label='_nolegend_')
-    ax.plot(algorithms_list, psk_values, '--', color=psk_color, label='_nolegend_')
+    # Data structures to hold values for each algorithm and certificate type
+    data = {
+        'psk': {
+            'values': [],
+            'std_devs': [],
+            'algorithms': []
+        },
+        'nosec': {
+            'value': None,
+            'std_dev': None
+        }
+    }
+    
+    # Add entries for each certificate type
+    for cert_type in cert_types_list:
+        data[cert_type] = {
+            'values': [],
+            'std_devs': [],
+            'algorithms': []
+        }
 
-    # Plot horizontal line for nosec mode with error bars
-    ax.errorbar(algorithms_list, [metric_value_horizontal] * len(algorithms_list), yerr=std_dev_horizontal, label='NoSec', color=color_palette[2], fmt='o', capsize=5)
+    # Get PSK data for each algorithm
+    for algorithm in algorithms_list:
+        # PSK file pattern
+        psk_pattern = f"udp{rasp_prefix}_conv_stats_{algorithm}_n{n}{s_suffix}{p_suffix}_psk{scenario_suffix}.csv"
+        psk_files = find_files(data_dir_path, psk_pattern)
+        
+        if psk_files:
+            psk_file_path = psk_files[0]
+            metric_value_psk, std_dev_psk = read_csv(psk_file_path, metric, rasp)
+            if metric_value_psk is not None:
+                data['psk']['values'].append(metric_value_psk)
+                data['psk']['std_devs'].append(std_dev_psk)
+                data['psk']['algorithms'].append(algorithm)
+                print(f"Found PSK file for {algorithm}: {psk_file_path}")
+            else:
+                print(f"Warning: Could not read PSK data from {psk_file_path}")
+        else:
+            print(f"Warning: Could not find PSK file for algorithm {algorithm}")
 
-    # Plot line connecting points for nosec mode
-    ax.plot(algorithms_list, [metric_value_horizontal] * len(algorithms_list), '--', color=color_palette[2], label='_nolegend_')
+    # Get PKI data for each algorithm and certificate type
+    for cert_type in cert_types_list:
+        for algorithm in algorithms_list:
+            # PKI file pattern - look for files that contain both KEM algorithm and certificate type
+            pki_pattern = f"udp{rasp_prefix}_conv_stats_{algorithm}_{cert_type}_n{n}{s_suffix}{p_suffix}_pki{scenario_suffix}.csv"
+            pki_files = find_files(data_dir_path, pki_pattern)
+            
+            # Also try with client-auth suffix if it exists
+            if not pki_files:
+                pki_pattern = f"udp{rasp_prefix}_conv_stats_{algorithm}_{cert_type}_n{n}{s_suffix}{p_suffix}_pki_client-auth{scenario_suffix}.csv"
+                pki_files = find_files(data_dir_path, pki_pattern)
+            
+            if pki_files:
+                pki_file_path = pki_files[0]
+                metric_value_pki, std_dev_pki = read_csv(pki_file_path, metric, rasp)
+                if metric_value_pki is not None:
+                    data[cert_type]['values'].append(metric_value_pki)
+                    data[cert_type]['std_devs'].append(std_dev_pki)
+                    data[cert_type]['algorithms'].append(algorithm)
+                    print(f"Found PKI file for {algorithm} with {cert_type}: {pki_file_path}")
+                else:
+                    print(f"Warning: Could not read PKI data from {pki_file_path}")
+            else:
+                print(f"Warning: Could not find PKI file for algorithm {algorithm} with {cert_type}")
+    
+    # Get nosec data
+    nosec_pattern = f"udp{rasp_prefix}_conv_stats_n{n}{s_suffix}{p_suffix}_nosec{scenario_suffix}.csv"
+    nosec_files = find_files(data_dir_path, nosec_pattern)
+    
+    if not nosec_files:
+        # Try a more flexible pattern if the exact one doesn't work
+        nosec_pattern = f"udp{rasp_prefix}_conv_stats*n{n}*_nosec*{scenario_suffix}.csv"
+        nosec_files = find_files(data_dir_path, nosec_pattern)
+    
+    if nosec_files:
+        nosec_file_path = nosec_files[0]
+        metric_value_horizontal, std_dev_horizontal = read_csv(nosec_file_path, metric, rasp)
+        if metric_value_horizontal is not None:
+            data['nosec']['value'] = metric_value_horizontal
+            data['nosec']['std_dev'] = std_dev_horizontal
+            print(f"Using nosec file: {nosec_file_path}")
+        else:
+            print(f"Warning: Could not read nosec data from {nosec_file_path}")
+    else:
+        print(f"Warning: Could not find nosec file matching pattern {nosec_pattern}")
+
+    # Plot data for each certificate type
+    for cert_type in cert_types_list:
+        if data[cert_type]['values']:
+            ax.errorbar(
+                data[cert_type]['algorithms'], 
+                data[cert_type]['values'], 
+                yerr=data[cert_type]['std_devs'], 
+                label=f'PKI ({cert_type})', 
+                fmt='o', 
+                capsize=5, 
+                color=cert_colors[cert_type]
+            )
+            ax.plot(
+                data[cert_type]['algorithms'], 
+                data[cert_type]['values'], 
+                '--', 
+                color=cert_colors[cert_type]
+            )
+    
+    # Plot PSK data
+    if data['psk']['values']:
+        ax.errorbar(
+            data['psk']['algorithms'], 
+            data['psk']['values'], 
+            yerr=data['psk']['std_devs'], 
+            label='PSK', 
+            fmt='o', 
+            capsize=5, 
+            color=psk_color
+        )
+        ax.plot(
+            data['psk']['algorithms'], 
+            data['psk']['values'], 
+            '--', 
+            color=psk_color
+        )
+
+    # Plot nosec data
+    if data['nosec']['value'] is not None:
+        ax.errorbar(
+            algorithms_list, 
+            [data['nosec']['value']] * len(algorithms_list), 
+            yerr=data['nosec']['std_dev'], 
+            label='NoSec', 
+            fmt='o', 
+            capsize=5, 
+            color=nosec_color
+        )
+        ax.plot(
+            algorithms_list, 
+            [data['nosec']['value']] * len(algorithms_list), 
+            '--', 
+            color=nosec_color
+        )
 
     # Set labels and title
     ax.set_xlabel('Algorithms')
     ax.set_ylabel(metric)
-    ax.set_title(f'{metric} by algorithm and security mode - n={n}, s={s}, p={p}, scenario={scenario}' if s is not None or p is not None else f'{metric} by algorithm and security mode - n={n}, scenario={scenario}')
+    title = f'{metric} by algorithm and security mode - n={n}, scenario={scenario}'
+    if s is not None:
+        title += f', s={s}'
+    if p is not None:
+        title += f', p={p}'
+    ax.set_title(title)
     
     # Calculate the minimum and maximum values considering error bars
-    min_value = min(min(psk_values) - min(psk_std_dev), min(pki_values) - min(pki_std_dev), metric_value_horizontal - std_dev_horizontal)
-    max_value = max(max(psk_values) + max(psk_std_dev), max(pki_values) + max(pki_std_dev), metric_value_horizontal + std_dev_horizontal)
-
-    # Calculate the range based on the maximum absolute value
-    value_range = 0.1 * max(abs(min_value), abs(max_value))
-
-    # Set y-axis limits based on the calculated range
-    ax.set_ylim(min_value - value_range, max_value + value_range)
+    values_to_consider = []
+    std_devs_to_consider = []
+    
+    # Include all certificate types
+    for cert_type in cert_types_list:
+        if data[cert_type]['values']:
+            values_to_consider.extend(data[cert_type]['values'])
+            std_devs_to_consider.extend(data[cert_type]['std_devs'])
+    
+    # Include PSK
+    if data['psk']['values']:
+        values_to_consider.extend(data['psk']['values'])
+        std_devs_to_consider.extend(data['psk']['std_devs'])
+    
+    # Include NoSec
+    if data['nosec']['value'] is not None:
+        values_to_consider.append(data['nosec']['value'])
+        std_devs_to_consider.append(data['nosec']['std_dev'])
+    
+    if values_to_consider and std_devs_to_consider:
+        min_value = min([v - s for v, s in zip(values_to_consider, std_devs_to_consider)])
+        max_value = max([v + s for v, s in zip(values_to_consider, std_devs_to_consider)])
+        
+        # Calculate the range based on the maximum absolute value
+        value_range = 0.1 * max(abs(min_value), abs(max_value))
+        
+        # Set y-axis limits based on the calculated range
+        ax.set_ylim(min_value - value_range, max_value + value_range)
 
     # Show legend
     ax.legend()
 
     # Save the plot
-    clean_metric = metric.replace(' ', '_')
-    string_algorithms_list = [str(element) for element in algorithms_list]
-    delimiter = "_"
-    result_algorithms_list = delimiter.join(string_algorithms_list)
-
-    s_suffix = f"_s{s}" if s else ""
-    p_suffix = f"_{p}" if p else ""
-    scenario_suffix = f"_scenario{scenario}"
+    clean_metric = metric.replace(' ', '_').replace('(', '').replace(')', '')
+    algorithms_str = "_".join(algorithms_list)
+    cert_types_str = "_".join([cert_type.replace('_', '') for cert_type in cert_types_list])
     
-    plt.savefig(f'./bench-plots/{"rasp_" if rasp else ""}{clean_metric}_n{n}{s_suffix}{p_suffix}_{result_algorithms_list}{scenario_suffix}.png')
+    s_suffix_file = f"_s{s}" if s else ""
+    p_suffix_file = f"_{p}" if p else ""
+    
+    output_file = f'./bench-plots/{"rasp_" if rasp else ""}{clean_metric}_n{n}{s_suffix_file}{p_suffix_file}_{algorithms_str}_{cert_types_str}_scenario{scenario}.png'
+    
+    # Create the directory if it doesn't exist
+    os.makedirs('./bench-plots', exist_ok=True)
+    
+    plt.savefig(output_file)
+    print(f"Plot saved to {output_file}")
     plt.show()
 
 if __name__ == "__main__":
-    if len(sys.argv) < 6 or len(sys.argv) > 8:
-        print("Usage: python3 coap_benchmark_plots.py <metric> <algorithms_list> <n> <scenario> <rasp> [s] [p]")
+    if len(sys.argv) < 7 or len(sys.argv) > 9:
+        print("Usage: python3 coap_benchmark_plots.py <metric> <algorithms_list> <cert_types_list> <n> <scenario> <rasp> [s] [p]")
+        print("\nExample: python3 coap_benchmark_plots.py 'duration' 'KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5' 'DILITHIUM_LEVEL2,RSA_2048' 50 A True")
+        print("\nFor energy metrics: python3 coap_benchmark_plots.py 'Energy (Wh)' 'KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5' 'DILITHIUM_LEVEL2' 10 A True")
         sys.exit(1)
 
     metric = sys.argv[1]
-    algorithms_list = sys.argv[2].split(',')
-    n = int(sys.argv[3])
-    scenario = sys.argv[4].upper()
+    algorithms_list = [alg.strip() for alg in sys.argv[2].split(',')]
+    cert_types_list = [cert.strip() for cert in sys.argv[3].split(',')]
+    n = int(sys.argv[4])
+    scenario = sys.argv[5].upper()
+    
     if scenario not in ['A', 'B', 'C']:
         print("Error: scenario must be one of 'A', 'B', or 'C'.")
         sys.exit(1)
-    rasp = sys.argv[5].lower() == "true"
+        
+    rasp = sys.argv[6].lower() == "true"
 
     s = None
     p = None
 
-    if len(sys.argv) >= 7:
-        if sys.argv[6].isdigit():
-            s = int(sys.argv[6])
-            if len(sys.argv) == 8:
-                p = sys.argv[7]
+    if len(sys.argv) >= 8:
+        if sys.argv[7].isdigit():
+            s = int(sys.argv[7])
+            if len(sys.argv) == 9:
+                p = sys.argv[8]
         else:
-            p = sys.argv[6]
-            if len(sys.argv) == 8:
-                s = int(sys.argv[7]) if sys.argv[7].isdigit() else None
+            p = sys.argv[7]
+            if len(sys.argv) == 9:
+                s = int(sys.argv[8]) if sys.argv[8].isdigit() else None
 
-    create_scatter_plots(metric, algorithms_list, n, scenario, rasp, s, p)
+    create_scatter_plots(metric, algorithms_list, cert_types_list, n, scenario, rasp, s, p)

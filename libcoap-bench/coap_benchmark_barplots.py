@@ -1,193 +1,3 @@
-# import sys
-# import os
-# import matplotlib.pyplot as plt
-# import pandas as pd
-# import numpy as np
-# import matplotlib.colors as mcolors
-# from matplotlib.patches import Patch
-
-# # Generate the color palette
-# color_palette = list(mcolors.LinearSegmentedColormap.from_list("", ["#9fcf69", "#33acdc"])(np.linspace(0, 1, 9)))
-# security_mode_colors = {
-#     "pki": color_palette[0],
-#     "psk": color_palette[3],
-#     "nosec": color_palette[6]
-# }
-
-# def read_csv(file_path, metric_column):
-#     """
-#     Read CSV file and extract the metric and standard deviation values from specified columns.
-    
-#     Args:
-#         file_path (str): Path to the CSV file.
-#         metric_column (str): Column name for the metric value.
-
-#     Returns:
-#         tuple: Metric value and standard deviation value, or None, None if an error occurs.
-#     """
-#     try:
-#         df = pd.read_csv(file_path, sep=';')
-#         metric_value = float(df.iloc[-2][metric_column])
-#         std_dev_value = float(df.iloc[-1][metric_column])
-#         return metric_value, std_dev_value
-#     except FileNotFoundError:
-#         print(f"Error: File not found - {file_path}")
-#         return None, None
-#     except KeyError:
-#         print(f"Error: Column '{metric_column}' not found in {file_path}")
-#         return None, None
-#     except Exception as e:
-#         print(f"Error reading {file_path}: {e}")
-#         return None, None
-
-# def create_bar_plot(metric, algorithms_list, n, scenarios, rasp=False, s=None, p=None, data_dir='bench-data'):
-#     """
-#     Create bar plot for the specified metric and algorithms under different security modes and scenarios.
-
-#     Args:
-#         metric (str): The metric to be plotted.
-#         algorithms_list (list): List of algorithm names.
-#         n (int): Number of repetitions.
-#         scenarios (list): List of scenarios to consider.
-#         rasp (bool): If True, use Rasp dataset.
-#         s (int or None): Optional 's' parameter.
-#         p (str or None): Optional 'p' parameter.
-#         data_dir (str): Directory containing the data files.
-#     """
-#     script_directory = os.path.dirname(os.path.realpath(__file__))
-    
-#     fig, ax = plt.subplots(figsize=(14, 8))
-
-#     security_modes = ['pki', 'psk', 'nosec']
-#     regular_modes = security_modes[:-1]  # ['pki', 'psk']
-    
-#     bars_per_algorithm = len(regular_modes) * len(scenarios)
-
-#     # Calculate the number of algorithms
-#     num_algorithms = len(algorithms_list)
-
-#     # Calculate the total number of positions for regular modes
-#     total_positions = num_algorithms * bars_per_algorithm
-
-#     # Define the spacing between blocks
-#     block_spacing = 2  # Increase block spacing to separate nosec mode clearly
-
-#     # Initialize the x_positions array for regular modes
-#     x_positions = np.zeros(total_positions)
-
-#     # Calculate x_positions for regular modes
-#     for i in range(num_algorithms):
-#         start_pos = i * (bars_per_algorithm + block_spacing)
-#         for j in range(bars_per_algorithm):
-#             x_positions[i * bars_per_algorithm + j] = start_pos + j * (1 + 0.05)
-
-#     # Calculate positions for 'nosec' mode
-#     nosec_positions = np.zeros(len(scenarios))
-#     nosec_start = x_positions[-1] + block_spacing  # Start after the last regular mode position + spacing
-
-#     for j in range(len(scenarios)):
-#         nosec_positions[j] = nosec_start + j * (1 + 0.05)
-
-#     x_labels = [''] * (total_positions + len(nosec_positions))  # Initialize x_labels with empty strings
-#     legend_entries = {}
-
-#     # Plot regular modes
-#     for i, algorithm in enumerate(algorithms_list):
-#         for j, scenario in enumerate(scenarios):
-#             for k, mode in enumerate(regular_modes):
-#                 s_suffix = f"_s{s}" if s else ""
-#                 p_suffix = f"_{p}" if p else ""
-#                 scenario_suffix = f"_scenario{scenario}"
-
-#                 csv_file_path = os.path.join(script_directory, data_dir, f'udp{"_rasp" if rasp else ""}_conv_stats_{algorithm}_n{n}{s_suffix}{p_suffix}_{mode}{scenario_suffix}.csv')
-                
-#                 metric_value, std_dev_value = read_csv(csv_file_path, metric)
-
-#                 if metric_value is not None and std_dev_value is not None:
-#                     position = i * bars_per_algorithm + j * len(regular_modes) + k
-                    
-#                     bar_color = security_mode_colors[mode]
-                    
-#                     # Add error bars with cap style
-#                     (_, caps, _) = ax.errorbar(x_positions[position], metric_value, yerr=std_dev_value, capsize=5, fmt='o', color='black', markersize=5)
-#                     for cap in caps:
-#                         cap.set_markeredgewidth(1)
-
-#                     # Create the bar
-#                     ax.bar(x_positions[position], metric_value, width=1, color=bar_color, edgecolor='black', linewidth=1)
-                    
-#                     legend_entries[f'{mode}'] = bar_color
-#                     x_labels[position] = f'{algorithm}-{scenario}-{mode}'
-
-#     # Plot 'nosec' mode separately
-#     for j, scenario in enumerate(scenarios):
-#         s_suffix = f"_s{s}" if s else ""
-#         p_suffix = f"_{p}" if p else ""
-#         scenario_suffix = f"_scenario{scenario}"
-
-#         csv_file_path = os.path.join(script_directory, data_dir, f'udp{"_rasp" if rasp else ""}_conv_stats_n{n}{s_suffix}{p_suffix}_nosec{scenario_suffix}.csv')
-        
-#         metric_value, std_dev_value = read_csv(csv_file_path, metric)
-
-#         if metric_value is not None and std_dev_value is not None:
-#             position = j
-#             bar_color = security_mode_colors['nosec']
-            
-#             # Add error bars with cap style
-#             (_, caps, _) = ax.errorbar(nosec_positions[position], metric_value, yerr=std_dev_value, capsize=5, fmt='o', color='black', markersize=5)
-#             for cap in caps:
-#                 cap.set_markeredgewidth(1)
-
-#             # Create the bar
-#             ax.bar(nosec_positions[position], metric_value, width=1, color=bar_color, edgecolor='black', linewidth=1)
-            
-#             legend_entries['nosec'] = bar_color
-#             x_labels[total_positions + position] = f'{scenario}-nosec'
-
-#     # Set the x-ticks and labels
-#     filtered_x_positions = [x for x, label in zip(np.concatenate((x_positions, nosec_positions)), x_labels) if label]
-#     filtered_x_labels = [label for label in x_labels if label]
-
-#     ax.set_xticks(filtered_x_positions)
-#     ax.set_xticklabels(filtered_x_labels, rotation=45, ha='right', fontsize=10)
-
-#     ax.set_xlabel('(Algorithm -) Scenario - Mode')
-#     ax.set_ylabel(metric)
-#     ax.set_title(f'{metric} by algorithm, security mode, and scenario - n={n}, s={s}, p={p}')
-    
-#     # Create a custom legend
-#     handles = [Patch(facecolor=color, label=label) for label, color in legend_entries.items()]
-#     ax.legend(handles=handles, loc='upper right', bbox_to_anchor=(1.15, 1), ncol=1)
-
-#     plt.tight_layout()
-#     algorithms_str = "_".join(algorithms_list)
-#     plt.savefig(f'./bench-plots/barplot_{"rasp_" if rasp else ""}{metric}_n{n}_{s if s else ""}_{p if p else ""}_{algorithms_str}.png')
-#     plt.show()
-
-# if __name__ == "__main__":
-#     if len(sys.argv) < 6 or len(sys.argv) > 9:
-#         print("Usage: python3 coap_benchmark_barplots.py <metric> <algorithms_list> <n> <rasp> <scenarios_list> [s] [p]")
-#         sys.exit(1)
-
-#     metric = sys.argv[1]
-#     algorithms_list = sys.argv[2].split(',')
-#     n = int(sys.argv[3])
-#     rasp = sys.argv[4].lower() == "true"
-#     scenarios_list = sys.argv[5].split(',')
-
-#     s, p = None, None
-#     if len(sys.argv) >= 7:
-#         if sys.argv[6].isdigit():
-#             s = int(sys.argv[6])
-#             if len(sys.argv) == 8:
-#                 p = sys.argv[7]
-#         else:
-#             p = sys.argv[6]
-#             if len(sys.argv) == 8:
-#                 s = int(sys.argv[7]) if sys.argv[7].isdigit() else None
-
-#     create_bar_plot(metric, algorithms_list, n, scenarios_list, rasp, s, p)
-
 import sys
 import os
 import matplotlib.pyplot as plt
@@ -195,6 +5,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.colors as mcolors
 from matplotlib.patches import Patch
+import glob
 
 # Generate the color palette
 color_palette = list(mcolors.LinearSegmentedColormap.from_list("", ["#9fcf69", "#33acdc"])(np.linspace(0, 1, 9)))
@@ -230,13 +41,31 @@ def read_csv(file_path, metric_column):
         print(f"Error reading {file_path}: {e}")
         return None, None
 
-def create_bar_plot(metric, algorithms_list, n, scenarios, rasp=False, s=None, p=None, data_dir='bench-data'):
+def find_matching_files(base_dir, pattern):
+    """
+    Find all files in the directory that match the given pattern.
+    
+    Args:
+        base_dir (str): Base directory to search in.
+        pattern (str): File pattern to search for.
+        
+    Returns:
+        list: List of matching file paths.
+    """
+    try:
+        return glob.glob(os.path.join(base_dir, pattern))
+    except Exception as e:
+        print(f"Error finding files: {e}")
+        return []
+
+def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp=False, s=None, p=None, data_dir='bench-data'):
     """
     Create bar plot for the specified metric and algorithms under different security modes and scenarios.
 
     Args:
         metric (str): The metric to be plotted.
         algorithms_list (list): List of algorithm names.
+        cert_types_list (list): List of certificate types to include.
         n (int): Number of repetitions.
         scenarios (list): List of scenarios to consider.
         rasp (bool): If True, use Rasp dataset.
@@ -245,136 +74,233 @@ def create_bar_plot(metric, algorithms_list, n, scenarios, rasp=False, s=None, p
         data_dir (str): Directory containing the data files.
     """
     script_directory = os.path.dirname(os.path.realpath(__file__))
+    data_dir_path = os.path.join(script_directory, data_dir)
     
     fig, ax = plt.subplots(figsize=(14, 8))
 
-    security_modes = ['pki', 'psk', 'nosec']
-    regular_modes = security_modes[:-1]  # ['pki', 'psk']
+    # Calculate the number of types of bars we'll have
+    num_bar_types = 1 + len(cert_types_list)  # PSK + all certificate types (PKI)
     
-    bars_per_algorithm = len(scenarios) * len(regular_modes)
-
-    # Calculate the number of algorithms
+    # Calculate the number of bar groups (algorithm + scenario combinations)
     num_algorithms = len(algorithms_list)
-
-    # Calculate the total number of positions for regular modes
-    total_positions = num_algorithms * bars_per_algorithm
-
-    # Define the spacing between blocks
-    block_spacing = 2  # Increase block spacing to separate nosec mode clearly
-
-    # Initialize the x_positions array for regular modes
-    x_positions = np.zeros(total_positions)
-
-    # Calculate x_positions for regular modes
-    for i in range(num_algorithms):
-        start_pos = i * (bars_per_algorithm + block_spacing)
-        for j in range(bars_per_algorithm):
-            x_positions[i * bars_per_algorithm + j] = start_pos + j * (1 + 0.05)
-
-    # Calculate positions for 'nosec' mode
-    nosec_positions = np.zeros(len(scenarios))
-    nosec_start = x_positions[-1] + block_spacing  # Start after the last regular mode position + spacing
-
-    for j in range(len(scenarios)):
-        nosec_positions[j] = nosec_start + j * (1 + 0.05)
-
-    x_labels = [''] * (total_positions + len(nosec_positions))  # Initialize x_labels with empty strings
+    num_scenarios = len(scenarios)
+    num_groups = num_algorithms * num_scenarios
+    
+    # Define the spacing between groups and individual bars
+    group_width = num_bar_types * 1.2  # Total width for a group of bars
+    bar_width = 1.0  # Width of each bar
+    group_spacing = 2.0  # Space between groups
+    
+    # Calculate positions for each group
+    group_positions = np.arange(num_groups) * (group_width + group_spacing)
+    
+    # Calculate position for nosec bars (separate section)
+    nosec_start = group_positions[-1] + group_width + group_spacing if num_groups > 0 else 0
+    nosec_positions = np.array([nosec_start + i * 1.5 for i in range(num_scenarios)])
+    
+    # Create a dictionary to store bar positions
+    bar_positions = {}
+    x_labels = []
+    
+    # Generate colors for different certificate types
+    cert_colors = {}
+    pki_base_color = security_mode_colors["pki"]
+    num_cert_types = len(cert_types_list)
+    
+    if num_cert_types > 1:
+        # Generate a gradient of colors for multiple certificate types
+        cert_colors_list = list(mcolors.LinearSegmentedColormap.from_list(
+            "", [pki_base_color, "#006400"])(np.linspace(0, 1, num_cert_types)))
+        for i, cert_type in enumerate(cert_types_list):
+            cert_colors[cert_type] = cert_colors_list[i]
+    else:
+        # Just use the base PKI color if there's only one certificate type
+        for cert_type in cert_types_list:
+            cert_colors[cert_type] = pki_base_color
+    
+    # Common file pattern parts
+    s_suffix = f"_s{s}" if s else ""
+    p_suffix = f"_{p}" if p else ""
+    rasp_prefix = "_rasp" if rasp else ""
+    
+    # Dictionary to store legend entries
     legend_entries = {}
-
-    # Plot regular modes
-    for i, algorithm in enumerate(algorithms_list):
-        for k, mode in enumerate(regular_modes):
-            for j, scenario in enumerate(scenarios):
-                s_suffix = f"_s{s}" if s else ""
-                p_suffix = f"_{p}" if p else ""
-                scenario_suffix = f"_scenario{scenario}"
-
-                csv_file_path = os.path.join(script_directory, data_dir, f'udp{"_rasp" if rasp else ""}_conv_stats_{algorithm}_n{n}{s_suffix}{p_suffix}_{mode}{scenario_suffix}.csv')
+    
+    # Process and plot each algorithm and scenario combination
+    group_idx = 0
+    for alg_idx, algorithm in enumerate(algorithms_list):
+        for scen_idx, scenario in enumerate(scenarios):
+            scenario_suffix = f"_scenario{scenario}"
+            group_center = group_positions[group_idx]
+            bar_idx = 0
+            
+            # Set the x label for this group
+            x_labels.append((group_center, f"{algorithm}-{scenario}"))
+            
+            # Process each certificate type (PKI)
+            for cert_idx, cert_type in enumerate(cert_types_list):
+                # PKI file pattern
+                pki_pattern = f"udp{rasp_prefix}_conv_stats_{algorithm}_{cert_type}_n{n}{s_suffix}{p_suffix}_pki{scenario_suffix}.csv"
+                pki_files = find_matching_files(data_dir_path, pki_pattern)
                 
-                metric_value, std_dev_value = read_csv(csv_file_path, metric)
-
+                # Try with client-auth if needed
+                if not pki_files:
+                    pki_pattern = f"udp{rasp_prefix}_conv_stats_{algorithm}_{cert_type}_n{n}{s_suffix}{p_suffix}_pki_client-auth{scenario_suffix}.csv"
+                    pki_files = find_matching_files(data_dir_path, pki_pattern)
+                
+                if pki_files:
+                    file_path = pki_files[0]
+                    metric_value, std_dev_value = read_csv(file_path, metric)
+                    
+                    if metric_value is not None and std_dev_value is not None:
+                        bar_pos = group_center + (bar_idx - (num_bar_types - 1) / 2) * 1.2
+                        
+                        # Add error bars
+                        (_, caps, _) = ax.errorbar(bar_pos, metric_value, yerr=std_dev_value, 
+                                                  capsize=5, fmt='o', color='black', markersize=5)
+                        for cap in caps:
+                            cap.set_markeredgewidth(1)
+                        
+                        # Add the bar
+                        ax.bar(bar_pos, metric_value, width=bar_width, 
+                               color=cert_colors[cert_type], edgecolor='black', linewidth=1)
+                        
+                        # Add to legend entries
+                        legend_name = f'PKI ({cert_type})'
+                        legend_entries[legend_name] = cert_colors[cert_type]
+                        
+                        # Store the bar position
+                        key = (algorithm, scenario, f"PKI ({cert_type})")
+                        bar_positions[key] = bar_pos
+                
+                bar_idx += 1
+            
+            # Process PSK
+            psk_pattern = f"udp{rasp_prefix}_conv_stats_{algorithm}_n{n}{s_suffix}{p_suffix}_psk{scenario_suffix}.csv"
+            psk_files = find_matching_files(data_dir_path, psk_pattern)
+            
+            if psk_files:
+                file_path = psk_files[0]
+                metric_value, std_dev_value = read_csv(file_path, metric)
+                
                 if metric_value is not None and std_dev_value is not None:
-                    position = i * bars_per_algorithm + k * len(scenarios) + j
+                    bar_pos = group_center + (bar_idx - (num_bar_types - 1) / 2) * 1.2
                     
-                    bar_color = security_mode_colors[mode]
-                    
-                    # Add error bars with cap style
-                    (_, caps, _) = ax.errorbar(x_positions[position], metric_value, yerr=std_dev_value, capsize=5, fmt='o', color='black', markersize=5)
+                    # Add error bars
+                    (_, caps, _) = ax.errorbar(bar_pos, metric_value, yerr=std_dev_value, 
+                                              capsize=5, fmt='o', color='black', markersize=5)
                     for cap in caps:
                         cap.set_markeredgewidth(1)
-
-                    # Create the bar
-                    ax.bar(x_positions[position], metric_value, width=1, color=bar_color, edgecolor='black', linewidth=1)
                     
-                    legend_entries[f'{mode}'] = bar_color
-                    x_labels[position] = f'{algorithm}-{mode}-{scenario}'
-
-    # Plot 'nosec' mode separately
-    for j, scenario in enumerate(scenarios):
-        s_suffix = f"_s{s}" if s else ""
-        p_suffix = f"_{p}" if p else ""
+                    # Add the bar
+                    ax.bar(bar_pos, metric_value, width=bar_width, 
+                           color=security_mode_colors['psk'], edgecolor='black', linewidth=1)
+                    
+                    # Add to legend entries
+                    legend_entries['PSK'] = security_mode_colors['psk']
+                    
+                    # Store the bar position
+                    key = (algorithm, scenario, 'PSK')
+                    bar_positions[key] = bar_pos
+            
+            group_idx += 1
+    
+    # Process and plot nosec for each scenario
+    for scen_idx, scenario in enumerate(scenarios):
         scenario_suffix = f"_scenario{scenario}"
-
-        csv_file_path = os.path.join(script_directory, data_dir, f'udp{"_rasp" if rasp else ""}_conv_stats_n{n}{s_suffix}{p_suffix}_nosec{scenario_suffix}.csv')
         
-        metric_value, std_dev_value = read_csv(csv_file_path, metric)
-
-        if metric_value is not None and std_dev_value is not None:
-            position = j
-            bar_color = security_mode_colors['nosec']
+        # NoSec file pattern
+        nosec_pattern = f"udp{rasp_prefix}_conv_stats_n{n}{s_suffix}{p_suffix}_nosec{scenario_suffix}.csv"
+        nosec_files = find_matching_files(data_dir_path, nosec_pattern)
+        
+        # Try a more flexible pattern if needed
+        if not nosec_files:
+            nosec_pattern = f"udp{rasp_prefix}_conv_stats*n{n}*_nosec*{scenario_suffix}.csv"
+            nosec_files = find_matching_files(data_dir_path, nosec_pattern)
+        
+        if nosec_files:
+            file_path = nosec_files[0]
+            metric_value, std_dev_value = read_csv(file_path, metric)
             
-            # Add error bars with cap style
-            (_, caps, _) = ax.errorbar(nosec_positions[position], metric_value, yerr=std_dev_value, capsize=5, fmt='o', color='black', markersize=5)
-            for cap in caps:
-                cap.set_markeredgewidth(1)
-
-            # Create the bar
-            ax.bar(nosec_positions[position], metric_value, width=1, color=bar_color, edgecolor='black', linewidth=1)
-            
-            legend_entries['nosec'] = bar_color
-            x_labels[total_positions + position] = f'nosec-{scenario}'
-
+            if metric_value is not None and std_dev_value is not None:
+                bar_pos = nosec_positions[scen_idx]
+                
+                # Add error bars
+                (_, caps, _) = ax.errorbar(bar_pos, metric_value, yerr=std_dev_value, 
+                                          capsize=5, fmt='o', color='black', markersize=5)
+                for cap in caps:
+                    cap.set_markeredgewidth(1)
+                
+                # Add the bar
+                ax.bar(bar_pos, metric_value, width=bar_width, 
+                       color=security_mode_colors['nosec'], edgecolor='black', linewidth=1)
+                
+                # Add to legend entries
+                legend_entries['NoSec'] = security_mode_colors['nosec']
+                
+                # Add nosec label
+                x_labels.append((bar_pos, f"NoSec-{scenario}"))
+    
     # Set the x-ticks and labels
-    filtered_x_positions = [x for x, label in zip(np.concatenate((x_positions, nosec_positions)), x_labels) if label]
-    filtered_x_labels = [label for label in x_labels if label]
+    xtick_positions, xtick_labels = zip(*x_labels)
+    ax.set_xticks(xtick_positions)
+    ax.set_xticklabels(xtick_labels, rotation=45, ha='right', fontsize=10)
 
-    ax.set_xticks(filtered_x_positions)
-    ax.set_xticklabels(filtered_x_labels, rotation=45, ha='right', fontsize=10)
-
-    ax.set_xlabel('(Algorithm -) Mode - Scenario')
+    # Set axis labels and title
+    ax.set_xlabel('Algorithm - Scenario - Mode')
     ax.set_ylabel(metric)
-    ax.set_title(f'{metric} by algorithm, security mode, and scenario - n={n}, s={s}, p={p}')
+    
+    title = f'{metric} by algorithm, security mode, and scenario - n={n}'
+    if s is not None:
+        title += f', s={s}'
+    if p is not None:
+        title += f', p={p}'
+    ax.set_title(title)
     
     # Create a custom legend
     handles = [Patch(facecolor=color, label=label) for label, color in legend_entries.items()]
     ax.legend(handles=handles, loc='upper right', bbox_to_anchor=(1.15, 1), ncol=1)
 
     plt.tight_layout()
+    
+    # Generate the output filename
     algorithms_str = "_".join(algorithms_list)
-    plt.savefig(f'./bench-plots/barplot_{"rasp_" if rasp else ""}{metric}_n{n}_{s if s else ""}_{p if p else ""}_{algorithms_str}.png')
+    scenarios_str = "_".join(scenarios)
+    cert_types_str = "_".join([cert_type.replace('_', '') for cert_type in cert_types_list])
+    clean_metric = metric.replace(' ', '_').replace('(', '').replace(')', '')
+    
+    # Create the plots directory if it doesn't exist
+    os.makedirs('./bench-plots', exist_ok=True)
+    
+    output_file = f'./bench-plots/barplot_{"rasp_" if rasp else ""}{clean_metric}_n{n}_{s if s else ""}_{p if p else ""}_{algorithms_str}_{cert_types_str}_{scenarios_str}.png'
+    
+    plt.savefig(output_file)
+    print(f"Plot saved to {output_file}")
     plt.show()
 
 if __name__ == "__main__":
-    if len(sys.argv) < 6 or len(sys.argv) > 9:
-        print("Usage: python3 coap_benchmark_barplots.py <metric> <algorithms_list> <n> <rasp> <scenarios_list> [s] [p]")
+    if len(sys.argv) < 7 or len(sys.argv) > 9:
+        print("Usage: python3 coap_benchmark_barplots.py <metric> <algorithms_list> <cert_types_list> <n> <rasp> <scenarios_list> [s] [p]")
+        print("\nExample: python3 coap_benchmark_barplots.py 'duration' 'KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5' 'DILITHIUM_LEVEL2,RSA_2048' 50 true 'A,B,C'")
+        print("\nFor energy metrics: python3 coap_benchmark_barplots.py 'Energy (Wh)' 'KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5' 'DILITHIUM_LEVEL2' 10 true 'A,C'")
         sys.exit(1)
 
     metric = sys.argv[1]
-    algorithms_list = sys.argv[2].split(',')
-    n = int(sys.argv[3])
-    rasp = sys.argv[4].lower() == "true"
-    scenarios_list = sys.argv[5].split(',')
+    algorithms_list = [alg.strip() for alg in sys.argv[2].split(',')]
+    cert_types_list = [cert.strip() for cert in sys.argv[3].split(',')]
+    n = int(sys.argv[4])
+    rasp = sys.argv[5].lower() == "true"
+    scenarios_list = [scenario.strip() for scenario in sys.argv[6].split(',')]
 
     s, p = None, None
-    if len(sys.argv) >= 7:
-        if sys.argv[6].isdigit():
-            s = int(sys.argv[6])
-            if len(sys.argv) == 8:
-                p = sys.argv[7]
+    if len(sys.argv) >= 8:
+        if sys.argv[7].isdigit():
+            s = int(sys.argv[7])
+            if len(sys.argv) == 9:
+                p = sys.argv[8]
         else:
-            p = sys.argv[6]
-            if len(sys.argv) == 8:
-                s = int(sys.argv[7]) if sys.argv[7].isdigit() else None
+            p = sys.argv[7]
+            if len(sys.argv) == 9:
+                s = int(sys.argv[8]) if sys.argv[8].isdigit() else None
 
-    create_bar_plot(metric, algorithms_list, n, scenarios_list, rasp, s, p)
-
+    create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios_list, rasp, s, p)
