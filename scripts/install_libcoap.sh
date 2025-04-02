@@ -23,10 +23,10 @@ do
         --install-mode=*)
             install_mode="${arg#*=}"
             ;;
-        --groups-spec=*)
+        --groups-spec)  
             groups_spec=true
-            algorithm="${arg#*=}"
-            ;;
+            shift
+            algorithm="$1"
         --sigalgs-spec)
             sigalgs_spec=true
             ;;
