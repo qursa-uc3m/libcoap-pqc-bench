@@ -76,7 +76,7 @@ start_energy_monitoring() {
     energy_name="$energy_filename"
     
     # Start energy monitoring in the background
-    python ./libcoap-bench/energy_monitor.py --capture --name "$energy_name" --rate 0.5 &
+    python ./libcoap-bench/energy_monitor.py --capture --name "$energy_name" --rate 0.2 &
     ENERGY_PID=$!
     
     # Store the PID for later termination
@@ -542,8 +542,10 @@ else
     fi
     
     # Clean up temporary files
+    echo "Cleaning up temporary files..."
     sudo rm "${BENCH_DIR}/bench-data/${filename}_ws.csv"
     sudo rm "${BENCH_DIR}/bench-data/${filename}.txt"
+    sudo rm "${BENCH_DIR}/bench-data/udp_conversations.pcapng"
 fi
 
 echo "Benchmark completed successfully: $filename"

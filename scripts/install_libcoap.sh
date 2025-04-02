@@ -27,6 +27,7 @@ do
             groups_spec=true
             shift
             algorithm="$1"
+            ;;
         --sigalgs-spec)
             sigalgs_spec=true
             ;;

@@ -9,8 +9,10 @@ check_*
 /.bench_env/
 
 bench-data
+.bench-data
 .pcapng
-.csv
+*.csv
+*.pcapng
 *.txt
 !requirements.txt
 .old/

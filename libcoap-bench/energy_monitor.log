@@ -1,0 +1,201 @@
+2025-04-02 09:48:20,360 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 09:48:32,408 - INFO - Disconnected from device
+2025-04-02 09:48:32,409 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_TEST.csv: Power=2.190657W, Max Power=2.196000W, Energy=0.007110Wh
+2025-04-02 09:54:51,383 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 09:55:05,149 - INFO - Disconnected from device
+2025-04-02 09:55:05,150 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_n50_nosec_scenarioA.csv: Power=2.196037W, Max Power=2.339000W, Energy=0.008015Wh
+2025-04-02 09:55:16,203 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_n50_nosec_scenarioA.csv: Power=2.196037W, Max Power=2.339000W, Energy=0.008015Wh
+2025-04-02 09:56:40,546 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 09:56:54,317 - INFO - Disconnected from device
+2025-04-02 09:56:54,318 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_n50_nosec_scenarioA.csv: Power=2.191700W, Max Power=2.233000W, Energy=0.008012Wh
+2025-04-02 09:57:05,369 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_n50_nosec_scenarioA.csv: Power=2.191700W, Max Power=2.233000W, Energy=0.008012Wh
+2025-04-02 09:58:26,052 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 09:58:39,821 - INFO - Disconnected from device
+2025-04-02 09:58:39,822 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_n50_nosec_scenarioC.csv: Power=2.195250W, Max Power=2.339000W, Energy=0.008027Wh
+2025-04-02 09:58:50,886 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_n50_nosec_scenarioC.csv: Power=2.195250W, Max Power=2.339000W, Energy=0.008027Wh
+2025-04-02 09:59:30,270 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 10:03:04,054 - INFO - Disconnected from device
+2025-04-02 10:03:04,062 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_n50_nosec_scenarioB.csv: Power=2.193706W, Max Power=2.222000W, Energy=0.129894Wh
+2025-04-02 10:03:15,099 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_n50_nosec_scenarioB.csv: Power=2.193706W, Max Power=2.222000W, Energy=0.129894Wh
+2025-04-02 10:05:43,489 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 10:09:17,274 - INFO - Disconnected from device
+2025-04-02 10:09:17,283 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_n50_nosec_scenarioB.csv: Power=2.194995W, Max Power=2.265000W, Energy=0.129975Wh
+2025-04-02 10:09:28,338 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_n50_nosec_scenarioB.csv: Power=2.194995W, Max Power=2.265000W, Energy=0.129975Wh
+2025-04-02 10:15:25,481 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 10:15:39,900 - INFO - Disconnected from device
+2025-04-02 10:15:39,902 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats__n50_psk_scenarioA.csv: Power=2.201930W, Max Power=2.254000W, Energy=0.008643Wh
+2025-04-02 10:15:50,961 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL1_n50_psk_scenarioA.csv: Power=2.201930W, Max Power=2.254000W, Energy=0.008643Wh
+2025-04-02 10:17:02,056 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 10:17:16,356 - INFO - Disconnected from device
+2025-04-02 10:17:16,358 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats__n50_psk_scenarioC.csv: Power=2.224571W, Max Power=2.861000W, Energy=0.008530Wh
+2025-04-02 10:17:27,418 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL1_n50_psk_scenarioC.csv: Power=2.224571W, Max Power=2.861000W, Energy=0.008530Wh
+2025-04-02 10:18:10,591 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 10:21:44,893 - INFO - Disconnected from device
+2025-04-02 10:21:44,902 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats__n50_psk_scenarioB.csv: Power=2.199897W, Max Power=2.360000W, Energy=0.130639Wh
+2025-04-02 10:21:55,974 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL1_n50_psk_scenarioB.csv: Power=2.199897W, Max Power=2.360000W, Energy=0.130639Wh
+2025-04-02 10:25:17,133 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 10:25:32,135 - INFO - Disconnected from device
+2025-04-02 10:25:32,137 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_DILITHIUM_LEVEL2_n50_pki_scenarioA.csv: Power=2.211667W, Max Power=2.270000W, Energy=0.009082Wh
+2025-04-02 10:25:43,210 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL1_DILITHIUM_LEVEL2_n50_pki_scenarioA.csv: Power=2.211667W, Max Power=2.270000W, Energy=0.009082Wh
+2025-04-02 10:26:46,414 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 10:27:01,381 - INFO - Disconnected from device
+2025-04-02 10:27:01,383 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_DILITHIUM_LEVEL2_n50_pki_scenarioC.csv: Power=2.210591W, Max Power=2.265000W, Energy=0.008879Wh
+2025-04-02 10:27:12,502 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL1_DILITHIUM_LEVEL2_n50_pki_scenarioC.csv: Power=2.210591W, Max Power=2.265000W, Energy=0.008879Wh
+2025-04-02 10:27:34,147 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 10:31:09,135 - INFO - Disconnected from device
+2025-04-02 10:31:09,166 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_DILITHIUM_LEVEL2_n50_pki_scenarioB.csv: Power=2.199138W, Max Power=2.302000W, Energy=0.131000Wh
+2025-04-02 10:31:20,216 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL1_DILITHIUM_LEVEL2_n50_pki_scenarioB.csv: Power=2.199138W, Max Power=2.302000W, Energy=0.131000Wh
+2025-04-02 10:32:28,875 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 10:32:44,136 - INFO - Disconnected from device
+2025-04-02 10:32:44,210 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_DILITHIUM_LEVEL3_n50_pki_scenarioA.csv: Power=2.215333W, Max Power=2.286000W, Energy=0.009097Wh
+2025-04-02 10:32:55,233 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL1_DILITHIUM_LEVEL3_n50_pki_scenarioA.csv: Power=2.215333W, Max Power=2.286000W, Energy=0.009097Wh
+2025-04-02 10:39:23,280 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 10:39:38,491 - INFO - Disconnected from device
+2025-04-02 10:39:38,493 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_DILITHIUM_LEVEL3_n50_pki_scenarioC.csv: Power=2.218978W, Max Power=2.280000W, Energy=0.009112Wh
+2025-04-02 10:39:49,549 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL1_DILITHIUM_LEVEL3_n50_pki_scenarioC.csv: Power=2.218978W, Max Power=2.280000W, Energy=0.009112Wh
+2025-04-02 10:40:08,031 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 10:43:43,253 - INFO - Disconnected from device
+2025-04-02 10:43:43,261 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_DILITHIUM_LEVEL3_n50_pki_scenarioB.csv: Power=2.198822W, Max Power=2.349000W, Energy=0.131171Wh
+2025-04-02 10:43:54,337 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL1_DILITHIUM_LEVEL3_n50_pki_scenarioB.csv: Power=2.198822W, Max Power=2.349000W, Energy=0.131171Wh
+2025-04-02 10:45:35,650 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 10:45:51,169 - INFO - Disconnected from device
+2025-04-02 10:45:51,172 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_DILITHIUM_LEVEL5_n50_pki_scenarioA.csv: Power=2.222152W, Max Power=2.302000W, Energy=0.009325Wh
+2025-04-02 10:46:02,236 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL1_DILITHIUM_LEVEL5_n50_pki_scenarioA.csv: Power=2.222152W, Max Power=2.302000W, Energy=0.009325Wh
+2025-04-02 10:46:48,094 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 10:47:03,567 - INFO - Disconnected from device
+2025-04-02 10:47:03,569 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_DILITHIUM_LEVEL5_n50_pki_scenarioC.csv: Power=2.223761W, Max Power=2.286000W, Energy=0.009334Wh
+2025-04-02 10:47:14,672 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL1_DILITHIUM_LEVEL5_n50_pki_scenarioC.csv: Power=2.223761W, Max Power=2.286000W, Energy=0.009334Wh
+2025-04-02 10:48:08,989 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 10:51:44,467 - INFO - Disconnected from device
+2025-04-02 10:51:44,475 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_DILITHIUM_LEVEL5_n50_pki_scenarioB.csv: Power=2.200792W, Max Power=2.360000W, Energy=0.131502Wh
+2025-04-02 10:51:55,567 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL1_DILITHIUM_LEVEL5_n50_pki_scenarioB.csv: Power=2.200792W, Max Power=2.360000W, Energy=0.131502Wh
+2025-04-02 10:55:48,521 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 10:56:04,862 - INFO - Disconnected from device
+2025-04-02 10:56:04,864 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_FALCON_LEVEL1_n50_pki_scenarioA.csv: Power=2.242490W, Max Power=2.407000W, Energy=0.010013Wh
+2025-04-02 10:56:15,917 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL1_FALCON_LEVEL1_n50_pki_scenarioA.csv: Power=2.242490W, Max Power=2.407000W, Energy=0.010013Wh
+2025-04-02 10:56:35,015 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 10:56:51,339 - INFO - Disconnected from device
+2025-04-02 10:56:51,341 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_FALCON_LEVEL1_n50_pki_scenarioC.csv: Power=2.249531W, Max Power=2.423000W, Energy=0.010045Wh
+2025-04-02 10:57:02,395 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL1_FALCON_LEVEL1_n50_pki_scenarioC.csv: Power=2.249531W, Max Power=2.423000W, Energy=0.010045Wh
+2025-04-02 10:57:41,952 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 11:02:09,168 - INFO - Disconnected from device
+2025-04-02 11:02:09,177 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_FALCON_LEVEL1_n50_pki_scenarioB.csv: Power=2.201118W, Max Power=2.370000W, Energy=0.163036Wh
+2025-04-02 11:02:53,763 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 11:06:30,111 - INFO - Disconnected from device
+2025-04-02 11:06:30,119 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_FALCON_LEVEL1_n50_pki_scenarioB.csv: Power=2.202935W, Max Power=2.344000W, Energy=0.132230Wh
+2025-04-02 11:06:41,226 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL1_FALCON_LEVEL1_n50_pki_scenarioB.csv: Power=2.202935W, Max Power=2.344000W, Energy=0.132230Wh
+2025-04-02 11:09:17,305 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 11:09:35,328 - INFO - Disconnected from device
+2025-04-02 11:09:35,330 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_FALCON_LEVEL5_n50_pki_scenarioA.csv: Power=2.356185W, Max Power=2.587000W, Energy=0.011587Wh
+2025-04-02 11:09:46,415 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL1_FALCON_LEVEL5_n50_pki_scenarioA.csv: Power=2.356185W, Max Power=2.587000W, Energy=0.011587Wh
+2025-04-02 11:12:46,817 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 11:13:04,739 - INFO - Disconnected from device
+2025-04-02 11:13:04,741 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_FALCON_LEVEL5_n50_pki_scenarioC.csv: Power=2.347830W, Max Power=2.587000W, Energy=0.011329Wh
+2025-04-02 11:13:15,802 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL1_FALCON_LEVEL5_n50_pki_scenarioC.csv: Power=2.347830W, Max Power=2.587000W, Energy=0.011329Wh
+2025-04-02 11:13:54,110 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 11:23:29,621 - INFO - Disconnected from device
+2025-04-02 11:23:29,636 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_FALCON_LEVEL5_n50_pki_scenarioB.csv: Power=2.202233W, Max Power=2.471000W, Energy=0.351740Wh
+2025-04-02 11:23:40,686 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL1_FALCON_LEVEL5_n50_pki_scenarioB.csv: Power=2.202233W, Max Power=2.471000W, Energy=0.351740Wh
+2025-04-02 11:46:50,247 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 11:50:28,340 - INFO - Disconnected from device
+2025-04-02 11:50:28,347 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_FALCON_LEVEL5_n50_pki_scenarioB.csv: Power=2.217692W, Max Power=2.471000W, Energy=0.134135Wh
+2025-04-02 11:50:39,445 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL1_FALCON_LEVEL5_n50_pki_scenarioB.csv: Power=2.217692W, Max Power=2.471000W, Energy=0.134135Wh
+2025-04-02 11:53:33,466 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 11:53:51,097 - INFO - Disconnected from device
+2025-04-02 11:53:51,098 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_RSA_2048_n50_pki_scenarioA.csv: Power=2.349596W, Max Power=2.555000W, Energy=0.011134Wh
+2025-04-02 11:54:02,155 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL1_RSA_2048_n50_pki_scenarioA.csv: Power=2.349596W, Max Power=2.555000W, Energy=0.011134Wh
+2025-04-02 11:54:24,952 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 11:54:42,596 - INFO - Disconnected from device
+2025-04-02 11:54:42,599 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_RSA_2048_n50_pki_scenarioC.csv: Power=2.353212W, Max Power=2.555000W, Energy=0.011143Wh
+2025-04-02 11:54:53,677 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL1_RSA_2048_n50_pki_scenarioC.csv: Power=2.353212W, Max Power=2.555000W, Energy=0.011143Wh
+2025-04-02 11:55:46,893 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 11:59:24,571 - INFO - Disconnected from device
+2025-04-02 11:59:24,578 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_RSA_2048_n50_pki_scenarioB.csv: Power=2.219785W, Max Power=2.540000W, Energy=0.134038Wh
+2025-04-02 11:59:35,639 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL1_RSA_2048_n50_pki_scenarioB.csv: Power=2.219785W, Max Power=2.540000W, Energy=0.134038Wh
+2025-04-02 12:14:33,062 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 12:14:48,878 - INFO - Disconnected from device
+2025-04-02 12:14:48,880 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats__n50_psk_scenarioA.csv: Power=2.227638W, Max Power=2.317000W, Energy=0.009549Wh
+2025-04-02 12:14:59,935 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL5_n50_psk_scenarioA.csv: Power=2.227638W, Max Power=2.317000W, Energy=0.009549Wh
+2025-04-02 12:16:26,593 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 12:16:42,401 - INFO - Disconnected from device
+2025-04-02 12:16:42,403 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats__n50_psk_scenarioC.csv: Power=2.238766W, Max Power=2.449000W, Energy=0.009599Wh
+2025-04-02 12:16:53,509 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL5_n50_psk_scenarioC.csv: Power=2.238766W, Max Power=2.449000W, Energy=0.009599Wh
+2025-04-02 12:17:18,481 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 12:20:54,345 - INFO - Disconnected from device
+2025-04-02 12:20:54,351 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats__n50_psk_scenarioB.csv: Power=2.202745W, Max Power=2.534000W, Energy=0.131802Wh
+2025-04-02 12:21:05,420 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL5_n50_psk_scenarioB.csv: Power=2.202745W, Max Power=2.534000W, Energy=0.131802Wh
+2025-04-02 12:21:54,081 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 12:22:12,499 - INFO - Disconnected from device
+2025-04-02 12:22:12,508 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_RSA_2048_n50_pki_scenarioA.csv: Power=2.399545W, Max Power=2.756000W, Energy=0.012016Wh
+2025-04-02 12:22:23,592 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL5_RSA_2048_n50_pki_scenarioA.csv: Power=2.399545W, Max Power=2.756000W, Energy=0.012016Wh
+2025-04-02 12:23:10,847 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 12:23:29,255 - INFO - Disconnected from device
+2025-04-02 12:23:29,256 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_RSA_2048_n50_pki_scenarioC.csv: Power=2.418564W, Max Power=2.798000W, Energy=0.012112Wh
+2025-04-02 12:23:40,305 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL5_RSA_2048_n50_pki_scenarioC.csv: Power=2.418564W, Max Power=2.798000W, Energy=0.012112Wh
+2025-04-02 12:24:42,718 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 12:28:21,385 - INFO - Disconnected from device
+2025-04-02 12:28:21,392 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_RSA_2048_n50_pki_scenarioB.csv: Power=2.224034W, Max Power=2.729000W, Energy=0.134890Wh
+2025-04-02 12:28:32,450 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL5_RSA_2048_n50_pki_scenarioB.csv: Power=2.224034W, Max Power=2.729000W, Energy=0.134890Wh
+2025-04-02 12:28:55,390 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 12:29:11,765 - INFO - Disconnected from device
+2025-04-02 12:29:11,767 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_DILITHIUM_LEVEL2_n50_pki_scenarioA.csv: Power=2.261082W, Max Power=2.587000W, Energy=0.010102Wh
+2025-04-02 12:29:22,827 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL5_DILITHIUM_LEVEL2_n50_pki_scenarioA.csv: Power=2.261082W, Max Power=2.587000W, Energy=0.010102Wh
+2025-04-02 12:29:52,301 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 12:30:08,659 - INFO - Disconnected from device
+2025-04-02 12:30:08,662 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_DILITHIUM_LEVEL2_n50_pki_scenarioC.csv: Power=2.255521W, Max Power=2.550000W, Energy=0.009876Wh
+2025-04-02 12:30:19,726 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL5_DILITHIUM_LEVEL2_n50_pki_scenarioC.csv: Power=2.255521W, Max Power=2.550000W, Energy=0.009876Wh
+2025-04-02 12:32:07,960 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 12:33:11,486 - INFO - Disconnected from device
+2025-04-02 12:33:11,489 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_DILITHIUM_LEVEL2_n50_pki_scenarioB.csv: Power=2.199773W, Max Power=2.264000W, Energy=0.038552Wh
+2025-04-02 12:33:49,893 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 12:37:26,330 - INFO - Disconnected from device
+2025-04-02 12:37:26,337 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_DILITHIUM_LEVEL2_n50_pki_scenarioB.csv: Power=2.204438W, Max Power=2.412000W, Energy=0.132121Wh
+2025-04-02 12:37:37,397 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL5_DILITHIUM_LEVEL2_n50_pki_scenarioB.csv: Power=2.204438W, Max Power=2.412000W, Energy=0.132121Wh
+2025-04-02 12:37:59,537 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 12:38:16,181 - INFO - Disconnected from device
+2025-04-02 12:38:16,183 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_DILITHIUM_LEVEL3_n50_pki_scenarioA.csv: Power=2.295714W, Max Power=2.577000W, Energy=0.010251Wh
+2025-04-02 12:38:27,241 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL5_DILITHIUM_LEVEL3_n50_pki_scenarioA.csv: Power=2.295714W, Max Power=2.577000W, Energy=0.010251Wh
+2025-04-02 12:38:43,687 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 12:39:00,280 - INFO - Disconnected from device
+2025-04-02 12:39:00,283 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_DILITHIUM_LEVEL3_n50_pki_scenarioC.csv: Power=2.278102W, Max Power=2.592000W, Energy=0.010170Wh
+2025-04-02 12:39:11,332 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL5_DILITHIUM_LEVEL3_n50_pki_scenarioC.csv: Power=2.278102W, Max Power=2.592000W, Energy=0.010170Wh
+2025-04-02 12:39:38,880 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 12:43:15,558 - INFO - Disconnected from device
+2025-04-02 12:43:15,565 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_DILITHIUM_LEVEL3_n50_pki_scenarioB.csv: Power=2.208655W, Max Power=2.460000W, Energy=0.132755Wh
+2025-04-02 12:43:26,633 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL5_DILITHIUM_LEVEL3_n50_pki_scenarioB.csv: Power=2.208655W, Max Power=2.460000W, Energy=0.132755Wh
+2025-04-02 12:43:43,052 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 12:43:59,894 - INFO - Disconnected from device
+2025-04-02 12:43:59,896 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_DILITHIUM_LEVEL5_n50_pki_scenarioA.csv: Power=2.333480W, Max Power=2.566000W, Energy=0.010635Wh
+2025-04-02 12:44:10,948 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL5_DILITHIUM_LEVEL5_n50_pki_scenarioA.csv: Power=2.333480W, Max Power=2.566000W, Energy=0.010635Wh
+2025-04-02 12:44:38,950 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 12:44:55,795 - INFO - Disconnected from device
+2025-04-02 12:44:55,797 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_DILITHIUM_LEVEL5_n50_pki_scenarioC.csv: Power=2.313480W, Max Power=2.518000W, Energy=0.010544Wh
+2025-04-02 12:45:06,845 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL5_DILITHIUM_LEVEL5_n50_pki_scenarioC.csv: Power=2.313480W, Max Power=2.518000W, Energy=0.010544Wh
+2025-04-02 12:45:21,019 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 12:48:57,952 - INFO - Disconnected from device
+2025-04-02 12:48:57,986 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_DILITHIUM_LEVEL5_n50_pki_scenarioB.csv: Power=2.209052W, Max Power=2.418000W, Energy=0.132791Wh
+2025-04-02 12:49:09,039 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL5_DILITHIUM_LEVEL5_n50_pki_scenarioB.csv: Power=2.209052W, Max Power=2.418000W, Energy=0.132791Wh
+2025-04-02 12:51:49,174 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 12:52:06,665 - INFO - Disconnected from device
+2025-04-02 12:52:06,667 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_FALCON_LEVEL1_n50_pki_scenarioA.csv: Power=2.350519W, Max Power=2.698000W, Energy=0.011136Wh
+2025-04-02 12:52:17,727 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL5_FALCON_LEVEL1_n50_pki_scenarioA.csv: Power=2.350519W, Max Power=2.698000W, Energy=0.011136Wh
+2025-04-02 12:53:07,731 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 12:53:25,261 - INFO - Disconnected from device
+2025-04-02 12:53:25,263 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_FALCON_LEVEL1_n50_pki_scenarioC.csv: Power=2.354942W, Max Power=2.640000W, Energy=0.011154Wh
+2025-04-02 12:53:36,316 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL5_FALCON_LEVEL1_n50_pki_scenarioC.csv: Power=2.354942W, Max Power=2.640000W, Energy=0.011154Wh
+2025-04-02 12:54:42,556 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 12:58:20,146 - INFO - Disconnected from device
+2025-04-02 12:58:20,156 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_FALCON_LEVEL1_n50_pki_scenarioB.csv: Power=2.214731W, Max Power=2.492000W, Energy=0.133715Wh
+2025-04-02 12:58:31,224 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL5_FALCON_LEVEL1_n50_pki_scenarioB.csv: Power=2.214731W, Max Power=2.492000W, Energy=0.133715Wh
+2025-04-02 14:18:36,426 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 14:18:55,104 - INFO - Disconnected from device
+2025-04-02 14:18:55,107 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_FALCON_LEVEL5_n50_pki_scenarioA.csv: Power=2.390750W, Max Power=2.819000W, Energy=0.012198Wh
+2025-04-02 14:19:06,184 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL5_FALCON_LEVEL5_n50_pki_scenarioA.csv: Power=2.390750W, Max Power=2.819000W, Energy=0.012198Wh
+2025-04-02 14:19:22,038 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 14:19:40,773 - INFO - Disconnected from device
+2025-04-02 14:19:40,776 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_FALCON_LEVEL5_n50_pki_scenarioC.csv: Power=2.369214W, Max Power=2.629000W, Energy=0.012080Wh
+2025-04-02 14:19:51,829 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL5_FALCON_LEVEL5_n50_pki_scenarioC.csv: Power=2.369214W, Max Power=2.629000W, Energy=0.012080Wh
+2025-04-02 14:21:45,544 - INFO - Connected to device on /dev/rfcomm0
+2025-04-02 14:25:24,528 - INFO - Disconnected from device
+2025-04-02 14:25:24,534 - INFO - Added energy data to ./libcoap-bench/bench-data/energy_rasp_conv_stats_FALCON_LEVEL5_n50_pki_scenarioB.csv: Power=2.224829W, Max Power=2.497000W, Energy=0.135165Wh
+2025-04-02 14:25:35,589 - INFO - Added energy data to /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL5_FALCON_LEVEL5_n50_pki_scenarioB.csv: Power=2.224829W, Max Power=2.497000W, Energy=0.135165Wh
