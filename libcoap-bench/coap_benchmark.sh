@@ -125,9 +125,21 @@ while [ "$#" -gt 0 ]; do
         -r)
             shift
             case "$1" in
-                time|async) r_param="$1" ;;
+                time) r_param="$1" ;;
+                async*)  # Accept 'async' with any suffix
+                    # Extract the base parameter (async)
+                    r_param="async"
+                    # Check if there's a query parameter (format: async?X)
+                    if [[ "$1" == *\?* ]]; then
+                        # Extract the query value after the ?
+                        query_value="${1#*\?}"
+                        # Add the full parameter with query to r_param
+                        r_param="$1"
+                        echo "Using async with query parameter: $query_value"
+                    fi
+                    ;;
                 *)
-                    echo "Error: Invalid value for -r. Use time or async."
+                    echo "Error: Invalid value for -r. Use time or async[?value]."
                     usage
                     ;;
             esac
