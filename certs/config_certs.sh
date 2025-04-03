@@ -19,17 +19,41 @@ declare -A CERT_CONFIGS=(
     ["FALCON_LEVEL1"]="${CERT_BASE_DIR}/falcon/falcon_level1_entity_cert.pem;${CERT_BASE_DIR}/falcon/falcon_level1_entity_key.pem;${CERT_BASE_DIR}/falcon/falcon_level1_root_cert.pem"
     ["FALCON_LEVEL5"]="${CERT_BASE_DIR}/falcon/falcon_level5_entity_cert.pem;${CERT_BASE_DIR}/falcon/falcon_level5_entity_key.pem;${CERT_BASE_DIR}/falcon/falcon_level5_root_cert.pem"
     
+    # Elliptic Curve certificates
+    ["EC_P256"]="${CERT_BASE_DIR}/ec/p256_entity_cert.pem;${CERT_BASE_DIR}/ec/p256_entity_key.pem;${CERT_BASE_DIR}/ec/p256_root_cert.pem"
+    ["EC_ED25519"]="${CERT_BASE_DIR}/ec/ed25519_entity_cert.pem;${CERT_BASE_DIR}/ec/ed25519_entity_key.pem;${CERT_BASE_DIR}/ec/ed25519_root_cert.pem"
+
     # Legacy mapping for backward compatibility
-    ["DEFAULT"]="${CERT_BASE_DIR}/server_cert.pem;${CERT_BASE_DIR}/server_key.pem;${CERT_BASE_DIR}/root_cert.pem"
+    #["DEFAULT"]="${CERT_BASE_DIR}/server_cert.pem;${CERT_BASE_DIR}/server_key.pem;${CERT_BASE_DIR}/root_cert.pem"
 )
 
 # Function to list available certificate configurations
 list_cert_configs() {
     echo "Available certificate configurations:"
     echo "-----------------------------------"
-    for key in "${!CERT_CONFIGS[@]}"; do
-        echo "  $key"
+    
+    # Define the order for displaying certificate types
+    declare -a order=("RSA_" "EC_" "DILITHIUM_" "FALCON_")
+    
+    # List certificates in the defined order
+    for prefix in "${order[@]}"; do
+        for key in "${!CERT_CONFIGS[@]}"; do
+            # Skip DEFAULT since it's not a real certificate type
+            if [[ "$key" == "DEFAULT" ]]; then
+                continue
+            fi
+            
+            # Check if the current key starts with the current prefix
+            if [[ "$key" == ${prefix}* ]]; then
+                echo "  $key"
+            fi
+        done
     done
+    
+    # Show DEFAULT at the end if needed
+    if [[ -n "${CERT_CONFIGS[DEFAULT]}" ]]; then
+        echo "  DEFAULT (for backward compatibility)"
+    fi
 }
 
 # Function to get certificate paths for a given configuration
