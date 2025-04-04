@@ -58,7 +58,7 @@ def find_matching_files(base_dir, pattern):
         print(f"Error finding files: {e}")
         return []
 
-def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp=False, s=None, p=None, data_dir='bench-data'):
+def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None):
     """
     Create bar plot for the specified metric and algorithms under different security modes and scenarios.
 
@@ -72,8 +72,17 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
         s (int or None): Optional 's' parameter.
         p (str or None): Optional 'p' parameter.
         data_dir (str): Directory containing the data files.
+        custom_suffix (str): Optional suffix for data and plot directories.
     """
     script_directory = os.path.dirname(os.path.realpath(__file__))
+    
+    # Handle custom directory naming
+    if custom_suffix:
+        data_dir = f"bench-data-{custom_suffix}"
+        plots_dir = f"bench-plots-{custom_suffix}"
+    else:
+        plots_dir = "bench-plots"
+    
     data_dir_path = os.path.join(script_directory, data_dir)
     
     fig, ax = plt.subplots(figsize=(14, 8))
@@ -142,6 +151,8 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
                 # PKI file pattern
                 pki_pattern = f"udp{rasp_prefix}_conv_stats_{algorithm}_{cert_type}_n{n}{s_suffix}{p_suffix}_pki{scenario_suffix}.csv"
                 pki_files = find_matching_files(data_dir_path, pki_pattern)
+                print(f"Searching for PKI files with pattern: {pki_pattern}")
+                print(f"Files found: {pki_files}")
                 
                 # Try with client-auth if needed
                 if not pki_files:
@@ -178,6 +189,8 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
             # Process PSK
             psk_pattern = f"udp{rasp_prefix}_conv_stats_{algorithm}_n{n}{s_suffix}{p_suffix}_psk{scenario_suffix}.csv"
             psk_files = find_matching_files(data_dir_path, psk_pattern)
+            print(f"Searching for PKI files with pattern: {psk_pattern}")
+            print(f"Files found: {psk_files}")
             
             if psk_files:
                 file_path = psk_files[0]
@@ -270,21 +283,25 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
     clean_metric = metric.replace(' ', '_').replace('(', '').replace(')', '')
     
     # Create the plots directory if it doesn't exist
-    os.makedirs('./bench-plots', exist_ok=True)
+    os.makedirs(f'./{plots_dir}', exist_ok=True)
     
-    output_file = f'./bench-plots/barplot_{"rasp_" if rasp else ""}{clean_metric}_n{n}_{s if s else ""}_{p if p else ""}_{algorithms_str}_{cert_types_str}_{scenarios_str}.png'
+    output_file = f'./{plots_dir}/barplot_{"rasp_" if rasp else ""}{clean_metric}_n{n}_{s if s else ""}_{p if p else ""}_{algorithms_str}_{cert_types_str}_{scenarios_str}.png'
     
     plt.savefig(output_file)
     print(f"Plot saved to {output_file}")
     plt.show()
 
 if __name__ == "__main__":
-    if len(sys.argv) < 7 or len(sys.argv) > 9:
-        print("Usage: python3 coap_benchmark_barplots.py <metric> <algorithms_list> <cert_types_list> <n> <rasp> <scenarios_list> [s] [p]")
+    # Updated usage instructions
+    if len(sys.argv) < 7:
+        print("Usage: python3 coap_benchmark_barplots.py <metric> <algorithms_list> <cert_types_list> <n> <rasp> <scenarios_list> [s] [p] [custom_suffix]")
         print("\nExample: python3 coap_benchmark_barplots.py 'duration' 'KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5' 'DILITHIUM_LEVEL2,RSA_2048' 50 true 'A,B,C'")
         print("\nFor energy metrics: python3 coap_benchmark_barplots.py 'Energy (Wh)' 'KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5' 'DILITHIUM_LEVEL2' 10 true 'A,C'")
+        print("\nWith custom directory: python3 coap_benchmark_barplots.py 'duration' 'KYBER_LEVEL1' 'DILITHIUM_LEVEL2' 10 true 'A' 10 background test1")
+        print("  This reads from bench-data-test1 and outputs to bench-plots-test1")
         sys.exit(1)
 
+    # Parse the standard arguments
     metric = sys.argv[1]
     algorithms_list = [alg.strip() for alg in sys.argv[2].split(',')]
     cert_types_list = [cert.strip() for cert in sys.argv[3].split(',')]
@@ -292,15 +309,23 @@ if __name__ == "__main__":
     rasp = sys.argv[5].lower() == "true"
     scenarios_list = [scenario.strip() for scenario in sys.argv[6].split(',')]
 
-    s, p = None, None
-    if len(sys.argv) >= 8:
-        if sys.argv[7].isdigit():
-            s = int(sys.argv[7])
-            if len(sys.argv) == 9:
-                p = sys.argv[8]
-        else:
-            p = sys.argv[7]
-            if len(sys.argv) == 9:
-                s = int(sys.argv[8]) if sys.argv[8].isdigit() else None
-
-    create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios_list, rasp, s, p)
+    # Process optional arguments
+    s, p, custom_suffix = None, None, None
+    remaining_args = sys.argv[7:]
+    
+    # Parse s and p parameters (if provided)
+    for i, arg in enumerate(remaining_args):
+        if i == 0 and arg.isdigit():
+            s = int(arg)
+        elif i == 0 and not arg.isdigit():
+            p = arg
+        elif i == 1 and s is not None and not arg.isdigit():
+            p = arg
+        elif i == 1 and p is not None and arg.isdigit():
+            s = int(arg)
+        elif i == 2 or (i == 1 and s is None and p is None):
+            custom_suffix = arg
+    
+    # Call the function with all parameters
+    create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios_list, 
+                   rasp, s, p, custom_suffix=custom_suffix)

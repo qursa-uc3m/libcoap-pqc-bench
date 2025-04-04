@@ -49,7 +49,7 @@ def find_files(base_dir, pattern):
         print(f"Error searching for files: {e}")
         return []
 
-def create_scatter_plots(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data'):
+def create_scatter_plots(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None):
     """
     Create scatter plots for the specified metric and algorithms under different security modes.
     
@@ -63,9 +63,18 @@ def create_scatter_plots(metric, algorithms_list, cert_types_list, n, scenario, 
         s (int or None): Optional 's' parameter.
         p (str or None): Optional 'p' parameter (parallelization mode).
         data_dir (str): Directory containing the data files.
+        custom_suffix (str): Optional suffix for data and plot directories.
     """
     # Get the absolute path of the script's directory
     script_directory = os.path.dirname(os.path.realpath(__file__))
+    
+    # Handle custom directory naming
+    if custom_suffix:
+        data_dir = f"bench-data-{custom_suffix}"
+        plots_dir = f"bench-plots-{custom_suffix}"
+    else:
+        plots_dir = "bench-plots"
+    
     data_dir_path = os.path.join(script_directory, data_dir)
     
     # Create a figure and axis
@@ -122,6 +131,8 @@ def create_scatter_plots(metric, algorithms_list, cert_types_list, n, scenario, 
         # PSK file pattern
         psk_pattern = f"udp{rasp_prefix}_conv_stats_{algorithm}_n{n}{s_suffix}{p_suffix}_psk{scenario_suffix}.csv"
         psk_files = find_files(data_dir_path, psk_pattern)
+        print(f"Searching for PKI files with pattern: {psk_pattern}")
+        print(f"Files found: {psk_files}")
         
         if psk_files:
             psk_file_path = psk_files[0]
@@ -142,6 +153,8 @@ def create_scatter_plots(metric, algorithms_list, cert_types_list, n, scenario, 
             # PKI file pattern - look for files that contain both KEM algorithm and certificate type
             pki_pattern = f"udp{rasp_prefix}_conv_stats_{algorithm}_{cert_type}_n{n}{s_suffix}{p_suffix}_pki{scenario_suffix}.csv"
             pki_files = find_files(data_dir_path, pki_pattern)
+            print(f"Searching for PKI files with pattern: {pki_pattern}")
+            print(f"Files found: {pki_files}")
             
             # Also try with client-auth suffix if it exists
             if not pki_files:
@@ -291,42 +304,52 @@ def create_scatter_plots(metric, algorithms_list, cert_types_list, n, scenario, 
     output_file = f'./bench-plots/{"rasp_" if rasp else ""}{clean_metric}_n{n}{s_suffix_file}{p_suffix_file}_{algorithms_str}_{cert_types_str}_scenario{scenario}.png'
     
     # Create the directory if it doesn't exist
-    os.makedirs('./bench-plots', exist_ok=True)
+    os.makedirs(f'./{plots_dir}', exist_ok=True)
+    
+    output_file = f'./{plots_dir}/{"rasp_" if rasp else ""}{clean_metric}_n{n}{s_suffix_file}{p_suffix_file}_{algorithms_str}_{cert_types_str}_scenario{scenario}.png'
     
     plt.savefig(output_file)
     print(f"Plot saved to {output_file}")
     plt.show()
 
 if __name__ == "__main__":
-    if len(sys.argv) < 7 or len(sys.argv) > 9:
-        print("Usage: python3 coap_benchmark_plots.py <metric> <algorithms_list> <cert_types_list> <n> <scenario> <rasp> [s] [p]")
-        print("\nExample: python3 coap_benchmark_plots.py 'duration' 'KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5' 'DILITHIUM_LEVEL2,RSA_2048' 50 A True")
-        print("\nFor energy metrics: python3 coap_benchmark_plots.py 'Energy (Wh)' 'KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5' 'DILITHIUM_LEVEL2' 10 A True")
+    if len(sys.argv) < 7:
+        print("Usage: python3 coap_benchmark_plots.py <metric> <algorithms_list> <cert_types_list> <n> <rasp> <scenario> [s] [p] [custom_suffix]")
+        print("\nExample: python3 coap_benchmark_plots.py 'duration' 'KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5' 'DILITHIUM_LEVEL2,RSA_2048' 50 true A")
+        print("\nFor energy metrics: python3 coap_benchmark_plots.py 'Energy (Wh)' 'KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5' 'DILITHIUM_LEVEL2' 10 true A")
+        print("\nWith custom directory: python3 coap_benchmark_plots.py 'duration' 'KYBER_LEVEL1' 'DILITHIUM_LEVEL2' 10 true A 10 background test1")
+        print("  This reads from bench-data-test1 and outputs to bench-plots-test1")
         sys.exit(1)
 
+    # Parse standard arguments
     metric = sys.argv[1]
     algorithms_list = [alg.strip() for alg in sys.argv[2].split(',')]
     cert_types_list = [cert.strip() for cert in sys.argv[3].split(',')]
     n = int(sys.argv[4])
-    scenario = sys.argv[5].upper()
+    rasp = sys.argv[5].lower() == "true"
+    scenario = sys.argv[6].upper()
     
     if scenario not in ['A', 'B', 'C']:
         print("Error: scenario must be one of 'A', 'B', or 'C'.")
         sys.exit(1)
-        
-    rasp = sys.argv[6].lower() == "true"
 
-    s = None
-    p = None
-
-    if len(sys.argv) >= 8:
-        if sys.argv[7].isdigit():
-            s = int(sys.argv[7])
-            if len(sys.argv) == 9:
-                p = sys.argv[8]
-        else:
-            p = sys.argv[7]
-            if len(sys.argv) == 9:
-                s = int(sys.argv[8]) if sys.argv[8].isdigit() else None
-
-    create_scatter_plots(metric, algorithms_list, cert_types_list, n, scenario, rasp, s, p)
+    # Process optional arguments
+    s, p, custom_suffix = None, None, None
+    remaining_args = sys.argv[7:]
+    
+    # Parse s, p and custom_suffix parameters (if provided)
+    for i, arg in enumerate(remaining_args):
+        if i == 0 and arg.isdigit():
+            s = int(arg)
+        elif i == 0 and not arg.isdigit():
+            p = arg
+        elif i == 1 and s is not None and not arg.isdigit():
+            p = arg
+        elif i == 1 and p is not None and arg.isdigit():
+            s = int(arg)
+        elif i == 2 or (i == 1 and s is None and p is None):
+            custom_suffix = arg
+    
+    # Call function with all parameters
+    create_scatter_plots(metric, algorithms_list, cert_types_list, n, scenario, 
+                        rasp, s, p, custom_suffix=custom_suffix)
