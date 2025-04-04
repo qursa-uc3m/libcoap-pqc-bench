@@ -21,7 +21,7 @@ declare -A CERT_CONFIGS=(
     
     # Elliptic Curve certificates
     ["EC_P256"]="${CERT_BASE_DIR}/ec/p256_entity_cert.pem;${CERT_BASE_DIR}/ec/p256_entity_key.pem;${CERT_BASE_DIR}/ec/p256_root_cert.pem"
-    ["EC_ED25519"]="${CERT_BASE_DIR}/ec/ed25519_entity_cert.pem;${CERT_BASE_DIR}/ec/ed25519_entity_key.pem;${CERT_BASE_DIR}/ec/ed25519_root_cert.pem"
+    ["EC_ED25519"]="${CERT_BASE_DIR}/ec/Ed25519_entity_cert.pem;${CERT_BASE_DIR}/ec/Ed25519_entity_key.pem;${CERT_BASE_DIR}/ec/Ed25519_root_cert.pem"
 
     # Legacy mapping for backward compatibility
     #["DEFAULT"]="${CERT_BASE_DIR}/server_cert.pem;${CERT_BASE_DIR}/server_key.pem;${CERT_BASE_DIR}/root_cert.pem"
