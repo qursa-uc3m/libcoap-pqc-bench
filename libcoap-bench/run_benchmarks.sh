@@ -25,15 +25,21 @@ NUM_CLIENTS=""
 OBSERVE_TIME=""
 PARALLELIZATION="background"
 CLIENT_AUTH="no"
-PAUSE_BETWEEN_RUNS=10
+PAUSE_BETWEEN_RUNS=5
 MEASURE_ENERGY="false"
 CERT_CONFIGS_FILTER=""
 SECURITY_MODES="pki psk nosec"
 SKIP_CONFIRM="false"
 VERBOSE="false"
-MAX_RETRIES=3
+MAX_RETRIES=2
 RESOURCES="time,async"  # Default resources to test
 ASYNC_DELAY=""          # Optional delay parameter for async resource
+ITERATIONS=1            # Default to 1 iteration (no iteration mode)
+SESSION_ID=""           # Unique identifier for this benchmark session
+
+# Benchmark data directories
+BENCH_DATA_DIR="${REPO_ROOT}/libcoap-bench/bench-data"
+BENCH_PLOTS_DIR="${REPO_ROOT}/libcoap-bench/bench-plots"
 
 # ==============================================
 # Function declarations
@@ -59,6 +65,7 @@ show_help() {
     echo "  -resources RES        Resources to test (comma-separated: time,async or async?2)"
     echo "                        For async, you can specify delay with async?N where N is seconds"
     echo "  -async-delay SECONDS  Set delay for async resource (alternative to async?N syntax)"
+    echo "  -iterations N         Run each test configuration N times (enables iteration mode)"
     echo "  -y                    Skip confirmation prompts"
     echo "  -v                    Verbose output"
     echo "  -h, --help            Show this help message"
@@ -69,6 +76,7 @@ show_help() {
     echo "  $0 -n 20 -cert-filter DILITHIUM -security pki,psk -energy"
     echo "  $0 -n 10 -resources time -v"
     echo "  $0 -n 5 -resources async?3 -pause 30"
+    echo "  $0 -n 25 -iterations 10 -security psk -resources async -cert-filter KYBER_LEVEL3"
     echo
 }
 
@@ -173,7 +181,7 @@ get_available_cert_configs() {
             config_name=$(echo "$line" | sed 's/^[[:space:]]*//')
             
             # Skip DEFAULT if present
-            if [[ "$config_name" == "DEFAULT" ]]; then
+            if [[ "$config_name" == "DEFAULT"* ]]; then
                 continue
             fi
             
@@ -220,6 +228,45 @@ parse_resource() {
     echo "${resource_name};${delay_param}"
 }
 
+# Setup directory for a new iteration
+setup_iteration_directory() {
+    local iteration=$1
+    
+    # Create fresh bench-data directory for the new iteration
+    # If it exists but has content, warn the user
+    if [ -d "$BENCH_DATA_DIR" ] && [ "$(ls -A $BENCH_DATA_DIR)" ]; then
+        log "WARNING" "Bench data directory already contains files. These will be included in iteration ${iteration}."
+    else
+        mkdir -p "$BENCH_DATA_DIR"
+    fi
+    
+    # Create a marker file to indicate which iteration this is
+    echo "Session: ${SESSION_ID}" > "${BENCH_DATA_DIR}/iteration.txt"
+    echo "Iteration: ${iteration}" >> "${BENCH_DATA_DIR}/iteration.txt"
+    echo "Timestamp: $(date)" >> "${BENCH_DATA_DIR}/iteration.txt"
+    
+    log "INFO" "Prepared ${BENCH_DATA_DIR} for iteration ${iteration}"
+}
+
+# Finalize an iteration by renaming the directory
+finalize_iteration_directory() {
+    local iteration=$1
+    local target_dir="${BENCH_DATA_DIR}-${SESSION_ID}-${iteration}"
+    
+    # If bench-data exists and has content, move it to the iteration-specific directory
+    if [ -d "$BENCH_DATA_DIR" ] && [ "$(ls -A $BENCH_DATA_DIR)" ]; then
+        log "INFO" "Moving iteration ${iteration} data to ${target_dir}"
+        mv "$BENCH_DATA_DIR" "$target_dir"
+    else
+        log "WARNING" "No data found in ${BENCH_DATA_DIR} for iteration ${iteration}"
+        # Create empty directory as placeholder
+        mkdir -p "$target_dir"
+    fi
+    
+    # Create a fresh empty bench-data directory for the next iteration or future use
+    mkdir -p "$BENCH_DATA_DIR"
+}
+
 # Execute a benchmark run with retries
 run_benchmark() {
     local sec_mode=$1
@@ -227,6 +274,7 @@ run_benchmark() {
     local confirm=$3
     local cert_config=$4
     local delay_param=$5
+    local iteration=$6
     local retry_count=0
     local max_retries=$MAX_RETRIES
     local cmd_args=""
@@ -261,7 +309,11 @@ run_benchmark() {
     local res_display="$resource"
     [ -n "$delay_param" ] && res_display="$resource?$delay_param"
     
-    log "HEADER" "Running benchmark: $sec_mode / $res_display / $confirm ${cert_config:+/ $cert_config}"
+    if [ $ITERATIONS -gt 1 ]; then
+        log "HEADER" "Running benchmark: $sec_mode / $res_display / $confirm ${cert_config:+/ $cert_config} (Iteration $iteration/$ITERATIONS)"
+    else
+        log "HEADER" "Running benchmark: $sec_mode / $res_display / $confirm ${cert_config:+/ $cert_config}"
+    fi
     
     while [ $retry_count -lt $max_retries ]; do
         if [ $retry_count -gt 0 ]; then
@@ -288,7 +340,7 @@ run_benchmark() {
             if [ $retry_count -ge $max_retries ]; then
                 log "ERROR" "Maximum retry attempts reached. Moving to next benchmark."
                 # Save log file for debugging
-                local error_log_file="${REPO_ROOT}/libcoap-bench/bench-data/error_log_${sec_mode}_${resource}_${confirm}_${cert_config}.log"
+                local error_log_file="${BENCH_DATA_DIR}/error_log_${sec_mode}_${resource}_${confirm}_${cert_config}_iter${iteration}.log"
                 if [ -f "/tmp/benchmark_output.log" ]; then
                     cat /tmp/benchmark_output.log > "$error_log_file"
                     log "INFO" "Error log saved to $error_log_file"
@@ -321,7 +373,7 @@ run_benchmark() {
 
 # Create a summary report of all benchmark results
 create_summary_report() {
-    local output_file="${REPO_ROOT}/libcoap-bench/bench-data/benchmark_summary_$(date +%Y%m%d_%H%M%S).txt"
+    local output_file="${REPO_ROOT}/libcoap-bench/benchmark_summary_${SESSION_ID}.txt"
     
     log "HEADER" "Creating benchmark summary"
     
@@ -329,6 +381,7 @@ create_summary_report() {
     echo "      libcoap PQC Benchmark Summary Report     " >> "$output_file"
     echo "===============================================" >> "$output_file"
     echo "Generated: $(date)" >> "$output_file"
+    echo "Session ID: ${SESSION_ID}" >> "$output_file"
     echo "" >> "$output_file"
     echo "Benchmark Parameters:" >> "$output_file"
     echo "- Number of clients: $NUM_CLIENTS" >> "$output_file"
@@ -342,64 +395,89 @@ create_summary_report() {
     [ -n "$ASYNC_DELAY" ] && echo "- Async delay: $ASYNC_DELAY seconds" >> "$output_file"
     echo "- Client authentication: $CLIENT_AUTH" >> "$output_file"
     echo "- Energy measurements: $MEASURE_ENERGY" >> "$output_file"
+    if [ $ITERATIONS -gt 1 ]; then 
+        echo "- Iterations per test: $ITERATIONS" >> "$output_file"
+        echo "- Iteration directories:" >> "$output_file"
+        for ((i=1; i<=ITERATIONS; i++)); do
+            echo "  - ${BENCH_DATA_DIR}-${SESSION_ID}-${i}" >> "$output_file"
+        done
+    fi
     echo "" >> "$output_file"
     
-    echo "Results Summary:" >> "$output_file"
-    echo "----------------" >> "$output_file"
-    
-    # Create a temp file list to avoid subshell issues
-    local file_list="/tmp/benchmark_files.txt"
-    find "${REPO_ROOT}/libcoap-bench/bench-data" -name "udp_rasp_conv_stats_*.csv" -type f | sort > "$file_list"
-    
-    # Check if any files were found
-    if [ ! -s "$file_list" ]; then
-        echo "No benchmark results found!" >> "$output_file"
-        log "WARNING" "No benchmark result files found in ${REPO_ROOT}/libcoap-bench/bench-data"
-        return
+    if [ $ITERATIONS -gt 1 ]; then
+        echo "For detailed results, please run the metrics_aggregate.py script on the iteration directories." >> "$output_file"
+    else
+        echo "Results Summary:" >> "$output_file"
+        echo "----------------" >> "$output_file"
+        
+        # Create a temp file list to avoid subshell issues
+        local file_list="/tmp/benchmark_files.txt"
+        find "$BENCH_DATA_DIR" -name "udp_rasp_conv_stats_*.csv" -type f | sort > "$file_list"
+        
+        # Check if any files were found
+        if [ ! -s "$file_list" ]; then
+            echo "No benchmark results found!" >> "$output_file"
+            log "WARNING" "No benchmark result files found in ${BENCH_DATA_DIR}"
+            return
+        fi
+        
+        # Process each file
+        while read -r file; do
+            filename=$(basename "$file")
+            
+            # Debug output
+            log "INFO" "Processing result file: $filename"
+            
+            # Extract metrics from the CSV file (second-to-last row has mean values)
+            # Use tail -2 to get the second-to-last row
+            local duration=$(awk -F';' 'NR==2 {print $1}' <(tail -3 "$file") 2>/dev/null || echo "N/A")
+            local cycles=$(awk -F';' 'NR==2 {print $2}' <(tail -3 "$file") 2>/dev/null || echo "N/A")
+            local energy=""
+            
+            # Debug info
+            log "INFO" "Extracted duration: $duration"
+            log "INFO" "Extracted cycles: $cycles"
+
+            # Check if energy data is available
+            if grep -q "Energy" "$file"; then
+                energy=$(awk -F';' 'NR==2 {print $(NF)}' <(tail -3 "$file") 2>/dev/null || echo "N/A")
+                log "INFO" "Extracted energy: $energy"
+            fi
+            
+            # Extract test configuration from filename
+            local config=$(echo "$filename" | sed 's/udp_rasp_conv_stats_//; s/.csv//')
+            
+            # Format the output
+            echo "$config:" >> "$output_file"
+            echo "  - Avg. Duration: $duration s" >> "$output_file"
+            echo "  - CPU Cycles: $cycles" >> "$output_file"
+            if [ -n "$energy" ]; then
+                echo "  - Energy: $energy Wh" >> "$output_file"
+            fi
+            echo "" >> "$output_file"
+        done < "$file_list"
+        
+        # Clean up
+        rm -f "$file_list"
     fi
     
-    # Process each file
-    while read -r file; do
-        filename=$(basename "$file")
-        
-        # Debug output
-        log "INFO" "Processing result file: $filename"
-        
-        # Extract metrics from the CSV file (second-to-last row has mean values)
-        # Use tail -2 to get the second-to-last row
-        local duration=$(awk -F';' 'NR==2 {print $1}' <(tail -3 "$file") 2>/dev/null || echo "N/A")
-        local cycles=$(awk -F';' 'NR==2 {print $2}' <(tail -3 "$file") 2>/dev/null || echo "N/A")
-        local energy=""
-        
-        # Debug info
-        log "INFO" "Extracted duration: $duration"
-        log "INFO" "Extracted cycles: $cycles"
-
-        # Check if energy data is available
-        if grep -q "Energy" "$file"; then
-            energy=$(awk -F';' 'NR==2 {print $(NF)}' <(tail -3 "$file") 2>/dev/null || echo "N/A")
-            log "INFO" "Extracted energy: $energy"
-        fi
-        
-        # Extract test configuration from filename
-        local config=$(echo "$filename" | sed 's/udp_rasp_conv_stats_//; s/.csv//')
-        
-        # Format the output
-        echo "$config:" >> "$output_file"
-        echo "  - Avg. Duration: $duration s" >> "$output_file"
-        echo "  - CPU Cycles: $cycles" >> "$output_file"
-        if [ -n "$energy" ]; then
-            echo "  - Energy: $energy Wh" >> "$output_file"
-        fi
-        echo "" >> "$output_file"
-    done < "$file_list"
-    
-    # Clean up
-    rm -f "$file_list"
-    
     log "SUCCESS" "Summary report created at $output_file"
+}
+
+# Function to create a summary file with all iteration directories
+create_iteration_summary() {
+    local summary_file="${REPO_ROOT}/libcoap-bench/bench-sessions.txt"
     
-    # Rest of the function remains the same...
+    echo "Session: ${SESSION_ID}" >> "$summary_file"
+    echo "Timestamp: $(date)" >> "$summary_file"
+    echo "Iterations: ${ITERATIONS}" >> "$summary_file"
+    echo "Directories:" >> "$summary_file"
+    for ((i=1; i<=ITERATIONS; i++)); do
+        echo "  - ${BENCH_DATA_DIR}-${SESSION_ID}-${i}" >> "$summary_file"
+    done
+    echo "-------------------------------------" >> "$summary_file"
+    
+    log "INFO" "Created session summary in ${summary_file}"
 }
 
 # ==============================================
@@ -447,6 +525,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -async-delay)
             ASYNC_DELAY="$2"
+            shift 2
+            ;;
+        -iterations)
+            ITERATIONS="$2"
             shift 2
             ;;
         -y)
@@ -504,6 +586,12 @@ if [ "$CLIENT_AUTH" != "yes" ] && [ "$CLIENT_AUTH" != "no" ]; then
     exit 1
 fi
 
+# Validate ITERATIONS
+if ! [[ "$ITERATIONS" =~ ^[0-9]+$ ]] || [ "$ITERATIONS" -lt 1 ]; then
+    log "ERROR" "Number of iterations must be a positive integer"
+    exit 1
+fi
+
 # Validate resources
 # Check if async?N format is used, and extract the delay parameter
 async_with_delay=$(echo "$RESOURCES" | grep -oE 'async\?[0-9]+')
@@ -521,8 +609,8 @@ if [ -n "$async_with_delay" ]; then
 fi
 
 # Create benchmark data directory if it doesn't exist
-mkdir -p "${REPO_ROOT}/libcoap-bench/bench-data"
-mkdir -p "${REPO_ROOT}/libcoap-bench/bench-plots"
+mkdir -p "$BENCH_DATA_DIR"
+mkdir -p "$BENCH_PLOTS_DIR"
 
 # Check for required dependencies
 if ! check_dependencies; then
@@ -530,11 +618,15 @@ if ! check_dependencies; then
     exit 1
 fi
 
+# Generate a unique session ID for this benchmark run
+SESSION_ID="$(date +%m%d)_$(echo $RANDOM | md5sum | head -c 4)"
+
 # ==============================================
 # Show configuration and confirm execution
 # ==============================================
 
 log "HEADER" "Benchmark Configuration"
+log "INFO" "Session ID: $SESSION_ID"
 log "INFO" "Number of clients: $NUM_CLIENTS"
 log "INFO" "Security modes: $SECURITY_MODES"
 log "INFO" "Resources to test: $RESOURCES"
@@ -554,6 +646,11 @@ fi
 log "INFO" "Client authentication: $CLIENT_AUTH"
 log "INFO" "Pause between runs: $PAUSE_BETWEEN_RUNS seconds"
 log "INFO" "Energy measurements: $MEASURE_ENERGY"
+
+if [ $ITERATIONS -gt 1 ]; then
+    log "INFO" "Iteration mode: enabled (${ITERATIONS} iterations per test)"
+    log "INFO" "Results will be stored in: ${BENCH_DATA_DIR}-${SESSION_ID}-[1-${ITERATIONS}]"
+fi
 
 # Get available certificate configurations for PKI mode
 if [[ "$SECURITY_MODES" == *"pki"* ]]; then
@@ -583,14 +680,51 @@ BENCHMARK_START_TIME=$(date +%s)
 # Convert comma-separated resources to array
 IFS=',' read -ra RESOURCE_ARRAY <<< "$RESOURCES"
 
-# Iterate through security modes
-for sec_mode in $SECURITY_MODES; do
-    # Setup for each security mode
-    log "HEADER" "Starting $sec_mode mode benchmarks"
+# Iterate through each iteration
+for ((iteration=1; iteration<=ITERATIONS; iteration++)); do
+    # Setup directory for this iteration
+    if [ $ITERATIONS -gt 1 ]; then
+        log "HEADER" "Starting Iteration $iteration of $ITERATIONS"
+        setup_iteration_directory $iteration
+    fi
     
-    if [ "$sec_mode" == "pki" ]; then
-        # If PKI mode, iterate through certificate configurations
-        for cert_config in $cert_configs; do
+    # Iterate through security modes
+    for sec_mode in $SECURITY_MODES; do
+        # Setup for each security mode
+        log "HEADER" "Starting $sec_mode mode benchmarks"
+        
+        if [ "$sec_mode" == "pki" ]; then
+            # If PKI mode, iterate through certificate configurations
+            for cert_config in $cert_configs; do
+                # Iterate through requested resources
+                for resource_item in "${RESOURCE_ARRAY[@]}"; do
+                    # Parse resource to extract name and parameters
+                    parsed=$(parse_resource "$resource_item")
+                    resource=$(echo "$parsed" | cut -d';' -f1)
+                    delay=$(echo "$parsed" | cut -d';' -f2)
+                    
+                    # Use ASYNC_DELAY if specified and no specific delay in resource
+                    if [ "$resource" == "async" ] && [ -z "$delay" ] && [ -n "$ASYNC_DELAY" ]; then
+                        delay="$ASYNC_DELAY"
+                    fi
+                    
+                    # Run appropriate tests based on resource type
+                    if [ "$resource" == "time" ]; then
+                        # Run scenarioA (time resource with confirmable messages)
+                        run_benchmark "$sec_mode" "$resource" "con" "$cert_config" "$delay" "$iteration"
+                        
+                        # Run scenarioC (time resource with non-confirmable messages)
+                        run_benchmark "$sec_mode" "$resource" "non" "$cert_config" "$delay" "$iteration"
+                    elif [ "$resource" == "async" ]; then
+                        # Run scenarioB (async resource with optional delay)
+                        run_benchmark "$sec_mode" "$resource" "" "$cert_config" "$delay" "$iteration"
+                    else
+                        log "WARNING" "Unknown resource type: $resource, skipping"
+                    fi
+                done
+            done
+        else
+            # For PSK and NOSEC modes, no certificate configs needed
             # Iterate through requested resources
             for resource_item in "${RESOURCE_ARRAY[@]}"; do
                 # Parse resource to extract name and parameters
@@ -606,48 +740,31 @@ for sec_mode in $SECURITY_MODES; do
                 # Run appropriate tests based on resource type
                 if [ "$resource" == "time" ]; then
                     # Run scenarioA (time resource with confirmable messages)
-                    run_benchmark "pki" "time" "con" "$cert_config" ""
+                    run_benchmark "$sec_mode" "$resource" "con" "" "$delay" "$iteration"
                     
                     # Run scenarioC (time resource with non-confirmable messages)
-                    run_benchmark "pki" "time" "non" "$cert_config" ""
+                    run_benchmark "$sec_mode" "$resource" "non" "" "$delay" "$iteration"
                 elif [ "$resource" == "async" ]; then
                     # Run scenarioB (async resource with optional delay)
-                    run_benchmark "pki" "async" "" "$cert_config" "$delay"
+                    run_benchmark "$sec_mode" "$resource" "" "" "$delay" "$iteration"
                 else
                     log "WARNING" "Unknown resource type: $resource, skipping"
                 fi
             done
-        done
-    else
-        # For PSK and NOSEC modes, no certificate configs needed
-        # Iterate through requested resources
-        for resource_item in "${RESOURCE_ARRAY[@]}"; do
-            # Parse resource to extract name and parameters
-            parsed=$(parse_resource "$resource_item")
-            resource=$(echo "$parsed" | cut -d';' -f1)
-            delay=$(echo "$parsed" | cut -d';' -f2)
-            
-            # Use ASYNC_DELAY if specified and no specific delay in resource
-            if [ "$resource" == "async" ] && [ -z "$delay" ] && [ -n "$ASYNC_DELAY" ]; then
-                delay="$ASYNC_DELAY"
-            fi
-            
-            # Run appropriate tests based on resource type
-            if [ "$resource" == "time" ]; then
-                # Run scenarioA (time resource with confirmable messages)
-                run_benchmark "$sec_mode" "time" "con" "" ""
-                
-                # Run scenarioC (time resource with non-confirmable messages)
-                run_benchmark "$sec_mode" "time" "non" "" ""
-            elif [ "$resource" == "async" ]; then
-                # Run scenarioB (async resource with optional delay)
-                run_benchmark "$sec_mode" "async" "" "" "$delay"
-            else
-                log "WARNING" "Unknown resource type: $resource, skipping"
-            fi
-        done
+        fi
+    done
+    
+    # Finalize this iteration's directory immediately after completion
+    if [ $ITERATIONS -gt 1 ]; then
+        log "SUCCESS" "Completed iteration $iteration of $ITERATIONS"
+        finalize_iteration_directory $iteration
     fi
 done
+
+# Create a summary file with all iteration directories if we ran multiple iterations
+if [ $ITERATIONS -gt 1 ]; then
+    create_iteration_summary
+fi
 
 # Calculate total benchmark duration
 BENCHMARK_END_TIME=$(date +%s)
@@ -661,6 +778,14 @@ log "SUCCESS" "Total duration: ${HOURS}h ${MINUTES}m ${SECONDS}s"
 
 # Create summary report
 create_summary_report
+
+if [ $ITERATIONS -gt 1 ]; then
+    log "INFO" "Multiple iterations completed. Results stored in:"
+    for ((i=1; i<=ITERATIONS; i++)); do
+        log "INFO" "  - ${BENCH_DATA_DIR}-${SESSION_ID}-${i}"
+    done
+    log "INFO" "Use metrics_aggregate.py to analyze results across iterations."
+fi
 
 log "SUCCESS" "All benchmarks completed successfully!"
 exit 0
