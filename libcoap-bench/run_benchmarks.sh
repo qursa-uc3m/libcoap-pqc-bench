@@ -57,6 +57,8 @@ show_help() {
     echo "Optional arguments:"
     echo "  -s TIME               Time for observer mode in seconds (enables observer mode)"
     echo "  -parallelization MODE Parallelization mode [background|parallel] (default: background)"
+    echo "                        'background': clients run in the same core"
+    echo "                        'parallel': clients run across different cores"
     echo "  -client-auth MODE     Client authentication mode [yes|no] (default: no)"
     echo "  -pause SECONDS        Seconds to pause between benchmark runs (default: 10)"
     echo "  -energy               Enable energy measurements (requires RD-USB setup)"
@@ -280,7 +282,7 @@ run_benchmark() {
     local cmd_args=""
     
     # Construct the common command arguments
-    cmd_args="-n $NUM_CLIENTS -sec-mode $sec_mode -r $resource -rasp"
+    cmd_args="-n $NUM_CLIENTS -sec-mode $sec_mode -r $resource -rasp -parallelization $PARALLELIZATION"
     
     # Add resource-specific arguments
     if [ "$resource" == "time" ]; then
@@ -292,7 +294,7 @@ run_benchmark() {
     
     # Add optional arguments
     if [ -n "$OBSERVE_TIME" ]; then
-        cmd_args="$cmd_args -s $OBSERVE_TIME -parallelization $PARALLELIZATION"
+        cmd_args="$cmd_args -s $OBSERVE_TIME"
     fi
     
     # Add certificate config for PKI mode
@@ -619,7 +621,7 @@ if ! check_dependencies; then
 fi
 
 # Generate a unique session ID for this benchmark run
-SESSION_ID="$(date +%m%d)_$(echo $RANDOM | md5sum | head -c 4)"
+SESSION_ID="$(cat ${REPO_ROOT}/algorithm.txt)_$(date +%m%d)"
 
 # ==============================================
 # Show configuration and confirm execution
@@ -630,6 +632,7 @@ log "INFO" "Session ID: $SESSION_ID"
 log "INFO" "Number of clients: $NUM_CLIENTS"
 log "INFO" "Security modes: $SECURITY_MODES"
 log "INFO" "Resources to test: $RESOURCES"
+log "INFO" "Parallelization mode: $PARALLELIZATION"
 [ -n "$ASYNC_DELAY" ] && log "INFO" "Async delay parameter: $ASYNC_DELAY seconds"
 
 if [ -n "$CERT_CONFIGS_FILTER" ]; then

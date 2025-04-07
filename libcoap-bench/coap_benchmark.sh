@@ -49,7 +49,7 @@ usage() {
     echo "                               Required if -r is set to time"
     echo "  -s <integer>                 Sets clients in observer mode (positive integer required)"
     echo "  -rasp                        Indicates server is running on Raspberry Pi"
-    echo "  -parallelization <option>    How clients run when -s is provided:"
+    echo "  -parallelization <option>    How clients run:"
     echo "                               'background' (default): clients run in the same core"
     echo "                               'parallel': clients run in different cores"
     echo "  -cert-config <CONFIG>        Certificate configuration to use (for PKI mode)"
@@ -276,7 +276,7 @@ echo "  r        : $r_param"
 [ -n "$confirm_param" ] && echo "  confirm  : $confirm_param"
 [ -n "$custom_param" ] && echo "  custom   : $custom_param_value"
 [ -n "$rasp_param" ] && echo "  rasp     : enabled" 
-[ -n "$parallelization_mode" ] && echo "  parallelization : $parallelization_mode"
+echo "  parallelization : $parallelization_mode"
 [ "$sec_mode" == "pki" ] && echo "  cert-config : $cert_config"
 [ "$sec_mode" == "pki" ] && echo "  client-auth : $client_auth"
 
@@ -435,13 +435,33 @@ if [ -n "$custom_param" ]; then
         wait $parallel_pid
     fi
 else
-    # Sequential execution
-    for ((i = 1; i < $n; i++)); do
+    # Non-observer mode execution
+    echo "Running in standard mode (non-observer), parallelization: $parallelization_mode"
+    
+    if [ "$parallelization_mode" = "parallel" ]; then
+        # Parallel execution using GNU parallel
+        echo "Executing $n clients in parallel..."
+        
+        # Create an array of identical commands to run in parallel
+        dynamic_commands=()
+        for ((i = 1; i <= $n; i++)); do
+            dynamic_commands+=("$client_cmd")
+        done
+        
+        # Run all commands in parallel
+        parallel -j$n ::: "${dynamic_commands[@]}" &
+        parallel_pid=$!
+        wait $parallel_pid
+    else
+        # Sequential execution (default background mode)
+        echo "Executing $n clients sequentially..."
+        for ((i = 1; i < $n; i++)); do
+            eval "$client_cmd"
+            sleep 0.2
+        done
+        # Final execution (avoid sleep after last one)
         eval "$client_cmd"
-        sleep 0.2
-    done
-    # Final execution (avoid sleep after last one)
-    eval "$client_cmd"
+    fi
 fi
 
 # Stop energy monitoring before getting CPU cycles
@@ -478,13 +498,13 @@ if [ "$sec_mode" == "pki" ] || [ "$sec_mode" == "psk" ]; then
     if [ -n "$custom_param" ]; then
         filename="udp${rasp_param:+_rasp}_conv_stats_${varalg}${cert_indicator}_n${n}_s${custom_param_value}_${parallelization_mode}_${sec_mode}${client_auth_suffix}"
     else
-        filename="udp${rasp_param:+_rasp}_conv_stats_${varalg}${cert_indicator}_n${n}_${sec_mode}${client_auth_suffix}"
+        filename="udp${rasp_param:+_rasp}_conv_stats_${varalg}${cert_indicator}_n${n}_${parallelization_mode}_${sec_mode}${client_auth_suffix}"
     fi
 else
     if [ -n "$custom_param" ]; then
         filename="udp${rasp_param:+_rasp}_conv_stats_n${n}_s${custom_param_value}_${parallelization_mode}_${sec_mode}"
     else
-        filename="udp${rasp_param:+_rasp}_conv_stats_n${n}_${sec_mode}"
+        filename="udp${rasp_param:+_rasp}_conv_stats_n${n}_${parallelization_mode}_${sec_mode}"
     fi
 fi
 filename="${filename}${filename_add}"
