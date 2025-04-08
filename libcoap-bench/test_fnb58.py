@@ -18,6 +18,7 @@ for name, ids in DEVICE_IDS.items():
     if dev:
         model_name = name
         print(f"Found {model_name} device (ID {ids['VID']:04x}:{ids['PID']:04x})")
+        # Detach the HID driver
         break
 
 if dev is None:

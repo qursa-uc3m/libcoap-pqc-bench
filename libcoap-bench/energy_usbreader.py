@@ -446,7 +446,7 @@ def save_energy_summary(state, output_file):
     energy_std_dev = power_std_dev * actual_duration / 3600  # Convert to Wh
 
     # Create simplified energy data for benchmarking system
-    summary_file = os.path.splitext(output_file)[0] + "_summary.csv"
+    summary_file = os.path.splitext(output_file)[0] + ".csv"
     with open(summary_file, 'w', newline='') as f:
         writer = csv.writer(f, delimiter=';')
         writer.writerow(["timestamp", "power", "max_power", "energy"])
@@ -493,7 +493,7 @@ def main():
         description="FNIRSI USB Power Meter Data Reader",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    parser.add_argument("--output", type=str, default="energy_data.csv",
+    parser.add_argument("--output", type=str, default="energy_data",
                         help="Output file name")
     parser.add_argument("--duration", type=float, default=0,
                         help="Duration to collect data in seconds (0 = infinite)")
@@ -547,7 +547,7 @@ def main():
         return 1
     
     # Prepare the output file
-    output_file = args.output
+    output_file = args.output+"_raw.csv"
     print(f"Data will be saved to: {output_file}", file=sys.stderr)
     
     # Create the output directory if it doesn't exist
@@ -634,6 +634,7 @@ def main():
             print_summary(state, args.duration)
             
             # Save energy summary for benchmarking system
+            output_file = args.output+".csv"
             summary_file = save_energy_summary(state, output_file)
             
             # Create a touch file to indicate successful completion
