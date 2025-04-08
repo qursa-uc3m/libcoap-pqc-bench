@@ -16,3 +16,7 @@ pyarrow>=11.0.0  # For faster CSV operations with pandas
 
 # Serial communication
 pyserial>=3.5
+
+# USB communication
+pyusb>=1.3.1
+crc>=7.1.0
