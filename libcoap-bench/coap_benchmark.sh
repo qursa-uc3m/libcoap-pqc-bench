@@ -558,7 +558,7 @@ else
     # Process metrics
     python3 "${BENCH_DIR}/metrics_extractor.py" "${BENCH_DIR}/bench-data/${filename}.csv"
     python3 "${BENCH_DIR}/ws_stats_extractor.py" "${BENCH_DIR}/bench-data/${filename}.txt" "${BENCH_DIR}/bench-data/${filename}_ws.csv"
-    python3 "${BENCH_DIR}/metrics_merge.py" "${BENCH_DIR}/bench-data/${filename}_ws.csv" "${BENCH_DIR}/bench-data/${filename}.csv"
+    python3 "${BENCH_DIR}/metrics_merge.py" --merge --input "${BENCH_DIR}/bench-data/${filename}_ws.csv" --output "${BENCH_DIR}/bench-data/${filename}.csv"
 
     # Add energy data to the CSV file if energy monitoring was enabled
     if [ "${MEASURE_ENERGY:-false}" == "true" ] && [ -e "${BENCH_DIR}/bench-data/${filename}.csv" ]; then

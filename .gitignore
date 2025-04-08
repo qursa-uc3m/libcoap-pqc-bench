@@ -18,3 +18,4 @@ bench-data
 *.png
 !requirements.txt
 .old/
+*.csv.*
