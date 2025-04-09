@@ -61,7 +61,8 @@ class MeasurementState:
         self.max_current = 0.0  # Maximum current observed
         self.max_voltage = 0.0  # Maximum voltage observed
         self.samples_count = 0  # Number of samples collected
-        self.power_values = []  # Store power values 
+        self.power_values = []  # Store power values
+        self.last_elapsed_time= 0.0  # Track the elapsed time of the last sample
 
 
 def reset_usb_device(vid, pid, verbose=False):
@@ -434,7 +435,7 @@ def close_device_safely(device, verbose=False):
             print(f"Error while closing device: {e}", file=sys.stderr)
 
 
-def decode_packet(data, state, calculate_crc, time_interval, alpha, csv_writer, verbose=False):
+def decode_packet(data, state, calculate_crc, time_interval, alpha, csv_writer, end_time=None, verbose=False):
     """
     Decode a data packet and update measurement state
     
@@ -475,7 +476,7 @@ def decode_packet(data, state, calculate_crc, time_interval, alpha, csv_writer, 
     
     # Initialize start time if not already set
     if state.start_time is None:
-        state.start_time = time.time()
+        state.start_time = time.time() - 4 * time_interval
     
     # Current time reference for this packet
     t0 = time.time() - 4 * time_interval
@@ -499,9 +500,6 @@ def decode_packet(data, state, calculate_crc, time_interval, alpha, csv_writer, 
             + data[offset + 4]
         ) / 100000
         
-        dp = (data[offset + 8] + data[offset + 9] * 256) / 1000
-        dn = (data[offset + 10] + data[offset + 11] * 256) / 1000
-        
         temp_C = (data[offset + 13] + data[offset + 14] * 256) / 10.0
         
         # Calculate exponential moving average for temperature
@@ -514,7 +512,6 @@ def decode_packet(data, state, calculate_crc, time_interval, alpha, csv_writer, 
         power = voltage * current
         state.power_values.append(power)
         state.energy += power * time_interval
-        state.capacity += current * time_interval
         
         # Update max values
         state.max_power = max(state.max_power, power)
@@ -524,23 +521,24 @@ def decode_packet(data, state, calculate_crc, time_interval, alpha, csv_writer, 
         # Calculate elapsed time for this sample
         t = t0 + i * time_interval
         elapsed = t - state.start_time
+        state.last_elapsed_time = elapsed
+
+        if end_time and t > end_time:
+            return True
         
         # Increment sample counter
         state.samples_count += 1
         
         # Write data to CSV
         csv_writer.writerow([
+            f"{state.samples_count}",     # Sample number
             f"{t:.6f}",                  # Timestamp
             f"{elapsed:.6f}",            # Elapsed time
-            f"{state.samples_count}",     # Sample number
             f"{voltage:.6f}",            # Voltage (V)
             f"{current:.6f}",            # Current (A)
             f"{power:.6f}",              # Power (W)
             f"{state.temp_ema:.3f}",     # Temperature (°C)
-            f"{dp:.3f}",                 # D+ voltage
-            f"{dn:.3f}",                 # D- voltage
             f"{state.energy:.6f}",       # Accumulated energy (Ws)
-            f"{state.capacity:.6f}"      # Accumulated capacity (As)
         ])
     
     return True
@@ -559,21 +557,26 @@ def print_summary(state, duration):
         print("\nNo data was collected.", file=sys.stderr)
         return
     
-    actual_duration = time.time() - state.start_time
+    if state.samples_count > 0 and len(state.power_values) > 0:
+        actual_elapsed_time = state.last_elapsed_time
+    
+    actual_duration = duration if duration > 0 else time.time() - state.start_time
     power_mean = np.mean(state.power_values)
     power_stddev = calculate_stddev(state)
     
     print("\n---------- Measurement Summary ----------", file=sys.stderr)
     print(f"Duration: {actual_duration:.2f} seconds", file=sys.stderr)
+    print(f"Measurement elapsed time: {actual_elapsed_time:.2f} seconds", file=sys.stderr)
     print(f"Samples collected: {state.samples_count}", file=sys.stderr)
-    print(f"Effective Sample Rate: {state.samples_count/actual_duration:.2f} seconds", file=sys.stderr)
+    print(f"Effective Sample Rate: {state.samples_count/actual_elapsed_time:.2f} sps", file=sys.stderr)
     print(f"Average power: {power_mean:.6f} W", file=sys.stderr)
     print(f"Maximum power: {state.max_power:.6f} W", file=sys.stderr)
     print(f"Power std deviation: {power_stddev:.6f} W", file=sys.stderr)
     print(f"Maximum current: {state.max_current:.6f} A", file=sys.stderr)
     print(f"Maximum voltage: {state.max_voltage:.6f} V", file=sys.stderr)
-    print(f"Total energy: {state.energy:.6f} Ws ({state.energy / 3600:.6f} Wh)", file=sys.stderr)
-    print(f"Total capacity: {state.capacity:.6f} As ({state.capacity / 3600:.6f} Ah)", file=sys.stderr)
+    print(f"Total energy (Accumulated): {state.energy:.6f} Ws ({state.energy / 3600:.6f} Wh)", file=sys.stderr)
+    print(f"Total energy (elapsed time): {power_mean * actual_elapsed_time:.6f} Ws ({power_mean * actual_elapsed_time / 3600:.6f} Wh)", file=sys.stderr)
+    print(f"Total energy (duration): {power_mean * actual_duration:.6f} Ws ({power_mean * actual_duration / 3600:.6f} Wh)", file=sys.stderr)
     if state.temp_ema is not None:
         print(f"Last temperature: {state.temp_ema:.3f} °C", file=sys.stderr)
     print("-------------------------------------------", file=sys.stderr)
@@ -742,17 +745,14 @@ def main():
         
         # Write CSV header
         csv_writer.writerow([
+            "sample",
             "timestamp",
             "elapsed",
-            "sample",
             "voltage_V",
             "current_A",
             "power_W",
             "temp_C",
-            "dp_V",
-            "dn_V",
             "energy_Ws",
-            "capacity_As"
         ])
         
         # Request initial data from the device
@@ -769,7 +769,7 @@ def main():
         continue_time = time.time() + refresh
         
         # Calculate end time if duration is specified
-        end_time = time.time() + args.duration if args.duration > 0 else None
+        end_time = time.time() + args.duration - 0.03 if args.duration > 0 else None
         
         # Add counters for error handling
         consecutive_errors = 0
@@ -779,7 +779,8 @@ def main():
         try:
             while True:
                 # Check if duration has been reached
-                if end_time and time.time() >= end_time:
+                current_time = time.time()
+                if end_time and current_time >= end_time:
                     print("Specified duration reached", file=sys.stderr)
                     break
                 
@@ -788,7 +789,7 @@ def main():
                     data = read_data(device, timeout=5000)
                     if data:
                         # Process data if valid
-                        if decode_packet(data, state, crc_calculator, time_interval, args.alpha, csv_writer, args.verbose):
+                        if decode_packet(data, state, crc_calculator, time_interval, args.alpha, csv_writer, end_time, args.verbose):
                             consecutive_errors = 0  # Reset error counter on success
                         
                     else:
