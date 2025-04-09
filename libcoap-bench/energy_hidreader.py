@@ -32,6 +32,7 @@ import argparse
 import csv
 import signal
 import numpy as np
+import pandas as pd
 from datetime import datetime
 import subprocess
 from typing import Union, Optional, List, Dict, Any, Tuple
@@ -605,37 +606,231 @@ def save_energy_summary(state, output_file):
     summary_file = os.path.splitext(output_file)[0] + ".csv"
     with open(summary_file, 'w', newline='') as f:
         writer = csv.writer(f, delimiter=';')
-        writer.writerow(["timestamp", "power", "max_power", "energy"])
+        writer.writerow([
+            "timestamp",
+            "voltage",
+            "current",
+            "power", 
+            "temperature",
+            "Power (W)",
+            "Max Power (W)", 
+            "Energy (Wh)"
+            ])
         
         # Write the actual data row
         writer.writerow([
             time.time(),
-            f"{power_mean:.6f}",  # Average power
-            f"{state.max_power:.6f}",                # Max power
-            f"{state.energy / 3600:.6f}"             # Energy in Wh
+            f"{state.max_voltage:.6f}",               # Max voltage
+            f"{state.max_current:.6f}",               # Max current
+            f"{power_mean:.6f}",                      # Average power
+            f"{state.temp_ema:.3f}" if state.temp_ema is not None else "0", # Last Temperature
+            f"{power_mean:.6f}",                      # Average power
+            f"{state.max_power:.6f}",                 # Max power
+            f"{state.energy / 3600:.6f}"              # Energy in Wh
         ])
         
         # Write separator row
-        writer.writerow(["-----------", "-----------", "-----------", "-----------"])
-        
-        # Write mean values row (same as the data row for a single measurement)
         writer.writerow([
-            time.time(),
-            f"{power_mean:.6f}",  # Average power
-            f"{state.max_power:.6f}",                # Max power
-            f"{state.energy / 3600:.6f}"             # Energy in Wh
+            "-----------", 
+            "-----------", 
+            "-----------", 
+            "-----------", 
+            "-----------", 
+            "-----------", 
+            "-----------", 
+            "-----------"
         ])
         
-         # Write standard deviation row
+         # Write mean values row (same as the data row for a single measurement)
+        writer.writerow([
+            time.time(),
+            f"{state.max_voltage:.6f}",                # Max voltage
+            f"{state.max_current:.6f}",                # Max current
+            f"{power_mean:.6f}",                       # Average power
+            f"{state.temp_ema:.1f}" if state.temp_ema is not None else "0", # Last temperature
+            f"{power_mean:.6f}",                       # Average power
+            f"{state.max_power:.6f}",                  # Max power
+            f"{state.energy / 3600:.6f}"               # Energy in Wh
+        ])
+        
+        # Write standard deviation row
         writer.writerow([
             "0",
-            f"{power_std_dev:.6f}",                  # Power std dev
-            "0",                                     # No std dev for max power
-            f"{energy_std_dev:.6f}"                  # Energy std dev in Wh
+            "0",                                      # No std dev for voltage
+            "0",                                      # No std dev for current
+            f"{power_std_dev:.6f}",                   # Power std dev
+            "0",                                      # No std dev for temperature
+            f"{power_std_dev:.6f}",                   # Power std dev
+            "0",                                      # No std dev for max power
+            f"{energy_std_dev:.6f}"                   # Energy std dev in Wh
         ])
     
     print(f"Energy summary saved to {summary_file}", file=sys.stderr)
     return summary_file
+
+def merge_energy_data(energy_file, benchmark_file, verbose=False):
+    """
+    Merge energy data from energy CSV into benchmark CSV file
+    
+    Args:
+        energy_file: Path to energy data CSV file
+        benchmark_file: Path to benchmark CSV file to add energy data to
+        verbose: Whether to print verbose information
+        
+    Returns:
+        Boolean indicating success or failure
+    """
+    if pd is None:
+        print("Error: pandas is required for merge functionality. Please install it with: pip install pandas", file=sys.stderr)
+        return False
+    
+    try:
+        # Check if files exist
+        if not os.path.exists(energy_file):
+            print(f"Error: Energy file {energy_file} not found", file=sys.stderr)
+            return False
+        
+        if not os.path.exists(benchmark_file):
+            print(f"Error: Benchmark file {benchmark_file} not found", file=sys.stderr)
+            return False
+        
+        if verbose:
+            print(f"Merging energy data from {energy_file} into {benchmark_file}", file=sys.stderr)
+        
+        # Read the raw files first to determine delimiters correctly
+        with open(energy_file, 'r') as f:
+            energy_content = f.readline().strip()
+            energy_delimiter = ';' if ';' in energy_content else ','
+            
+        with open(benchmark_file, 'r') as f:
+            benchmark_content = f.readline().strip()
+            benchmark_delimiter = ';' if ';' in benchmark_content else ','
+        
+        if verbose:
+            print(f"Detected delimiters - Energy: '{energy_delimiter}', Benchmark: '{benchmark_delimiter}'", file=sys.stderr)
+        
+        # Read energy data
+        energy_df = pd.read_csv(energy_file, delimiter=energy_delimiter)
+        
+        # Read benchmark file
+        benchmark_df = pd.read_csv(benchmark_file, delimiter=benchmark_delimiter)
+        
+        # Check columns in energy file
+        required_columns = ["Power (W)", "Max Power (W)", "Energy (Wh)"]
+        available_columns = energy_df.columns.tolist()
+        
+        # Map to standard column names if needed
+        column_mapping = {}
+        if "Power (W)" not in available_columns and "power" in available_columns:
+            column_mapping["power"] = "Power (W)"
+        if "Max Power (W)" not in available_columns and "max_power" in available_columns:
+            column_mapping["max_power"] = "Max Power (W)"
+        if "Energy (Wh)" not in available_columns and "energy" in available_columns:
+            column_mapping["energy"] = "Energy (Wh)"
+            
+        # Apply mapping if needed
+        if column_mapping:
+            energy_df = energy_df.rename(columns=column_mapping)
+            available_columns = energy_df.columns.tolist()
+        
+        # Check if all required columns are available
+        missing_columns = [col for col in required_columns if col not in available_columns]
+        if missing_columns:
+            print(f"Error: Energy file is missing required columns: {missing_columns}", file=sys.stderr)
+            print(f"Available columns: {available_columns}", file=sys.stderr)
+            return False
+        
+        # Find the mean and standard deviation rows
+        # Typically, the second-to-last row contains means and the last row contains std deviations
+        # But we'll also look for separator rows to be sure
+        separator_indices = []
+        for i, row in energy_df.iterrows():
+            # Look for separator rows (containing dashes)
+            for col in energy_df.columns:
+                if isinstance(row[col], str) and '---' in row[col]:
+                    separator_indices.append(i)
+                    break
+        
+        if separator_indices:
+            # If we found separator rows, use them to identify mean and std rows
+            mean_row_idx = separator_indices[0] + 1 if len(separator_indices) > 0 else -2
+            std_row_idx = mean_row_idx + 1
+        else:
+            # Use the default assumption (second-to-last row for mean, last row for std)
+            mean_row_idx = len(energy_df) - 2
+            std_row_idx = len(energy_df) - 1
+        
+        # Make sure indices are valid
+        mean_row_idx = min(mean_row_idx, len(energy_df) - 1)
+        std_row_idx = min(std_row_idx, len(energy_df) - 1)
+        
+        # Extract the values we need from the energy data
+        try:
+            mean_power = float(energy_df.iloc[mean_row_idx]["Power (W)"])
+            mean_max_power = float(energy_df.iloc[mean_row_idx]["Max Power (W)"])
+            mean_energy = float(energy_df.iloc[mean_row_idx]["Energy (Wh)"])
+            
+            std_power = float(energy_df.iloc[std_row_idx]["Power (W)"])
+            std_energy = float(energy_df.iloc[std_row_idx]["Energy (Wh)"])
+        except (ValueError, TypeError) as e:
+            print(f"Error parsing energy values: {e}", file=sys.stderr)
+            print(f"Mean row: {energy_df.iloc[mean_row_idx].to_dict()}", file=sys.stderr)
+            print(f"Std row: {energy_df.iloc[std_row_idx].to_dict()}", file=sys.stderr)
+            return False
+            
+        if verbose:
+            print(f"Extracted power: {mean_power} W, max power: {mean_max_power} W, energy: {mean_energy} Wh", file=sys.stderr)
+            print(f"Standard deviations - power: {std_power} W, energy: {std_energy} Wh", file=sys.stderr)
+        
+        # Add energy columns to benchmark dataframe
+        benchmark_df["Power (W)"] = None
+        benchmark_df["Max Power (W)"] = None
+        benchmark_df["Energy (Wh)"] = None
+        
+        # Find separator rows in benchmark file
+        benchmark_separator_indices = []
+        for i, row in benchmark_df.iterrows():
+            # Check for separator rows (rows with dashes)
+            for col in benchmark_df.columns:
+                val = str(row[col]) if pd.notna(row[col]) else ""
+                if '---' in val:
+                    benchmark_separator_indices.append(i)
+                    break
+        
+        # Process the benchmark data rows
+        for i, row in benchmark_df.iterrows():
+            # Check if this is a separator row
+            is_separator = i in benchmark_separator_indices
+            
+            if is_separator:
+                # This is a separator row
+                benchmark_df.at[i, "Power (W)"] = '------------'
+                benchmark_df.at[i, "Max Power (W)"] = '------------'
+                benchmark_df.at[i, "Energy (Wh)"] = '------------'
+            elif i == len(benchmark_df) - 1:
+                # This is the last row (standard deviation row)
+                benchmark_df.at[i, "Power (W)"] = f"{std_power:.6f}"
+                benchmark_df.at[i, "Max Power (W)"] = "0.000000"  # No std dev for max power
+                benchmark_df.at[i, "Energy (Wh)"] = f"{std_energy:.6f}"
+            else:
+                # This is a regular data row or mean row
+                benchmark_df.at[i, "Power (W)"] = f"{mean_power:.6f}"
+                benchmark_df.at[i, "Max Power (W)"] = f"{mean_max_power:.6f}"
+                benchmark_df.at[i, "Energy (Wh)"] = f"{mean_energy:.6f}"
+        
+        # Write the updated benchmark file back
+        benchmark_df.to_csv(benchmark_file, index=False, sep=benchmark_delimiter)
+        
+        if verbose:
+            print(f"Successfully merged energy data into {benchmark_file}", file=sys.stderr)
+        
+        return True
+        
+    except Exception as e:
+        print(f"Error merging energy data: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        return False
 
 
 def main():
@@ -667,7 +862,22 @@ def main():
                         help="Force USB device reset before starting")
     parser.add_argument("--retry", type=int, default=3,
                         help="Number of retry attempts for device operations")
+    
+    parser.add_argument("--merge", metavar='ENERGY_FILE',
+                        help="Merge energy data from ENERGY_FILE into benchmark CSV")
+    parser.add_argument("--benchmark", metavar='BENCH_FILE',
+                        help="Benchmark CSV file to merge energy data into")
+
     args = parser.parse_args()
+
+    # Handle merge mode first to 
+    if args.merge:
+        if not args.benchmark:
+            print("Error: --benchmark is required when using --merge", file=sys.stderr)
+            return 1
+        
+        result = merge_energy_data(args.merge, args.benchmark, args.verbose)
+        return 0 if result else 1
     
     # List all USB devices if requested
     if args.list_devices:
