@@ -173,29 +173,11 @@ udp_rasp_conv_stats_KYBER_LEVEL5_DILITHIUM_LEVEL3_n10_s30_parallel_pki_client-au
 
 ### Energy Measurement
 
-To include energy consumption measurements in the CSV:
+For the energy measurements, you might need an external device that catpures the necessary data. We currently rely on the [FNIRSI FNB58 USB Fast Charge Tester](https://www.fnirsi.com/products/fnb58?srsltid=AfmBOooiwGUgtCITDi2gRIbXZhOCehw53ezs3V6qPg6b5WRS0HZ61gen), which is able to provide about 100 samples per second. 
 
-1. Install the GitHub repository [rd-usb](https://github.com/kolinger/rd-usb).
-2. Connect the energy tester to your PC via Bluetooth:
+> This is not a commercial advertisement, but our scripts are optimized targeting the FNB58 and similar ones from the same vendor.
 
-```bash
-sudo modprobe btusb
-sudo systemctl restart bluetooth
-
-# Use this if first time
-sudo rfcomm bind 0 00:15:A6:01:AA:21
-# Or this otherwise
-sudo rfcomm connect hci0 00:15:A6:01:AA:21
-```
-
-3. Run `python3 web.py` in the `rd-usb` directory to open the energy tester interface.
-4. Run the server and client as explained before.
-5. Export the energy CSV from the `rd-usb` interface.
-6. Run the `energy_analysis.sh` script:
-
-```bash
-./libcoap-bench/energy_analysis.sh ~/Downloads/2024-06-24.csv ./libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL5_n10_s30_parallel_pki_scenarioA.csv
-```
+We have prepared our own python utility for performing energy measurements based on [Baryluk's Data logger](https://github.com/baryluk/fnirsi-usb-power-data-logger) and integrated them into our benchmark suite. Please, see this [README](/libcoap-bench/README.md) for instructions on how to set up this device (or other similar HID devices) by yourself. You will also find instructions to run the energy measurement utility and how to manually integrate the energy measurements into the other benchmark data.
 
 ### Generating Plots
 

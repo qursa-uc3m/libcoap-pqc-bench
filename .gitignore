@@ -6,7 +6,7 @@ check_*
 *.key
 *.der
 .qodo
-/.bench_env/
+.bench-env
 
 bench-data
 .bench-data
