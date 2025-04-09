@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # filepath: /home/dsobral/repos/libcoap-pqc-bench/libcoap-bench/energy_hidreader.py
+
 """
 FNIRSI USB Power Meter Data Reader (HID Implementation)
 
@@ -21,6 +22,7 @@ Options:
   --identify         Just identify the connected device and exit
   --list-devices     List all USB devices and exit
   --verbose          Enable verbose output
+  --force-reset      Force a USB reset before starting
 """
 
 import sys
@@ -31,6 +33,7 @@ import csv
 import signal
 import numpy as np
 from datetime import datetime
+import subprocess
 from typing import Union, Optional, List, Dict, Any, Tuple
 
 try:
@@ -59,6 +62,119 @@ class MeasurementState:
         self.max_voltage = 0.0  # Maximum voltage observed
         self.samples_count = 0  # Number of samples collected
         self.power_values = []  # Store power values 
+
+
+def reset_usb_device(vid, pid, verbose=False):
+    """
+    Attempt to reset the USB device using system commands
+    
+    Args:
+        vid: Vendor ID in hex (e.g., 0x0483)
+        pid: Product ID in hex (e.g., 0x003A)
+        verbose: Whether to print verbose info
+    
+    Returns:
+        Success status (boolean)
+    """
+    # Convert to string format needed for system commands
+    vid_str = f"{vid:04x}"
+    pid_str = f"{pid:04x}"
+    
+    try:
+        # Find the device bus and device number using lsusb
+        if verbose:
+            print(f"Attempting to reset USB device {vid_str}:{pid_str}...", file=sys.stderr)
+        
+        # Try using usbreset utility if available
+        try:
+            # First check if usbreset is available (common on some Linux distros)
+            result = subprocess.run(["which", "usbreset"], 
+                                   stdout=subprocess.PIPE, 
+                                   stderr=subprocess.PIPE, 
+                                   text=True)
+            
+            if result.returncode == 0:
+                reset_cmd = ["sudo", "usbreset", f"{vid_str}:{pid_str}"]
+                result = subprocess.run(reset_cmd, 
+                                       stdout=subprocess.PIPE, 
+                                       stderr=subprocess.PIPE, 
+                                       text=True)
+                
+                if result.returncode == 0:
+                    if verbose:
+                        print("Device reset successful using usbreset utility", file=sys.stderr)
+                    return True
+        except Exception as e:
+            if verbose:
+                print(f"usbreset method failed: {e}", file=sys.stderr)
+        
+        # Method 2: Manual reset through sysfs
+        try:
+            # Find device location in sysfs
+            cmd = ["lsusb", "-d", f"{vid_str}:{pid_str}"]
+            result = subprocess.run(cmd, 
+                                   stdout=subprocess.PIPE, 
+                                   stderr=subprocess.PIPE, 
+                                   text=True)
+            
+            if result.returncode != 0:
+                if verbose:
+                    print("Could not find USB device", file=sys.stderr)
+                return False
+            
+            # Parse the output to get bus and device number
+            # Format: "Bus 00X Device 00Y: ID XXXX:YYYY Name"
+            output = result.stdout.strip()
+            parts = output.split()
+            
+            if len(parts) < 6:
+                return False
+            
+            bus = parts[1]
+            device = parts[3][:-1]  # Remove colon
+            
+            # Find the device path in sysfs
+            path = f"/sys/bus/usb/devices/{bus}-{device}/authorized"
+            
+            # Check if path exists
+            if not os.path.exists(path):
+                # Try alternative pattern for paths
+                path = f"/sys/bus/usb/devices/{bus}-{device[:-1]}.{device[-1]}/authorized"
+                if not os.path.exists(path):
+                    if verbose:
+                        print(f"Could not find sysfs path for device {bus}-{device}", file=sys.stderr)
+                    return False
+            
+            # Toggle authorized attribute to reset device
+            try:
+                with open(path, 'w') as f:
+                    f.write("0")  # Deauthorize/disable
+                time.sleep(0.5)   # Wait for device to be disabled
+                with open(path, 'w') as f:
+                    f.write("1")  # Authorize/enable again
+                time.sleep(1.0)   # Wait for device to be re-enabled
+                
+                if verbose:
+                    print(f"Successfully reset USB device through sysfs", file=sys.stderr)
+                return True
+            except (IOError, PermissionError) as e:
+                if verbose:
+                    print(f"Failed to reset device through sysfs: {e}", file=sys.stderr)
+                    print("Try running the script with sudo for USB reset functionality", file=sys.stderr)
+                return False
+            
+        except Exception as e:
+            if verbose:
+                print(f"Manual reset method failed: {e}", file=sys.stderr)
+            return False
+            
+    except Exception as e:
+        if verbose:
+            print(f"Failed to reset USB device: {e}", file=sys.stderr)
+        return False
+    
+    return False
+
 
 # Signal handler for graceful termination
 def signal_handler(sig, frame):
@@ -124,10 +240,12 @@ def find_device():
         - Device path or None if not found
         - Boolean indicating if it's an FNB58 or FNB48S model
         - String with the model name
+        - Dictionary with device VID/PID info
     """
     model_name = "Unknown"
     device_path = None
     is_fnb58_or_fnb48s = False
+    device_info = None
     
     devices = hid.enumerate()
     
@@ -137,17 +255,19 @@ def find_device():
                 device_path = device['path']
                 model_name = name
                 is_fnb58_or_fnb48s = name in ["FNB58", "FNB48S"]
-                return device_path, is_fnb58_or_fnb48s, model_name
+                device_info = ids
+                return device_path, is_fnb58_or_fnb48s, model_name, device_info
     
-    return None, False, model_name
+    return None, False, model_name, None
 
 
-def setup_device(device_path, verbose=False):
+def setup_device(device_path, max_attempts=3, verbose=False):
     """
-    Set up the HID device for communication
+    Set up the HID device for communication with retry logic
     
     Args:
         device_path: HID device path
+        max_attempts: Maximum number of attempts to open the device
         verbose: Whether to print verbose information
         
     Returns:
@@ -157,38 +277,71 @@ def setup_device(device_path, verbose=False):
         print("Opening HID device...", file=sys.stderr)
     
     device = hid.device()
-    try:
-        device.open_path(device_path)
-        
-        # Set the device to non-blocking mode
-        device.set_nonblocking(1)
-        
-        if verbose:
+    
+    # Try multiple times to open the device with increasing delays
+    attempt = 0
+    last_error = None
+    
+    while attempt < max_attempts:
+        try:
+            device.open_path(device_path)
+            
+            # Set the device to non-blocking mode
+            device.set_nonblocking(1)
+            
+            if verbose:
+                try:
+                    print(f"Manufacturer: {device.get_manufacturer_string()}", file=sys.stderr)
+                    print(f"Product: {device.get_product_string()}", file=sys.stderr)
+                    print(f"Serial Number: {device.get_serial_number_string()}", file=sys.stderr)
+                except Exception as e:
+                    print(f"Could not get device strings: {e}", file=sys.stderr)
+            
+            # Send initialization commands to "wake up" the device
             try:
-                print(f"Manufacturer: {device.get_manufacturer_string()}", file=sys.stderr)
-                print(f"Product: {device.get_product_string()}", file=sys.stderr)
-                print(f"Serial Number: {device.get_serial_number_string()}", file=sys.stderr)
+                # Send a null report to initialize communication
+                device.write([0, 0x00] + [0x00] * 62)
+                time.sleep(0.01)
             except Exception as e:
-                print(f"Could not get device strings: {e}", file=sys.stderr)
+                print(f"Warning: Could not send init packet: {e}", file=sys.stderr)
+            
+            return device
+            
+        except IOError as e:
+            last_error = e
+            attempt += 1
+            wait_time = attempt * 1.0  # Linear backoff
+            
+            if verbose:
+                print(f"Attempt {attempt}/{max_attempts} failed: {e}", file=sys.stderr)
+                print(f"Waiting {wait_time:.1f} seconds before retry...", file=sys.stderr)
+            
+            time.sleep(wait_time)
     
-    except IOError as e:
-        print(f"Error opening device: {e}", file=sys.stderr)
-        sys.exit(1)
-    
-    return device
+    print(f"Error opening device after {max_attempts} attempts: {last_error}", file=sys.stderr)
+    sys.exit(1)
 
 
 def request_data(is_fnb58_or_fnb48s, device):
     """Send data request commands to the device"""
     # Note: When using hidapi, we need to add a report ID byte (0) at the beginning
     # The HID report is 64 bytes, total 65 with report ID
-    device.write([0, 0xaa, 0x81] + [0x00] * 61 + [0x8e])
-    device.write([0, 0xaa, 0x82] + [0x00] * 61 + [0x96])
-    
-    if is_fnb58_or_fnb48s:
+    try:
+        device.write([0, 0xaa, 0x81] + [0x00] * 61 + [0x8e])
+        time.sleep(0.02)  # Add small delay between commands
         device.write([0, 0xaa, 0x82] + [0x00] * 61 + [0x96])
-    else:
-        device.write([0, 0xaa, 0x83] + [0x00] * 61 + [0x9e])
+        time.sleep(0.02)
+        
+        if is_fnb58_or_fnb48s:
+            device.write([0, 0xaa, 0x82] + [0x00] * 61 + [0x96])
+        else:
+            device.write([0, 0xaa, 0x83] + [0x00] * 61 + [0x9e])
+            
+    except IOError as e:
+        print(f"Error sending commands to device: {e}", file=sys.stderr)
+        return False
+        
+    return True
 
 
 def read_data(device, timeout=1000):
@@ -200,9 +353,14 @@ def read_data(device, timeout=1000):
     """
     start_time = time.time()
     while (time.time() - start_time) * 1000 < timeout:
-        data = device.read(64)
-        if data and len(data) > 0:
-            return data
+        try:
+            data = device.read(64)
+            if data and len(data) > 0:
+                return data
+        except IOError as e:
+            print(f"Error reading from device: {e}", file=sys.stderr)
+            return None
+            
         time.sleep(0.001)  # Short sleep to prevent CPU hogging
     
     return None
@@ -221,18 +379,59 @@ def drain_endpoint(device, timeout=100, verbose=False):
     drained_count = 0
     
     while (time.time() - start_time) * 1000 < timeout:
-        data = device.read(64)
-        if data and len(data) > 0:
-            drained_count += 1
+        try:
+            data = device.read(64)
+            if data and len(data) > 0:
+                drained_count += 1
+                if verbose:
+                    print(f"Drained packet {drained_count} of {len(data)} bytes", file=sys.stderr)
+            else:
+                # No more data to read
+                break
+        except Exception as e:
             if verbose:
-                print(f"Drained packet {drained_count} of {len(data)} bytes", file=sys.stderr)
-        else:
-            # No more data to read
+                print(f"Error during drain: {e}", file=sys.stderr)
             break
+            
         time.sleep(0.001)  # Short sleep
     
     if verbose and drained_count > 0:
         print(f"Drained {drained_count} packets in total", file=sys.stderr)
+
+
+def close_device_safely(device, verbose=False):
+    """
+    Close the HID device safely with proper cleanup
+    
+    Args:
+        device: HID device object
+        verbose: Whether to print verbose info
+    """
+    if device:
+        try:
+            # First try to send a final reset command
+            try:
+                # Send a null packet to reset device state
+                device.write([0, 0xaa, 0x00] + [0x00] * 62)
+                time.sleep(0.1)
+            except Exception as e:
+                if verbose:
+                    print(f"Warning: Could not send reset packet: {e}", file=sys.stderr)
+            
+            # Drain any pending data
+            drain_endpoint(device, verbose=verbose)
+            
+            # Close the device
+            device.close()
+            
+            # Wait to ensure OS has time to properly release the device
+            time.sleep(0.5)
+            
+            if verbose:
+                print("Device closed successfully", file=sys.stderr)
+                
+        except Exception as e:
+            print(f"Error while closing device: {e}", file=sys.stderr)
 
 
 def decode_packet(data, state, calculate_crc, time_interval, alpha, csv_writer, verbose=False):
@@ -367,6 +566,7 @@ def print_summary(state, duration):
     print("\n---------- Measurement Summary ----------", file=sys.stderr)
     print(f"Duration: {actual_duration:.2f} seconds", file=sys.stderr)
     print(f"Samples collected: {state.samples_count}", file=sys.stderr)
+    print(f"Effective Sample Rate: {state.samples_count/actual_duration:.2f} seconds", file=sys.stderr)
     print(f"Average power: {power_mean:.6f} W", file=sys.stderr)
     print(f"Maximum power: {state.max_power:.6f} W", file=sys.stderr)
     print(f"Power std deviation: {power_stddev:.6f} W", file=sys.stderr)
@@ -460,6 +660,10 @@ def main():
                         help="Enable verbose output")
     parser.add_argument("--alpha", type=float, default=0.9,
                         help="Set temperature smoothing factor (0-1)")
+    parser.add_argument("--force-reset", action="store_true",
+                        help="Force USB device reset before starting")
+    parser.add_argument("--retry", type=int, default=3,
+                        help="Number of retry attempts for device operations")
     args = parser.parse_args()
     
     # List all USB devices if requested
@@ -468,7 +672,7 @@ def main():
         return 0
     
     # Find the device
-    device_path, is_fnb58_or_fnb48s, model_name = find_device()
+    device_path, is_fnb58_or_fnb48s, model_name, device_info = find_device()
     
     if not device_path:
         print("Error: FNIRSI USB power meter not found. Check connection and permissions.", file=sys.stderr)
@@ -477,6 +681,24 @@ def main():
         return 1
     
     print(f"Found {model_name} USB power meter", file=sys.stderr)
+    
+    # Force reset the USB device if requested
+    if args.force_reset and device_info:
+        print("Attempting USB device reset...", file=sys.stderr)
+        reset_success = reset_usb_device(device_info["VID"], device_info["PID"], args.verbose)
+        if reset_success:
+            print("USB device reset successful", file=sys.stderr)
+        else:
+            print("USB device reset failed. Continuing anyway...", file=sys.stderr)
+        
+        # Wait after reset to allow device to stabilize
+        time.sleep(2)
+        
+        # Re-enumerate to get updated path after reset
+        device_path, is_fnb58_or_fnb48s, model_name, device_info = find_device()
+        if not device_path:
+            print("Error: Device not found after reset. Try reconnecting it manually.", file=sys.stderr)
+            return 1
     
     # If only identifying the device, exit now
     if args.identify:
@@ -495,7 +717,7 @@ def main():
     # Set up the device for communication
     device = None
     try:
-        device = setup_device(device_path, args.verbose)
+        device = setup_device(device_path, args.retry, args.verbose)
     except Exception as e:
         print(f"Error setting up device: {e}", file=sys.stderr)
         return 1
@@ -534,10 +756,13 @@ def main():
         ])
         
         # Request initial data from the device
-        request_data(is_fnb58_or_fnb48s, device)
+        if not request_data(is_fnb58_or_fnb48s, device):
+            print("Failed to request data from device", file=sys.stderr)
+            close_device_safely(device, args.verbose)
+            return 1
         
-        # Allow time for the device to respond
-        time.sleep(0.1)
+        # Allow more time for the device to respond
+        time.sleep(0.01)
         
         # Set up data refresh timing
         refresh = 1.0 if is_fnb58_or_fnb48s else 0.003  # 1 s for FNB58 / FNB48S, 3 ms for others
@@ -545,6 +770,10 @@ def main():
         
         # Calculate end time if duration is specified
         end_time = time.time() + args.duration if args.duration > 0 else None
+        
+        # Add counters for error handling
+        consecutive_errors = 0
+        max_consecutive_errors = 5
         
         # Main measurement loop
         try:
@@ -558,10 +787,18 @@ def main():
                 try:
                     data = read_data(device, timeout=5000)
                     if data:
-                        # Decode the data packet
-                        decode_packet(data, state, crc_calculator, time_interval, args.alpha, csv_writer, args.verbose)
+                        # Process data if valid
+                        if decode_packet(data, state, crc_calculator, time_interval, args.alpha, csv_writer, args.verbose):
+                            consecutive_errors = 0  # Reset error counter on success
+                        
                     else:
-                        print("No data received, retrying...", file=sys.stderr)
+                        # No data received
+                        consecutive_errors += 1
+                        print(f"No data received ({consecutive_errors}/{max_consecutive_errors}), retrying...", file=sys.stderr)
+                        
+                        if consecutive_errors >= max_consecutive_errors:
+                            print("Too many consecutive errors. Device may be unresponsive.", file=sys.stderr)
+                            break
                     
                     # Request more data if it's time
                     if time.time() >= continue_time:
@@ -570,7 +807,10 @@ def main():
                     
                 except Exception as e:
                     print(f"Error reading data: {e}", file=sys.stderr)
-                    break
+                    consecutive_errors += 1
+                    if consecutive_errors >= max_consecutive_errors:
+                        print("Too many consecutive errors. Exiting.", file=sys.stderr)
+                        break
                 
                 # Check for stop request (file or keyboard interrupt)
                 if os.path.exists("fnirsi_stop"):
@@ -578,17 +818,8 @@ def main():
                     break
         
         finally:
-            # Drain any remaining data
-            if args.verbose:
-                print("Draining remaining data...", file=sys.stderr)
-            
-            if device:
-                try:
-                    drain_endpoint(device, verbose=args.verbose)
-                    # Close the device to prevent it from being blocked
-                    device.close()
-                except Exception as e:
-                    print(f"Error while closing device: {e}", file=sys.stderr)
+            # Use our safer close function
+            close_device_safely(device, args.verbose)
             
             # Print summary of collected data
             print_summary(state, args.duration)
