@@ -137,6 +137,8 @@ sudo ./setup_vm.sh --name <vm_name>
 ```
 You will be asked to confirm that you are running an existing machine.
 
+> Note: ensure you properly set the different device's IP addresses and that you use the correct interface. You can check what is your computer's interface name with `sudo ip a` (usually the second entry).
+
 In any case, let's install NetEm on the VM
 ```bash
 sudo apt update

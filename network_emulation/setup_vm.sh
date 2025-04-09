@@ -78,7 +78,7 @@ check_virbr0() {
     echo "Custom br0 bridge does not exist. Creating it ..."
     sudo ip link add br0 type bridge
     sudo ip link set br0 up
-    sudo ip link set enp3s0 master br0
+    sudo ip link set enp0s31f6 master br0
     sudo dhclient br0 # Using DHCP to get an IP address for the bridge (gateway)
     echo "Custom bridge (br0) stablished."
   else
