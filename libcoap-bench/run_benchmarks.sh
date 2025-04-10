@@ -249,10 +249,36 @@ setup_iteration_directory() {
     log "INFO" "Prepared ${BENCH_DATA_DIR} for iteration ${iteration}"
 }
 
+# Function to organize energy data files into energy-data subdirectory
+organize_energy_data() {
+    local bench_data_dir="$1"
+    
+    # Create energy-data subdirectory if it doesn't exist
+    if [ ! -d "${bench_data_dir}/energy-data" ]; then
+        mkdir -p "${bench_data_dir}/energy-data"
+    fi
+    
+    # Find and move all energy data files
+    local energy_files=$(find "${bench_data_dir}" -maxdepth 1 -name "energy_*" -type f)
+    if [ -n "$energy_files" ]; then
+        # Move energy files to the energy-data directory
+        find "${bench_data_dir}" -maxdepth 1 -name "energy_*" -type f -exec mv {} "${bench_data_dir}/energy-data/" \;
+        echo "Moved energy data files to ${bench_data_dir}/energy-data/"
+    else
+        echo "No energy data files found in ${bench_data_dir}"
+    fi
+}
+
 # Finalize an iteration by renaming the directory
 finalize_iteration_directory() {
     local iteration=$1
     local target_dir="${BENCH_DATA_DIR}-${SESSION_ID}-${iteration}"
+
+    # First organize energy data into subdirectory
+    if [ "$MEASURE_ENERGY" == "true" ]; then
+        echo "Organizing energy data for iteration ${iteration}..."
+        organize_energy_data "$BENCH_DATA_DIR"
+    fi
     
     # If bench-data exists and has content, move it to the iteration-specific directory
     if [ -d "$BENCH_DATA_DIR" ] && [ "$(ls -A $BENCH_DATA_DIR)" ]; then
@@ -410,7 +436,7 @@ create_summary_report() {
     echo "" >> "$output_file"
     
     if [ $ITERATIONS -gt 1 ]; then
-        echo "For detailed results, please run the metrics_aggregate.py script on the iteration directories." >> "$output_file"
+        echo "For detailed results, please run the metrics_merge.py --aggregate --session <SESSION_ID>." >> "$output_file"
     else
         echo "Results Summary:" >> "$output_file"
         echo "----------------" >> "$output_file"
@@ -623,7 +649,9 @@ if ! check_dependencies; then
 fi
 
 # Generate a unique session ID for this benchmark run
-SESSION_ID="$(cat ${REPO_ROOT}/algorithm.txt)_$(date +%m%d)"
+RANDOM_STR=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 2 | head -n 1)
+SESSION_ID="$(cat ${REPO_ROOT}/algorithm.txt)_$(date +%m%d)_${RANDOM_STR}"
+
 
 # ==============================================
 # Show configuration and confirm execution
@@ -715,13 +743,13 @@ for ((iteration=1; iteration<=ITERATIONS; iteration++)); do
                     
                     # Run appropriate tests based on resource type
                     if [ "$resource" == "time" ]; then
-                        # Run scenarioA (time resource with confirmable messages)
+                        # Run scenarioA 
                         run_benchmark "$sec_mode" "$resource" "con" "$cert_config" "$delay" "$iteration"
                         
-                        # Run scenarioC (time resource with non-confirmable messages)
+                        # Run scenarioC 
                         run_benchmark "$sec_mode" "$resource" "non" "$cert_config" "$delay" "$iteration"
                     elif [ "$resource" == "async" ]; then
-                        # Run scenarioB (async resource with optional delay)
+                        # Run scenarioB 
                         run_benchmark "$sec_mode" "$resource" "" "$cert_config" "$delay" "$iteration"
                     else
                         log "WARNING" "Unknown resource type: $resource, skipping"
@@ -744,13 +772,13 @@ for ((iteration=1; iteration<=ITERATIONS; iteration++)); do
                 
                 # Run appropriate tests based on resource type
                 if [ "$resource" == "time" ]; then
-                    # Run scenarioA (time resource with confirmable messages)
+                    # Run scenarioA 
                     run_benchmark "$sec_mode" "$resource" "con" "" "$delay" "$iteration"
                     
-                    # Run scenarioC (time resource with non-confirmable messages)
+                    # Run scenarioC 
                     run_benchmark "$sec_mode" "$resource" "non" "" "$delay" "$iteration"
                 elif [ "$resource" == "async" ]; then
-                    # Run scenarioB (async resource with optional delay)
+                    # Run scenarioB 
                     run_benchmark "$sec_mode" "$resource" "" "" "$delay" "$iteration"
                 else
                     log "WARNING" "Unknown resource type: $resource, skipping"
@@ -789,7 +817,7 @@ if [ $ITERATIONS -gt 1 ]; then
     for ((i=1; i<=ITERATIONS; i++)); do
         log "INFO" "  - ${BENCH_DATA_DIR}-${SESSION_ID}-${i}"
     done
-    log "INFO" "Use metrics_aggregate.py to analyze results across iterations."
+    log "INFO" "Use metrics_merge.py --aggregate --session <SESSION_ID> to analyze results across iterations."
 fi
 
 log "SUCCESS" "All benchmarks completed successfully!"

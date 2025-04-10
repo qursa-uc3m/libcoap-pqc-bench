@@ -83,7 +83,7 @@ start_energy_monitoring() {
     echo "Energy monitoring started with PID $ENERGY_PID"
 
      # Give it time to initialize
-    sleep 0.5
+    sleep 2
 }
 
 # Function to stop energy monitoring
@@ -95,7 +95,7 @@ stop_energy_monitoring() {
         rm ${BENCH_DIR}/.energy_monitor_pid
         
         # Wait for energy data to be processed
-        sleep 1
+        sleep 2
     fi
 }
 
@@ -264,6 +264,14 @@ if [ "$sec_mode" == "psk" ]; then
     echo "Key value: $(cat ${ACTIVE_PSK})"
 fi
 
+# Read KEM algorithm from first line of algorithm.txt
+if [ -f "${REPO_ROOT}/algorithm.txt" ]; then
+    kem_algorithm=$(head -n 1 "${REPO_ROOT}/algorithm.txt")
+    varalg="${kem_algorithm}"
+else
+    varalg="UNKNOWN_KEM"
+fi        
+
 # Set port based on security mode
 coap_port=$([ "$sec_mode" = "nosec" ] && echo "5683" || echo "5684")
 
@@ -276,8 +284,9 @@ echo "  r        : $r_param"
 [ -n "$custom_param" ] && echo "  custom   : $custom_param_value"
 [ -n "$rasp_param" ] && echo "  rasp     : enabled" 
 echo "  parallelization : $parallelization_mode"
+[ "$sec_mode" == "psk" ] || [ "$sec_mode" == "pki" ] && echo "  kem-algorithm : $varalg"
+[ "$sec_mode" == "psk" ] || [ "$sec_mode" == "pki" ] && echo "  client-auth : $client_auth"
 [ "$sec_mode" == "pki" ] && echo "  cert-config : $cert_config"
-[ "$sec_mode" == "pki" ] && echo "  client-auth : $client_auth"
 
 echo "-----------------------------------------------------------------------------------------"
 
@@ -388,25 +397,10 @@ case "$sec_mode" in
         fi
         # Always include CA to validate server's certificate
         client_cmd="$client_cmd -C \"${ca_file}\""
-        
-        # Read KEM algorithm from first line of algorithm.txt
-        if [ -f "${REPO_ROOT}/algorithm.txt" ]; then
-            kem_algorithm=$(head -n 1 "${REPO_ROOT}/algorithm.txt")
-            varalg="${kem_algorithm}"
-        else
-            varalg="UNKNOWN_KEM"
-        fi
         ;;
     psk)
         # Use the active PSK key from the pskeys directory
         client_cmd="$client_cmd -k \"$(cat ${ACTIVE_PSK})\" -u uc3m"
-        # Read KEM algorithm from first line of algorithm.txt
-        if [ -f "${REPO_ROOT}/algorithm.txt" ]; then
-            kem_algorithm=$(head -n 1 "${REPO_ROOT}/algorithm.txt")
-            varalg="${kem_algorithm}"
-        else
-            varalg="UNKNOWN_KEM"
-        fi
         ;;
     nosec)
         # No additional parameters needed
@@ -531,7 +525,7 @@ else
     if [ -n "$custom_param" ]; then
         filename="udp${rasp_param:+_rasp}_conv_stats_n${n}_s${custom_param_value}_${parallelization_mode}_${sec_mode}"
     elif [ -n "$parallelization_mode" ]; then 
-        filename="udp${rasp_param:+_rasp}_conv_stats_${varalg}${cert_indicator}_n${n}_${parallelization_mode}_${sec_mode}"
+        filename="udp${rasp_param:+_rasp}_conv_stats_n${n}_${parallelization_mode}_${sec_mode}"
     else
         filename="udp${rasp_param:+_rasp}_conv_stats_n${n}_${sec_mode}"
     fi
