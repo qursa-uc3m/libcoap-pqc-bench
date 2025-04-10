@@ -23,7 +23,7 @@ NC='\033[0m' # No Color
 # Default values
 NUM_CLIENTS=""
 OBSERVE_TIME=""
-PARALLELIZATION="background"
+PARALLELIZATION=""
 CLIENT_AUTH="no"
 PAUSE_BETWEEN_RUNS=5
 MEASURE_ENERGY="false"
@@ -39,7 +39,6 @@ SESSION_ID=""           # Unique identifier for this benchmark session
 
 # Benchmark data directories
 BENCH_DATA_DIR="${REPO_ROOT}/libcoap-bench/bench-data"
-BENCH_PLOTS_DIR="${REPO_ROOT}/libcoap-bench/bench-plots"
 
 # ==============================================
 # Function declarations
@@ -56,7 +55,7 @@ show_help() {
     echo
     echo "Optional arguments:"
     echo "  -s TIME               Time for observer mode in seconds (enables observer mode)"
-    echo "  -parallelization MODE Parallelization mode [background|parallel] (default: background)"
+    echo "  -parallelization MODE Parallelization mode [background|parallel] (default: none)"
     echo "                        'background': clients run in the same core"
     echo "                        'parallel': clients run across different cores"
     echo "  -client-auth MODE     Client authentication mode [yes|no] (default: no)"
@@ -282,7 +281,7 @@ run_benchmark() {
     local cmd_args=""
     
     # Construct the common command arguments
-    cmd_args="-n $NUM_CLIENTS -sec-mode $sec_mode -r $resource -rasp -parallelization $PARALLELIZATION"
+    cmd_args="-n $NUM_CLIENTS -sec-mode $sec_mode -r $resource -rasp"
     
     # Add resource-specific arguments
     if [ "$resource" == "time" ]; then
@@ -295,6 +294,10 @@ run_benchmark() {
     # Add optional arguments
     if [ -n "$OBSERVE_TIME" ]; then
         cmd_args="$cmd_args -s $OBSERVE_TIME"
+    fi
+
+    if  [ -n "$PARALLELIZATION" ]; then
+        cmd_args="$cmd_args -parallelization $PARALLELIZATION"
     fi
     
     # Add certificate config for PKI mode
@@ -577,7 +580,7 @@ if [ -n "$OBSERVE_TIME" ] && { ! [[ "$OBSERVE_TIME" =~ ^[0-9]+$ ]] || [ "$OBSERV
 fi
 
 # Validate PARALLELIZATION
-if [ "$PARALLELIZATION" != "background" ] && [ "$PARALLELIZATION" != "parallel" ]; then
+if [ -z parallelization ] && [ "$PARALLELIZATION" != "background" ] && [ "$PARALLELIZATION" != "parallel" ]; then
     log "ERROR" "Parallelization must be either 'background' or 'parallel'"
     exit 1
 fi
@@ -612,7 +615,6 @@ fi
 
 # Create benchmark data directory if it doesn't exist
 mkdir -p "$BENCH_DATA_DIR"
-mkdir -p "$BENCH_PLOTS_DIR"
 
 # Check for required dependencies
 if ! check_dependencies; then

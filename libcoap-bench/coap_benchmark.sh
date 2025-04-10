@@ -13,7 +13,6 @@ ACTIVE_PSK="${PSK_DIR}/active_psk.txt"
 bridge_interface="br0"
 server_ip="192.168.0.157"
 tshark_pid=""
-default_parallelization="background"
 
 # Default values
 n=""
@@ -24,7 +23,7 @@ confirm_flag=""
 custom_param=""
 custom_param_value=0
 rasp_param=""
-parallelization_mode="${default_parallelization}"
+#parallelization_mode=""
 cert_config="DEFAULT"
 client_auth="no"  # Default to mutual authentication
 
@@ -50,7 +49,7 @@ usage() {
     echo "  -s <integer>                 Sets clients in observer mode (positive integer required)"
     echo "  -rasp                        Indicates server is running on Raspberry Pi"
     echo "  -parallelization <option>    How clients run:"
-    echo "                               'background' (default): clients run in the same core"
+    echo "                               'background' : clients run in the same core"
     echo "                               'parallel': clients run in different cores"
     echo "  -cert-config <CONFIG>        Certificate configuration to use (for PKI mode)"
     echo "  -client-auth <yes|no>        Enable/disable client certificate authentication"
@@ -73,30 +72,30 @@ trap cleanup INT
 
 # Function to start energy monitoring
 start_energy_monitoring() {
-    energy_name="$energy_filename"
+    energy_name="energy_$energy_filename"
     
     # Start energy monitoring in the background
-    python ./libcoap-bench/energy_monitor.py --capture --name "$energy_name" --rate 0.2 &
+    python ${BENCH_DIR}/energy_monitor.py --force-reset --output "${BENCH_DIR}/bench-data/$energy_name" &
     ENERGY_PID=$!
     
     # Store the PID for later termination
-    echo $ENERGY_PID > .energy_monitor_pid
+    echo $ENERGY_PID > ${BENCH_DIR}/.energy_monitor_pid
     echo "Energy monitoring started with PID $ENERGY_PID"
 
      # Give it time to initialize
-    sleep 4
+    sleep 0.5
 }
 
 # Function to stop energy monitoring
 stop_energy_monitoring() {
-    if [ -f .energy_monitor_pid ]; then
-        ENERGY_PID=$(cat .energy_monitor_pid)
+    if [ -f ${BENCH_DIR}/.energy_monitor_pid ]; then
+        ENERGY_PID=$(cat ${BENCH_DIR}/.energy_monitor_pid)
         echo "Stopping energy monitoring (PID: $ENERGY_PID)..."
         kill -2 $ENERGY_PID
-        rm .energy_monitor_pid
+        rm ${BENCH_DIR}/.energy_monitor_pid
         
         # Wait for energy data to be processed
-        sleep 3
+        sleep 1
     fi
 }
 
@@ -285,7 +284,7 @@ echo "--------------------------------------------------------------------------
 # Set up network configuration based on rasp_param
 if [ -n "$rasp_param" ]; then
     bridge_ip=$(ip addr show $bridge_interface | grep -Po 'inet \K[\d.]+') 
-    client_ip=$(ip addr show enp3s0 | grep -Po 'inet \K[\d.]+')
+    client_ip=$(ip addr show enp0s31f6 | grep -Po 'inet \K[\d.]+')
     address="[$server_ip]"
     echo "Listening on $bridge_interface"
     echo "Bridge IP: $bridge_ip"
@@ -304,6 +303,14 @@ fi
 sleep 2
 
 if [ -n "$rasp_param" ]; then
+        # Clean up any lingering coap-server processes first
+        echo "-----------------------------------------------------------------------------------------"
+        echo "Cleaning up any existing coap-server processes on $server_ip..."
+        ssh root@$server_ip "pkill -9 -f 'coap-server' || true"
+        
+        # Small delay to ensure ports are fully released
+        sleep 1
+
         # Start the server on the Raspberry Pi
         echo "-----------------------------------------------------------------------------------------"
         echo "Starting server on $server_ip..."
@@ -312,7 +319,7 @@ if [ -n "$rasp_param" ]; then
         
         # Give the server time to start
         echo "Give a moment for the server to start..."
-        sleep 5
+        sleep 3
         
 fi
 
@@ -342,12 +349,16 @@ if [ "${MEASURE_ENERGY:-false}" == "true" ]; then
         
         if [ -n "$custom_param" ]; then
             energy_filename="${rasp_param:+rasp}_conv_stats_${varalg}${cert_indicator}_n${n}_s${custom_param_value}_${parallelization_mode}_${sec_mode}${client_auth_suffix}"
+        elif [ -n "$parallelization_mode" ]; then
+            energy_filename="${rasp_param:+rasp}_conv_stats_${varalg}${cert_indicator}_n${n}_${parallelization_mode}_${sec_mode}${client_auth_suffix}"
         else
             energy_filename="${rasp_param:+rasp}_conv_stats_${varalg}${cert_indicator}_n${n}_${sec_mode}${client_auth_suffix}"
         fi
     else
         if [ -n "$custom_param" ]; then
             energy_filename="${rasp_param:+rasp}_conv_stats_n${n}_s${custom_param_value}_${parallelization_mode}_${sec_mode}"
+        elif [ -n "$parallelization_mode" ]; then
+            energy_filename="${rasp_param:+rasp}_conv_stats_n${n}_${parallelization_mode}_${sec_mode}"
         else
             energy_filename="${rasp_param:+rasp}_conv_stats_n${n}_${sec_mode}"
         fi
@@ -423,7 +434,7 @@ if [ -n "$custom_param" ]; then
             background_pids+=($!)
         done
         wait "${background_pids[@]}"
-    else
+    elif [ "$parallelization_mode" = "parallel" ]; then
         # Run clients in parallel across cores
         dynamic_commands=()
         for ((i = 1; i <= $n; i++)); do
@@ -433,10 +444,14 @@ if [ -n "$custom_param" ]; then
         parallel -j$n ::: "${dynamic_commands[@]}" &
         parallel_pid=$!
         wait $parallel_pid
+    else
+        echo "Observer mode requires parallelization. Please run with --parallelization <background|parallel>." 
+        echo "Exiting ..."
+        exit 1
     fi
 else
     # Non-observer mode execution
-    echo "Running in standard mode (non-observer), parallelization: $parallelization_mode"
+    echo "Running in standard mode (non-observer)"
     
     if [ "$parallelization_mode" = "parallel" ]; then
         # Parallel execution using GNU parallel
@@ -452,8 +467,18 @@ else
         parallel -j$n ::: "${dynamic_commands[@]}" &
         parallel_pid=$!
         wait $parallel_pid
+    elif [ "$parallelization_mode" = "background" ]; then
+        # Background execution
+        echo "Executing $n clients in background..."
+        # Run clients in background
+        background_pids=()
+        for ((i = 1; i <= $n; i++)); do
+            eval "$client_cmd" &
+            background_pids+=($!)
+        done
+        wait "${background_pids[@]}"
     else
-        # Sequential execution (default background mode)
+        # Sequential execution (default mode)
         echo "Executing $n clients sequentially..."
         for ((i = 1; i < $n; i++)); do
             eval "$client_cmd"
@@ -497,14 +522,18 @@ if [ "$sec_mode" == "pki" ] || [ "$sec_mode" == "psk" ]; then
     
     if [ -n "$custom_param" ]; then
         filename="udp${rasp_param:+_rasp}_conv_stats_${varalg}${cert_indicator}_n${n}_s${custom_param_value}_${parallelization_mode}_${sec_mode}${client_auth_suffix}"
-    else
+    elif [ -n "$parallelization_mode" ]; then 
         filename="udp${rasp_param:+_rasp}_conv_stats_${varalg}${cert_indicator}_n${n}_${parallelization_mode}_${sec_mode}${client_auth_suffix}"
+    else
+        filename="udp${rasp_param:+_rasp}_conv_stats_${varalg}${cert_indicator}_n${n}_${sec_mode}${client_auth_suffix}"
     fi
 else
     if [ -n "$custom_param" ]; then
         filename="udp${rasp_param:+_rasp}_conv_stats_n${n}_s${custom_param_value}_${parallelization_mode}_${sec_mode}"
+    elif [ -n "$parallelization_mode" ]; then 
+        filename="udp${rasp_param:+_rasp}_conv_stats_${varalg}${cert_indicator}_n${n}_${parallelization_mode}_${sec_mode}"
     else
-        filename="udp${rasp_param:+_rasp}_conv_stats_n${n}_${parallelization_mode}_${sec_mode}"
+        filename="udp${rasp_param:+_rasp}_conv_stats_n${n}_${sec_mode}"
     fi
 fi
 filename="${filename}${filename_add}"
