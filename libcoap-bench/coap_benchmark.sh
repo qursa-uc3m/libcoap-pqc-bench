@@ -417,7 +417,7 @@ if [ "${MEASURE_ENERGY:-false}" == "true" ]; then
         # Add algorithm, cert type, and client auth indicator
         if [ "$sec_mode" == "pki" ]; then
             # Include cert type and optional client auth flag
-            cert_indicator="${cert_config}"
+            cert_indicator="_${cert_config}"
             client_auth_suffix=$([ "$client_auth" == "yes" ] && echo "_client-auth" || echo "")
         else
             cert_indicator=""
