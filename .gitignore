@@ -6,6 +6,7 @@ check_*
 *.key
 *.der
 .qodo
+.old
 .bench-env
 
 bench-data
@@ -16,6 +17,7 @@ bench-data
 *.txt
 *.log
 *.png
+*.pdf
 !requirements.txt
 .old/
 *.csv.*
