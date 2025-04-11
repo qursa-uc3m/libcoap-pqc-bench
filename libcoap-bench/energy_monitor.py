@@ -180,10 +180,22 @@ def reset_usb_device(vid, pid, verbose=False):
 
 # Signal handler for graceful termination
 def signal_handler(sig, frame):
-    print("\nReceived termination signal. Shutting down...", file=sys.stderr)
+    """Signal handler for graceful termination"""
+    global quit
+    if sig == signal.SIGUSR1:
+        # Special signal to prepare for termination but not quit immediately
+        # This allows us to finish processing and signal readiness to terminate
+        print("\nReceived USR1 signal. Preparing to terminate...", file=sys.stderr)
+        # Set a prepare_to_quit flag rather than actually quitting
+        global prepare_to_quit
+        prepare_to_quit = True
+    else:
+        # Regular termination signals (SIGINT, SIGTERM)
+        print("\nReceived termination signal. Shutting down...", file=sys.stderr)
+        quit = True
+    
     if os.path.exists("fnirsi_stop"):
         os.remove("fnirsi_stop")
-    sys.exit(0)
 
 
 def setup_crc():
@@ -838,6 +850,13 @@ def main():
     # Register signal handler for graceful termination
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGUSR1, signal_handler)  # New handler for USR1
+    
+    # Initialize global flags
+    global quit
+    quit = False
+    global prepare_to_quit
+    prepare_to_quit = False
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(
@@ -862,6 +881,11 @@ def main():
                         help="Force USB device reset before starting")
     parser.add_argument("--retry", type=int, default=3,
                         help="Number of retry attempts for device operations")
+    # Replace --sync-file with separate pipes for start and stop
+    parser.add_argument("--start-pipe", type=str, 
+                        help="Path to a named pipe for start synchronization")
+    parser.add_argument("--stop-pipe", type=str, 
+                        help="Path to a named pipe for stop synchronization")
     
     parser.add_argument("--merge", metavar='ENERGY_FILE',
                         help="Merge energy data from ENERGY_FILE into benchmark CSV")
@@ -905,7 +929,7 @@ def main():
             print("USB device reset failed. Continuing anyway...", file=sys.stderr)
         
         # Wait after reset to allow device to stabilize
-        time.sleep(2)
+        time.sleep(5)
         
         # Re-enumerate to get updated path after reset
         device_path, is_fnb58_or_fnb48s, model_name, device_info = find_device()
@@ -972,7 +996,7 @@ def main():
             return 1
         
         # Allow more time for the device to respond
-        time.sleep(0.01)
+        time.sleep(0.05)
         
         # Set up data refresh timing
         refresh = 1.0 if is_fnb58_or_fnb48s else 0.003  # 1 s for FNB58 / FNB48S, 3 ms for others
@@ -985,9 +1009,28 @@ def main():
         consecutive_errors = 0
         max_consecutive_errors = 5
         
+        start_pipe_signaled = False
+        
         # Main measurement loop
         try:
-            while True:
+            while not quit:
+                # Check if we should prepare to quit
+                if prepare_to_quit:
+                    print("Preparing to quit. Finishing data processing...", file=sys.stderr)
+                    
+                    # Signal that we're done processing via the stop pipe
+                    if args.stop_pipe and os.path.exists(args.stop_pipe):
+                        try:
+                            # Open for writing - this will block until the other process reads
+                            with open(args.stop_pipe, 'w') as f:
+                                f.write("DONE\n")
+                            print(f"Sent DONE signal via {args.stop_pipe}", file=sys.stderr)
+                        except Exception as e:
+                            print(f"Error sending DONE signal: {e}", file=sys.stderr)
+                    
+                    # Now actually quit
+                    break
+                
                 # Check if duration has been reached
                 current_time = time.time()
                 if end_time and current_time >= end_time:
@@ -999,9 +1042,25 @@ def main():
                     data = read_data(device, timeout=5000)
                     if data:
                         # Process data if valid
-                        if decode_packet(data, state, crc_calculator, time_interval, args.alpha, csv_writer, end_time, args.verbose):
-                            consecutive_errors = 0  # Reset error counter on success
+                        valid_packet = decode_packet(data, state, crc_calculator, time_interval, args.alpha, csv_writer, end_time, args.verbose)
                         
+                        if valid_packet:
+                            consecutive_errors = 0  # Reset error counter on success
+                            
+                            # Signal readiness via start pipe after first successful packet
+                            if not start_pipe_signaled and args.start_pipe and os.path.exists(args.start_pipe):
+                                try:
+                                    # Open for writing - will block until other process reads
+                                    with open(args.start_pipe, 'w') as f:
+                                        f.write("READY\n")
+                                    start_pipe_signaled = True
+                                    print(f"Sent READY signal via {args.start_pipe}", file=sys.stderr)
+                                except Exception as e:
+                                    print(f"Error signaling readiness: {e}", file=sys.stderr)
+                        
+                        else:
+                            # Packet not valid
+                            consecutive_errors += 1
                     else:
                         # No data received
                         consecutive_errors += 1
@@ -1015,19 +1074,19 @@ def main():
                     if time.time() >= continue_time:
                         continue_time = time.time() + refresh
                         device.write([0, 0xaa, 0x83] + [0x00] * 61 + [0x9e])
-                    
+                        
                 except Exception as e:
                     print(f"Error reading data: {e}", file=sys.stderr)
                     consecutive_errors += 1
                     if consecutive_errors >= max_consecutive_errors:
                         print("Too many consecutive errors. Exiting.", file=sys.stderr)
                         break
-                
+
                 # Check for stop request (file or keyboard interrupt)
                 if os.path.exists("fnirsi_stop"):
                     print("Stop file detected, terminating", file=sys.stderr)
                     break
-        
+                    
         finally:
             # Use our safer close function
             close_device_safely(device, args.verbose)
@@ -1042,6 +1101,16 @@ def main():
             # Create a touch file to indicate successful completion
             with open(f"{output_file}.done", 'w') as f:
                 f.write(f"Completed at {datetime.now().isoformat()}\n")
+            
+            # Send a final signal through stop pipe if we're exiting without normal preparation
+            if args.stop_pipe and os.path.exists(args.stop_pipe) and not prepare_to_quit:
+                try:
+                    # Try to send a signal to unblock the waiting process
+                    with open(args.stop_pipe, 'w') as f:
+                        f.write("ERROR\n")
+                    print(f"Sent ERROR signal via {args.stop_pipe} due to unexpected termination", file=sys.stderr)
+                except Exception as e:
+                    print(f"Failed to send ERROR signal: {e}", file=sys.stderr)
     
     return 0
 

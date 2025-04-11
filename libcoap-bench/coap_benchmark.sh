@@ -27,13 +27,6 @@ rasp_param=""
 cert_config="DEFAULT"
 client_auth="no"  # Default to mutual authentication
 
-echo "Creating benchmark data directory in ${BENCH_DIR}/bench-data ..."
-mkdir -p ${BENCH_DIR}/bench-data
-
-# Cleanup temp files
-sudo rm -f "${BENCH_DIR}/bench-data/time_output.txt"
-sudo rm -f "${BENCH_DIR}/bench-data/auxiliary.txt"
-
 # Function to display usage information
 usage() {
     echo "Usage: $0 -n <positive_integer> -sec-mode <pki|psk|nosec> -r <time|async> [-confirm <con|non>] [-s <integer>=1] [-rasp] [-parallelization <background|parallel>] [-cert-config <CONFIG>] [-client-auth <yes|no>]"
@@ -59,6 +52,13 @@ usage() {
     exit 1
 }
 
+echo "Creating benchmark data directory in ${BENCH_DIR}/bench-data ..."
+mkdir -p ${BENCH_DIR}/bench-data
+
+# Cleanup temp files
+sudo rm -f "${BENCH_DIR}/bench-data/time_output.txt"
+sudo rm -f "${BENCH_DIR}/bench-data/auxiliary.txt"
+
 # Function to clean up and exit on interruption
 cleanup() {
     echo "Script interrupted. Cleaning up..."
@@ -70,34 +70,102 @@ cleanup() {
 # Trap interrupt signal (Ctrl+C) to perform cleanup
 trap cleanup INT
 
-# Function to start energy monitoring
+# Function to start energy monitoring with guaranteed initialization using a named pipe
 start_energy_monitoring() {
     energy_name="energy_$energy_filename"
+    start_sock="${BENCH_DIR}/.energy_monitor_start.sock"
+    stop_sock="${BENCH_DIR}/.energy_monitor_stop.sock"
     
-    # Start energy monitoring in the background
-    python ${BENCH_DIR}/energy_monitor.py --force-reset --output "${BENCH_DIR}/bench-data/$energy_name" &
+    echo "Starting energy monitoring..."
+    
+    # Remove any existing sockets
+    rm -f "$start_sock" "$stop_sock"
+    
+    # Create sockets for synchronization
+    mkfifo "$start_sock" 2>/dev/null
+    mkfifo "$stop_sock" 2>/dev/null
+    
+    # Start energy monitor with sync mechanism
+    python ${BENCH_DIR}/energy_monitor.py --force-reset \
+           --output "${BENCH_DIR}/bench-data/$energy_name" \
+           --start-pipe "$start_sock" \
+           --stop-pipe "$stop_sock" &
+    
     ENERGY_PID=$!
     
     # Store the PID for later termination
     echo $ENERGY_PID > ${BENCH_DIR}/.energy_monitor_pid
     echo "Energy monitoring started with PID $ENERGY_PID"
-
-     # Give it time to initialize
-    sleep 2
-}
-
-# Function to stop energy monitoring
-stop_energy_monitoring() {
-    if [ -f ${BENCH_DIR}/.energy_monitor_pid ]; then
-        ENERGY_PID=$(cat ${BENCH_DIR}/.energy_monitor_pid)
-        echo "Stopping energy monitoring (PID: $ENERGY_PID)..."
-        kill -2 $ENERGY_PID
-        rm ${BENCH_DIR}/.energy_monitor_pid
-        
-        # Wait for energy data to be processed
-        sleep 2
+    
+    # Wait for the energy monitoring to signal readiness
+    echo "Waiting for energy monitor to initialize..."
+    
+    # Read from the start pipe - this will block until energy monitor writes to it
+    # Use a timeout to prevent indefinite hanging
+    if read -t 30 status < "$start_sock"; then
+        if [ "$status" = "READY" ]; then
+            echo "Energy monitor signaled ready"
+            echo "Energy monitor is ready and collecting data"
+            # Remove the start pipe since we're done with it
+            rm -f "$start_sock"
+            return 0
+        else
+            echo "WARNING: Energy monitor sent unexpected status: $status"
+        fi
+    else
+        echo "WARNING: Timed out waiting for energy monitor to signal ready"
+        echo "Continuing anyway, but energy data may be incomplete or missing."
     fi
+    
+    # Clean up if something went wrong
+    rm -f "$start_sock" "$stop_sock"
+    return 1
 }
+
+# Function to stop energy monitoring and ensure completion
+stop_energy_monitoring() {
+    if [ ! -f ${BENCH_DIR}/.energy_monitor_pid ]; then
+        echo "No energy monitoring process found"
+        return
+    fi
+    
+    ENERGY_PID=$(cat ${BENCH_DIR}/.energy_monitor_pid)
+    stop_sock="${BENCH_DIR}/.energy_monitor_stop.sock"
+    
+    echo "Stopping energy monitoring (PID: $ENERGY_PID)..."
+    
+    # Signal the energy monitor to prepare for termination
+    kill -USR1 $ENERGY_PID 2>/dev/null
+    
+    # Give it a moment to process the signal and open the pipe
+    sleep 0.5
+    
+    # Wait for completion signal from energy monitor
+    if [ -p "$stop_sock" ]; then
+        if read -t 10 status < "$stop_sock"; then
+            if [ "$status" = "DONE" ]; then
+                echo "Energy monitor completed data processing"
+            else
+                echo "WARNING: Energy monitor sent unexpected status: $status"
+            fi
+        else
+            echo "WARNING: Timed out waiting for energy monitor completion signal"
+        fi
+    else
+        echo "WARNING: Stop pipe not found, energy monitor may not complete properly"
+    fi
+    
+    # Now send the actual termination signal
+    kill -2 $ENERGY_PID
+    
+    # Clean up
+    rm -f "$stop_sock"
+    rm -f ${BENCH_DIR}/.energy_monitor_pid
+    
+    # Wait a moment for energy data to be processed
+    sleep 1
+}
+
 
 # Parse command line arguments
 while [ "$#" -gt 0 ]; do
@@ -414,7 +482,7 @@ client_cmd="$client_cmd ${protocol}://${address}/${r_param}"
 client_cmd="$client_cmd >> ${BENCH_DIR}/bench-data/auxiliary.txt"
 
 # Capture initial time
-initial_time=$(date +"%T")
+initial_time=$(date +%s.%N)
 
 # Execute the client commands based on parameters
 if [ -n "$custom_param" ]; then
@@ -483,15 +551,14 @@ else
     fi
 fi
 
+# Capture final time
+final_time=$(date +%s.%N)
+
 # Stop energy monitoring before getting CPU cycles
 if [ "${MEASURE_ENERGY:-false}" == "true" ]; then
-    echo ""
     echo "-----------------------------------------------------------------------------------------"
     stop_energy_monitoring
 fi
-
-# Capture final time
-final_time=$(date +"%T")
 
 # Define filename_add based on scenario
 if [ "$r_param" == "time" ] && [ "$confirm_param" == "con" ]; then
@@ -559,13 +626,20 @@ else
     tshark -r "${BENCH_DIR}/bench-data/udp_conversations.pcapng" -z conv,udp | grep "<-> $server_ip" > "${BENCH_DIR}/bench-data/${filename}.txt"
     
     # Save timing information
-    echo $initial_time > "${BENCH_DIR}/bench-data/initial_and_final_time.txt"
-    echo $final_time >> "${BENCH_DIR}/bench-data/initial_and_final_time.txt"
+{
+    echo "Started at:  $initial_time"
+    echo "Finished at: $final_time"
+
+    # Calculate elapsed time (in seconds)
+    elapsed=$(echo "$final_time - $initial_time" | bc)
+
+    echo "Elapsed time: ${elapsed} s"
+} > "${BENCH_DIR}/bench-data/initial_and_final_time.txt"
 
     # Wait for server to be shut down
     echo "Automatically stopping the server on the Raspberry Pi..."
     ssh root@$server_ip "pkill -2 coap-server || pkill -2 -f coap-server" || echo "Warning: Failed to stop server"
-    sleep 5
+    sleep 3
     echo "-----------------------------------------------------------------------------------------" 
     
     # Get CPU cycles from server
