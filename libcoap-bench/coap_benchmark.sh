@@ -652,19 +652,22 @@ else
     fi
     echo $cpu_cycles > "${BENCH_DIR}/bench-data/cycles_output.txt"
     
-    # Process metrics
-    python3 "${BENCH_DIR}/metrics_extractor.py" "${BENCH_DIR}/bench-data/${filename}.csv"
-    python3 "${BENCH_DIR}/ws_stats_extractor.py" "${BENCH_DIR}/bench-data/${filename}.txt" "${BENCH_DIR}/bench-data/${filename}_ws.csv"
-    python3 "${BENCH_DIR}/metrics_merge.py" --merge --input "${BENCH_DIR}/bench-data/${filename}_ws.csv" --output "${BENCH_DIR}/bench-data/${filename}.csv"
+    # Process metrics with the unified benchmark data manager
+    python3 "${BENCH_DIR}/bench-data-manager.py" process \
+        --stats-file "${BENCH_DIR}/bench-data/${filename}.txt" \
+        --time-file "${BENCH_DIR}/bench-data/time_output.txt" \
+        --cycles-file "${BENCH_DIR}/bench-data/cycles_output.txt" \
+        --output-file "${BENCH_DIR}/bench-data/${filename}.csv"
 
     # Add energy data to the CSV file if energy monitoring was enabled
     if [ "${MEASURE_ENERGY:-false}" == "true" ] && [ -e "${BENCH_DIR}/bench-data/${filename}.csv" ]; then
         # Find the energy measurements file
         energy_file="${BENCH_DIR}/bench-data/energy_${energy_filename}.csv"
-        
         if [ -e "$energy_file" ]; then
             echo "Adding energy data from $energy_file to ${BENCH_DIR}/bench-data/${filename}.csv"
-            python3 "${BENCH_DIR}/energy_monitor.py" --merge "$energy_file" --benchmark "${BENCH_DIR}/bench-data/${filename}.csv"
+            python3 "${BENCH_DIR}/bench-data-manager.py" merge \
+                --energy-file "$energy_file" \
+                --benchmark-file "${BENCH_DIR}/bench-data/${filename}.csv"
         else
             echo "Warning: Energy file $energy_file not found"
         fi
@@ -672,9 +675,12 @@ else
     
     # Clean up temporary files
     echo "Cleaning up temporary files..."
-    sudo rm "${BENCH_DIR}/bench-data/${filename}_ws.csv"
-    sudo rm "${BENCH_DIR}/bench-data/${filename}.txt"
-    sudo rm "${BENCH_DIR}/bench-data/udp_conversations.pcapng"
+    #if [ -f "${BENCH_DIR}/bench-data/${filename}.txt" ]; then
+    #    sudo rm "${BENCH_DIR}/bench-data/${filename}.txt"
+    #fi
+    if [ -f "${BENCH_DIR}/bench-data/udp_conversations.pcapng" ]; then
+        sudo rm "${BENCH_DIR}/bench-data/udp_conversations.pcapng"
+    fi
 fi
 
 echo "Benchmark completed successfully: $filename"
