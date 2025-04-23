@@ -1,10 +1,12 @@
 import os
 import matplotlib.pyplot as plt
-import pandas as pd
 import numpy as np
+import pandas as pd
+import os
+import glob
 import matplotlib.colors as mcolors
 from matplotlib.patches import Patch
-import glob
+from matplotlib.lines import Line2D
 import argparse
 
 # Generate the color palette
@@ -176,7 +178,7 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
     s_suffix = f"_s{s}" if s else ""
     p_suffix = f"_{p}" if p else ""
     scenario_suffix = f"_scenario{scenario}"
-    rasp_prefix = "_rasp" if rasp else ""
+    rasp_prefix = "rasp" if rasp else ""
 
     # Data structures to hold values for each algorithm and certificate type
     data = {
@@ -375,7 +377,7 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
     # Create the directory if it doesn't exist
     os.makedirs(f'./{plots_dir}', exist_ok=True)
     
-    output_file = f'./{plots_dir}/scatter_{"rasp_" if rasp else ""}{clean_metric}_n{n}{f"_{s}" if s else ""}{f"_{p}" if p else ""}_scenario{scenario}.pdf'
+    output_file = f'./{plots_dir}/scatter_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}.pdf'
     
     plt.savefig(output_file)
     print(f"Plot saved to {output_file}")
@@ -438,7 +440,7 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
     # Common file pattern parts
     s_suffix = f"_s{s}" if s else ""
     p_suffix = f"_{p}" if p else ""
-    rasp_prefix = "_rasp" if rasp else ""
+    rasp_prefix = "rasp" if rasp else ""
     
     # Dictionary to store legend entries
     legend_entries = {}
@@ -594,12 +596,400 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
     # Create the plots directory if it doesn't exist
     os.makedirs(f'./{plots_dir}', exist_ok=True)
     
-    output_file = f'./{plots_dir}/barplot_{"rasp_" if rasp else ""}{clean_metric}_n{n}{f"_{s}" if s else ""}{f"_{p}" if p else ""}_scenario{scenarios_str}.pdf'
+    output_file = f'./{plots_dir}/barplot_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}.pdf'
 
     plt.savefig(output_file)
     print(f"Plot saved to {output_file}")
     plt.show()
     
+def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None):
+    """
+    Create a heat map visualization of a metric across algorithms and certificate types.
+    
+    Args:
+        metric (str): The metric to be visualized (e.g., 'duration', 'Energy (Wh)').
+        algorithms_list (list): List of algorithm names.
+        cert_types_list (list): List of certificate types to include.
+        n (int): Number of repetitions.
+        scenario (str): Scenario identifier (A, B, or C).
+        rasp (bool): Whether the data is from a Raspberry Pi.
+        s (int or None): Optional 's' parameter.
+        p (str or None): Optional 'p' parameter (parallelization mode).
+        data_dir (str): Directory containing the data files.
+        custom_suffix (str): Optional suffix for data and plot directories.
+    """
+    # Get the absolute path of the script's directory
+    script_directory = os.path.dirname(os.path.realpath(__file__))
+    
+    # Get data and plots directories
+    data_dir_, plots_dir = setup_output_dirs(custom_suffix)
+    data_dir_path = os.path.join(script_directory, data_dir_)
+    
+    print(f"Data directory: {data_dir_path}")
+    print(f"Plot directory: {plots_dir}")
+    
+    # Create a figure and axis
+    fig, ax = plt.subplots(figsize=(12, 8))
+    
+    # Create a grid to store the metric values
+    heat_data = np.zeros((len(algorithms_list), len(cert_types_list)))
+    
+    # Construct the common file pattern parts
+    s_suffix = f"_s{s}" if s else ""
+    p_suffix = f"_{p}" if p else ""
+    scenario_suffix = f"_scenario{scenario}"
+    rasp_prefix = "rasp" if rasp else ""
+    
+    # Variables to track min and max values for color scaling
+    valid_data_found = False
+    min_value = float('inf')
+    max_value = float('-inf')
+    
+    # Collect data for the heat map
+    for alg_idx, algorithm in enumerate(algorithms_list):
+        for cert_idx, cert_type in enumerate(cert_types_list):
+            # Get file patterns
+            patterns = get_file_patterns(algorithm, cert_type, n, s, p, scenario, rasp)
+            
+            # PKI file pattern
+            pki_pattern = patterns['pki']
+            pki_files = find_files(data_dir_path, pki_pattern)
+            
+            # Try with client-auth if needed
+            if not pki_files:
+                pki_pattern = patterns['pki_client_auth']
+                pki_files = find_files(data_dir_path, pki_pattern)
+            
+            if pki_files:
+                file_path = pki_files[0]
+                metric_value, _ = read_csv(file_path, metric)
+                
+                if metric_value is not None:
+                    heat_data[alg_idx, cert_idx] = metric_value
+                    min_value = min(min_value, metric_value)
+                    max_value = max(max_value, metric_value)
+                    valid_data_found = True
+                else:
+                    # Use NaN for missing values
+                    heat_data[alg_idx, cert_idx] = np.nan
+            else:
+                # Use NaN for missing files
+                heat_data[alg_idx, cert_idx] = np.nan
+    
+    if not valid_data_found:
+        print("No valid data found for heat map. Please check your parameters.")
+        return
+    
+    # Create the heatmap
+    cmap = plt.cm.YlOrRd  # Yellow-Orange-Red colormap (good for showing intensity)
+    im = ax.imshow(heat_data, cmap=cmap, aspect='auto')
+    
+    # Add colorbar
+    cbar = plt.colorbar(im, ax=ax)
+    cbar.set_label(metric)
+    
+    # Set ticks and labels
+    ax.set_xticks(np.arange(len(cert_types_list)))
+    ax.set_yticks(np.arange(len(algorithms_list)))
+    ax.set_xticklabels(cert_types_list)
+    ax.set_yticklabels(algorithms_list)
+    
+    # Rotate the x labels for better readability
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
+    
+    # Add text annotations inside each cell showing the value
+    for i in range(len(algorithms_list)):
+        for j in range(len(cert_types_list)):
+            if not np.isnan(heat_data[i, j]):
+                # Format the text differently based on the value range
+                if isinstance(heat_data[i, j], int):
+                    text = ax.text(j, i, f"{heat_data[i, j]:.0f}",
+                                  ha="center", va="center", color="black" if heat_data[i, j] < (max_value - min_value) * 0.7 + min_value else "white")
+                else:
+                    text = ax.text(j, i, f"{heat_data[i, j]:.4f}",
+                                  ha="center", va="center", color="black" if heat_data[i, j] < (max_value - min_value) * 0.7 + min_value else "white")
+    
+    # Set labels and title
+    ax.set_xlabel('Certificate Types')
+    ax.set_ylabel('Algorithms')
+    title = f'Heat Map of {metric} - n={n}, scenario={scenario}'
+    if s is not None:
+        title += f', s={s}'
+    if p is not None:
+        title += f', p={p}'
+    ax.set_title(title)
+    
+    # Improve layout
+    plt.tight_layout()
+    
+    # Save the plot
+    clean_metric = metric.replace(' ', '_').replace('(', '').replace(')', '')
+    
+    # Create the directory if it doesn't exist
+    os.makedirs(f'./{plots_dir}', exist_ok=True)
+    
+    output_file = f'./{plots_dir}/heatmap_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}.pdf'
+    
+    plt.savefig(output_file)
+    print(f"Plot saved to {output_file}")
+    plt.show()
+    
+def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None):
+    """
+    Create box plots to visualize variability in metrics across configurations.
+    
+    Args:
+        metric (str): The metric to be visualized (e.g., 'duration', 'Energy (Wh)').
+        algorithms_list (list): List of algorithm names.
+        cert_types_list (list): List of certificate types to include.
+        n (int): Number of repetitions.
+        scenario (str): Scenario identifier (A, B, or C).
+        rasp (bool): Whether the data is from a Raspberry Pi.
+        s (int or None): Optional 's' parameter.
+        p (str or None): Optional 'p' parameter (parallelization mode).
+        data_dir (str): Directory containing the data files.
+        custom_suffix (str): Optional suffix for data and plot directories.
+    """
+    # Get the absolute path of the script's directory
+    script_directory = os.path.dirname(os.path.realpath(__file__))
+    
+    # Get data and plots directories
+    data_dir_, plots_dir = setup_output_dirs(custom_suffix)
+    data_dir_path = os.path.join(script_directory, data_dir_)
+    
+    print(f"Data directory: {data_dir_path}")
+    print(f"Plot directory: {plots_dir}")
+    
+    # Create a figure and axis
+    fig, ax = plt.subplots(figsize=(14, 8))
+    
+    # Generate colors for different certificate types
+    cert_colors = get_certificate_colors(cert_types_list)
+    
+    # Dictionary to store raw data points for each configuration
+    raw_data_dict = {}
+    
+    # Construct the common file pattern parts
+    s_suffix = f"_s{s}" if s else ""
+    p_suffix = f"_{p}" if p else ""
+    scenario_suffix = f"_scenario{scenario}"
+    rasp_prefix = "rasp" if rasp else ""
+    
+    # Collect raw data for each configuration
+    for algorithm in algorithms_list:
+        for cert_type in cert_types_list:
+            # Get file patterns
+            patterns = get_file_patterns(algorithm, cert_type, n, s, p, scenario, rasp)
+            
+            # PKI file pattern
+            pki_pattern = patterns['pki']
+            pki_files = find_files(data_dir_path, pki_pattern)
+            
+            # Try with client-auth if needed
+            if not pki_files:
+                pki_pattern = patterns['pki_client_auth']
+                pki_files = find_files(data_dir_path, pki_pattern)
+            
+            if pki_files:
+                file_path = pki_files[0]
+                try:
+                    # Read the CSV file
+                    df = pd.read_csv(file_path, sep=';')
+                    
+                    # Find the separator row
+                    separator_idx = None
+                    for i, row in df.iterrows():
+                        # Check if this is a separator row
+                        if isinstance(row.iloc[0], str) and '---' in row.iloc[0]:
+                            separator_idx = i
+                            break
+                    
+                    if separator_idx is not None:
+                        # Get all data rows before the separator
+                        data_rows = df.iloc[:separator_idx]
+                        
+                        # Extract the metric column
+                        if metric in data_rows.columns:
+                            # Filter out non-numeric values (if any)
+                            raw_values = pd.to_numeric(data_rows[metric], errors='coerce').dropna().values
+                            
+                            # Store values in the dictionary
+                            key = f"{algorithm}_{cert_type}"
+                            raw_data_dict[key] = {
+                                'values': raw_values,
+                                'algorithm': algorithm,
+                                'cert_type': cert_type,
+                                'color': cert_colors[cert_type]
+                            }
+                except Exception as e:
+                    print(f"Error reading file {file_path}: {e}")
+    
+    # Also get data for PSK and NoSec
+    for algorithm in algorithms_list:
+        # PSK data
+        patterns = get_file_patterns(algorithm, "", n, s, p, scenario, rasp)
+        psk_pattern = patterns['psk']
+        psk_files = find_files(data_dir_path, psk_pattern)
+        
+        if psk_files:
+            file_path = psk_files[0]
+            try:
+                # Read the CSV file
+                df = pd.read_csv(file_path, sep=';')
+                
+                # Find the separator row
+                separator_idx = None
+                for i, row in df.iterrows():
+                    # Check if this is a separator row
+                    if isinstance(row.iloc[0], str) and '---' in row.iloc[0]:
+                        separator_idx = i
+                        break
+                
+                if separator_idx is not None:
+                    # Get all data rows before the separator
+                    data_rows = df.iloc[:separator_idx]
+                    
+                    # Extract the metric column
+                    if metric in data_rows.columns:
+                        # Filter out non-numeric values (if any)
+                        raw_values = pd.to_numeric(data_rows[metric], errors='coerce').dropna().values
+                        
+                        # Store values in the dictionary
+                        key = f"{algorithm}_PSK"
+                        raw_data_dict[key] = {
+                            'values': raw_values,
+                            'algorithm': algorithm,
+                            'cert_type': 'PSK',
+                            'color': security_mode_colors['psk']
+                        }
+            except Exception as e:
+                print(f"Error reading file {file_path}: {e}")
+    
+    # NoSec data
+    patterns = get_file_patterns("", "", n, s, p, scenario, rasp)
+    nosec_pattern = patterns['nosec']
+    nosec_files = find_files(data_dir_path, nosec_pattern)
+    
+    if not nosec_files:
+        # Try a more flexible pattern
+        nosec_pattern = patterns['nosec_flexible']
+        nosec_files = find_files(data_dir_path, nosec_pattern)
+    
+    if nosec_files:
+        file_path = nosec_files[0]
+        try:
+            # Read the CSV file
+            df = pd.read_csv(file_path, sep=';')
+            
+            # Find the separator row
+            separator_idx = None
+            for i, row in df.iterrows():
+                # Check if this is a separator row
+                if isinstance(row.iloc[0], str) and '---' in row.iloc[0]:
+                    separator_idx = i
+                    break
+            
+            if separator_idx is not None:
+                # Get all data rows before the separator
+                data_rows = df.iloc[:separator_idx]
+                
+                # Extract the metric column
+                if metric in data_rows.columns:
+                    # Filter out non-numeric values (if any)
+                    raw_values = pd.to_numeric(data_rows[metric], errors='coerce').dropna().values
+                    
+                    # Store values in the dictionary
+                    key = f"NoSec"
+                    raw_data_dict[key] = {
+                        'values': raw_values,
+                        'algorithm': 'NoSec',
+                        'cert_type': 'NoSec',
+                        'color': security_mode_colors['nosec']
+                    }
+        except Exception as e:
+            print(f"Error reading file {file_path}: {e}")
+    
+    # If no data was found, exit
+    if not raw_data_dict:
+        print("No valid data found for box plots. Please check your parameters.")
+        return
+    
+    # Prepare box plot data
+    box_data = []
+    box_colors = []
+    labels = []
+    
+    # Sort by algorithm and certificate type for consistent ordering
+    for key in sorted(raw_data_dict.keys()):
+        data = raw_data_dict[key]
+        if len(data['values']) > 0:
+            box_data.append(data['values'])
+            box_colors.append(data['color'])
+            # Format the label
+            if data['cert_type'] == 'PSK':
+                labels.append(f"{data['algorithm']}\nPSK")
+            elif data['cert_type'] == 'NoSec':
+                labels.append("NoSec")
+            else:
+                labels.append(f"{data['algorithm']}\n{data['cert_type']}")
+    
+    # Create box plot
+    bp = ax.boxplot(box_data, patch_artist=True, showfliers=True, medianprops={'color': 'black'})
+    
+    # Set colors for each box
+    for patch, color in zip(bp['boxes'], box_colors):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.7)
+    
+    # Set labels and title
+    ax.set_xticklabels(labels, rotation=45, ha='right')
+    ax.set_ylabel(metric)
+    title = f'Variability of {metric} across configurations - n={n}, scenario={scenario}'
+    if s is not None:
+        title += f', s={s}'
+    if p is not None:
+        title += f', p={p}'
+    ax.set_title(title)
+    
+    # Add grid for easier reading
+    ax.yaxis.grid(True, linestyle='--', alpha=0.7)
+    
+    # Create a custom legend
+    handles = []
+    legend_labels = []
+    
+    # Add PKI certificate types to legend
+    for cert_type in cert_types_list:
+        handles.append(Patch(facecolor=cert_colors[cert_type], alpha=0.7))
+        legend_labels.append(f"PKI ({cert_type})")
+    
+    # Add PSK to legend
+    handles.append(Patch(facecolor=security_mode_colors['psk'], alpha=0.7))
+    legend_labels.append("PSK")
+    
+    # Add NoSec to legend if available
+    if "NoSec" in [data['cert_type'] for data in raw_data_dict.values()]:
+        handles.append(Patch(facecolor=security_mode_colors['nosec'], alpha=0.7))
+        legend_labels.append("NoSec")
+    
+    # Add the legend
+    ax.legend(handles, legend_labels, loc='upper right', bbox_to_anchor=(1.15, 1))
+    
+    # Improve layout
+    plt.tight_layout()
+    
+    # Save the plot
+    clean_metric = metric.replace(' ', '_').replace('(', '').replace(')', '')
+    
+    # Create the directory if it doesn't exist
+    os.makedirs(f'./{plots_dir}', exist_ok=True)
+    
+    output_file = f'./{plots_dir}/boxplot_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}.pdf'
+    
+    plt.savefig(output_file)
+    print(f"Plot saved to {output_file}")
+    plt.show()
+
 def parse_args():
     """Parse command line arguments using argparse."""
     parser = argparse.ArgumentParser(
@@ -617,10 +1007,12 @@ def parse_args():
     plot_type = parser.add_mutually_exclusive_group(required=True)
     plot_type.add_argument('--scatter', action='store_true', help='Generate scatter plot')
     plot_type.add_argument('--barplot', action='store_true', help='Generate bar plot')
+    plot_type.add_argument('--heatmap', action='store_true', help='Generate heat map')
+    plot_type.add_argument('--boxplot', action='store_true', help='Generate box plot for variability analysis')
     
     # Scenarios
     parser.add_argument('--scenarios', default='A', 
-                        help='Comma-separated list of scenarios (e.g., "A,B,C"). For scatter plots, only the first scenario is used.')
+                        help='Comma-separated list of scenarios (e.g., "A,B,C"). For scatter, heatmap, boxplot, radar, and efficiency plots, only the first scenario is used.')
     
     # Optional arguments
     parser.add_argument('--rasp', action='store_true', help='Use Raspberry Pi dataset')
@@ -650,16 +1042,29 @@ def main():
     """Main function to parse arguments and generate plots."""
     args, algorithms, cert_types, scenarios = parse_args()
     
+    # Use only the first scenario for plots that don't support multiple scenarios
+    scenario = scenarios[0]
+    
     if args.scatter:
-        # For scatter plots, use only the first scenario
-        scenario = scenarios[0]
         print(f"Generating scatter plot for scenario {scenario}...")
         create_scatter_plot(
             args.metric, algorithms, cert_types, args.n, scenario,
             args.rasp, args.s, args.p, args.data_dir, args.custom_suffix
         )
+    elif args.heatmap:
+        print(f"Generating heat map for scenario {scenario}...")
+        create_heat_map(
+            args.metric, algorithms, cert_types, args.n, scenario,
+            args.rasp, args.s, args.p, args.data_dir, args.custom_suffix
+        )
+    elif args.boxplot:
+        print(f"Generating box plot for scenario {scenario}...")
+        create_box_plot(
+            args.metric, algorithms, cert_types, args.n, scenario,
+            args.rasp, args.s, args.p, args.data_dir, args.custom_suffix
+        )
     else:
-        # For bar plots, use all scenarios
+        # Bar plot supports multiple scenarios
         print(f"Generating bar plot for scenarios {', '.join(scenarios)}...")
         create_bar_plot(
             args.metric, algorithms, cert_types, args.n, scenarios,
