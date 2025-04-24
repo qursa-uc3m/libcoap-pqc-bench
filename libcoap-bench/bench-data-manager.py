@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 import argparse
 import glob
-from datetime import datetime
+from collections import Counter
 from typing import Dict, List, Optional, Tuple, Union, Any
 
 class BenchmarkConfig:
@@ -363,27 +363,43 @@ class BenchmarkData:
             return False
     
     def calculate_statistics(self) -> None:
-        """Calculate mean and standard deviation for all metrics"""
-        # Calculate means (most are already means from the source data)
+        """Calculate mean, std, mode, and deviation‐counts for all metrics."""
+        # copy already‐computed means
         self.mean_values = {k: v for k, v in self.metrics.items() if v is not None}
-        
-        # Calculate standard deviations from raw data where available
+
+        # std dev from raw_data
         self.std_values = {}
-        
         if 'times' in self.raw_data:
             self.std_values['duration'] = np.std(self.raw_data['times'])
-        
+
         if 'network_stats' in self.raw_data:
             data = self.raw_data['network_stats']
-            self.std_values['frames_sent'] = np.std(data[:, 0])
-            self.std_values['bytes_sent'] = np.std(data[:, 1])
-            self.std_values['frames_received'] = np.std(data[:, 2])
-            self.std_values['bytes_received'] = np.std(data[:, 3])
-            self.std_values['total_frames'] = np.std(data[:, 4])
-            self.std_values['total_bytes'] = np.std(data[:, 5])
+            # std dev for each column
+            cols = ['frames_sent','bytes_sent',
+                    'frames_received','bytes_received',
+                    'total_frames','total_bytes']
+            for idx, key in enumerate(cols):
+                self.std_values[key] = np.std(data[:, idx])
+
+            # now build integer array for mode / below / above
+            ints = data.astype(int)
+            self.mode_values = {}
+            self.below_mode = {}
+            self.above_mode = {}
+
+            for idx, key in enumerate(cols):
+                vals = ints[:, idx]
+                # compute mode via Counter (will pick first max if tie)
+                mode_val, _ = Counter(vals).most_common(1)[0]
+                self.mode_values[key] = mode_val
+
+                # count how many < and > mode
+                self.below_mode[key] = int((vals < mode_val).sum())
+                self.above_mode[key] = int((vals > mode_val).sum())
+
     
     def save_csv(self, output_file: str) -> bool:
-        """Save the benchmark data to a CSV file"""
+        """Save the benchmark data to a CSV file, now with mode & deviation‐counts."""
         try:
             # Define column headers (all possible metrics)
             columns = [
@@ -430,6 +446,24 @@ class BenchmarkData:
                 elif k == 'energy':
                     std_row['Energy (Wh)'] = v
             rows.append(std_row)
+            
+            # Add mode row
+            mode_row  = {c: '--' for c in columns}
+            for k, v in self.mode_values.items():
+                mode_row[k] = v
+            rows.append(mode_row)
+
+            #  Add below mode counts row
+            below_row = {c: '--' for c in columns}
+            for k, v in self.below_mode.items():
+                below_row[k] = v
+            rows.append(below_row)
+
+            # Add above mode counts row
+            above_row = {c: '--' for c in columns}
+            for k, v in self.above_mode.items():
+                above_row[k] = v
+            rows.append(above_row)
             
             # Write to CSV
             df = pd.DataFrame(rows)
@@ -724,16 +758,21 @@ class BenchmarkDataManager:
                     mean_row = df.iloc[separator_idx + 1].copy()
                     std_row = df.iloc[separator_idx + 2].copy()
                     
+                    # mode / below / above
+                    mode_row  = df.iloc[separator_idx + 3].copy()
+                    below_row = df.iloc[separator_idx + 4].copy()
+                    above_row = df.iloc[separator_idx + 5].copy()
+                    
                     # Convert to numeric values where possible
-                    for col in df.columns:
-                        try:
-                            mean_row[col] = pd.to_numeric(mean_row[col], errors='coerce')
-                            std_row[col] = pd.to_numeric(std_row[col], errors='coerce')
-                        except:
-                            pass  # Keep as is if cannot convert
+                    for row in (mean_row, std_row, mode_row, below_row, above_row):
+                        for col in df.columns:
+                            try:
+                                row[col] = pd.to_numeric(row[col], errors='coerce')
+                            except:
+                                pass  # Keep as is if cannot convert
                     
                     # Store for aggregation
-                    stats_data.append((mean_row, std_row))
+                    stats_data.append((mean_row, std_row, mode_row, below_row, above_row))
                     
                 except Exception as e:
                     print(f"Error processing {file_path}: {e}")
@@ -760,13 +799,16 @@ class BenchmarkDataManager:
                 rows.append(blank_row)
             
             # Calculate aggregated statistics
-            # Extract mean and std values
-            means = [data[0] for data in stats_data]
-            stds = [data[1] for data in stats_data]
+            # Extract mean, std, mode, below and above values
+            means, stds, modes, belows, aboves = zip(*stats_data)
             
             # Convert to DataFrames for easier calculations
             means_df = pd.DataFrame(means)
-            stds_df = pd.DataFrame(stds)
+            stds_df  = pd.DataFrame(stds)
+            modes_df = pd.DataFrame(modes)
+            belows_df= pd.DataFrame(belows)
+            aboves_df= pd.DataFrame(aboves)
+
             
             # Number of iterations and samples
             k = len(means_df)
@@ -801,6 +843,14 @@ class BenchmarkDataManager:
             # Calculate overall standard deviation
             overall_std = np.sqrt(total_variance)
             
+            # 2) overall mode
+            # pandas.Series.mode() returns all equally‐frequent values; .iloc[0] picks one
+            overall_mode = modes_df.mode(numeric_only=True).iloc[0]
+            
+            # 3) average below/above per iteration, rounded to int
+            overall_below = belows_df.mean(numeric_only=True).round().astype(int)
+            overall_above = aboves_df.mean(numeric_only=True).round().astype(int)
+            
             # Add separator row
             separator_row = pd.Series(["-" * 12] * len(column_names), index=column_names)
             rows.append(separator_row)
@@ -810,6 +860,15 @@ class BenchmarkDataManager:
             
             # Add aggregated std dev row
             rows.append(overall_std)
+            
+            # append aggregated mode row
+            rows.append(overall_mode)
+
+            # append aggregated “below mode” row
+            rows.append(overall_below)
+
+            # append aggregated “above mode” row
+            rows.append(overall_above)
             
             # Create the final DataFrame
             agg_df = pd.DataFrame(rows, columns=column_names)
@@ -827,7 +886,6 @@ class BenchmarkDataManager:
         else:
             print("No files were successfully aggregated")
             return False
-
 
 def process_command(args):
     """Process the command-line arguments and execute the appropriate action"""
