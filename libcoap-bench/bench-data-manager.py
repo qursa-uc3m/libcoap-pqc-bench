@@ -628,17 +628,32 @@ class BenchmarkDataManager:
             return False
     
     def aggregate_iterations(self, session_id: str, iterations: int, 
-                            data_dir: str = None, output_dir: str = None) -> bool:
-        """Aggregate metrics across multiple iterations of the same benchmark"""
+                        data_dir: str = None, output_dir: str = None) -> bool:
+        """
+        Aggregate metrics across multiple iterations of the same benchmark.
+        
+        This improved version focuses only on the statistical data (mean and std)
+        from each iteration rather than preserving raw data points.
+        
+        Args:
+            session_id: Unique identifier for the benchmark session
+            iterations: Number of iterations to aggregate
+            data_dir: Base directory containing iteration data (default: current working directory)
+            output_dir: Directory for output files (default: bench-data-agg-{session_id})
+            
+        Returns:
+            Boolean indicating success or failure
+        """
         base_data_dir = data_dir or os.getcwd()
         output_dir = output_dir or os.path.join(base_data_dir, f"bench-data-agg-{session_id}")
         
         # Make sure output directory exists
         os.makedirs(output_dir, exist_ok=True)
         
-        # For each iteration, get list of result files
+        # Dictionary to store files grouped by name
         all_files = {}
         
+        # Find and group files from each iteration
         for i in range(1, iterations + 1):
             iteration_dir = os.path.join(base_data_dir, f"bench-data-{session_id}-{i}")
             
@@ -658,7 +673,10 @@ class BenchmarkDataManager:
                     
                 all_files[file_name].append(file_path)
         
-        # Aggregate each set of files
+        # Track success count
+        success_count = 0
+        
+        # Process each set of files
         for file_name, file_paths in all_files.items():
             if len(file_paths) < 2:
                 # Just copy the file if only one iteration
@@ -666,84 +684,110 @@ class BenchmarkDataManager:
                     output_path = os.path.join(output_dir, file_name)
                     import shutil
                     shutil.copy(file_paths[0], output_path)
+                    print(f"Only one iteration found for {file_name}, copied to {output_path}")
+                    success_count += 1
                 continue
                 
-            # Aggregate across iterations
-            dfs = []
-            for path in file_paths:
+            # Process multiple iterations
+            print(f"Aggregating {len(file_paths)} iterations for {file_name}")
+            
+            # Extract statistics from each file
+            stats_data = []
+            column_names = None
+            samples_per_iteration = []  # Track number of samples in each iteration
+            
+            for file_path in file_paths:
                 try:
-                    df = pd.read_csv(path, sep=';')
-                    dfs.append(df)
-                except Exception as e:
-                    print(f"Error reading {path}: {e}")
-            
-            if not dfs:
-                continue
-                
-            # Perform aggregation
-            # For each file, extract the mean and standard deviation rows
-            means = []
-            stds = []
-            
-            for df in dfs:
-                # Find separator row
-                separator_idx = None
-                for i, row in df.iterrows():
-                    # Check for separator row
-                    if isinstance(row.iloc[0], str) and '---' in row.iloc[0]:
-                        separator_idx = i
-                        break
-                        
-                if separator_idx is None:
-                    continue
+                    # Read the CSV file
+                    df = pd.read_csv(file_path, sep=';')
                     
-                # Extract mean and std rows
-                try:
+                    # Store column names from the first file
+                    if column_names is None:
+                        column_names = df.columns.tolist()
+                    
+                    # Find separator row (row with dashes)
+                    separator_idx = None
+                    for i, row in df.iterrows():
+                        first_col = str(row.iloc[0]) if not pd.isna(row.iloc[0]) else ""
+                        if '---' in first_col or '-----------' in first_col:
+                            separator_idx = i
+                            break
+                    
+                    if separator_idx is None or separator_idx >= len(df) - 2:
+                        print(f"Warning: Could not find separator row in {file_path}")
+                        continue
+                    
+                    # Store number of data samples in this iteration
+                    samples_per_iteration.append(separator_idx)
+                    
+                    # Extract mean and std rows
                     mean_row = df.iloc[separator_idx + 1].copy()
                     std_row = df.iloc[separator_idx + 2].copy()
                     
-                    # Convert to numeric values
-                    mean_row = pd.to_numeric(mean_row, errors='coerce')
-                    std_row = pd.to_numeric(std_row, errors='coerce')
+                    # Convert to numeric values where possible
+                    for col in df.columns:
+                        try:
+                            mean_row[col] = pd.to_numeric(mean_row[col], errors='coerce')
+                            std_row[col] = pd.to_numeric(std_row[col], errors='coerce')
+                        except:
+                            pass  # Keep as is if cannot convert
                     
-                    means.append(mean_row)
-                    stds.append(std_row)
+                    # Store for aggregation
+                    stats_data.append((mean_row, std_row))
+                    
                 except Exception as e:
-                    print(f"Error extracting statistics from {path}: {e}")
+                    print(f"Error processing {file_path}: {e}")
+                    continue
             
-            if not means:
+            # If no valid data was found, skip this file
+            if not stats_data or not column_names:
+                print(f"No valid data found for {file_name}")
                 continue
+            
+            # Prepare to build the aggregated file
+            rows = []
+            
+            # Add each iteration's mean and std values
+            for mean_row, std_row in stats_data:
+                # Add mean values row
+                rows.append(mean_row)
                 
-            # Create aggregated result
-            # Use the first dataframe as a template
-            template_df = dfs[0].copy()
+                # Add std values row
+                rows.append(std_row)
+                
+                # Add blank row between iterations for readability
+                blank_row = pd.Series([""] * len(column_names), index=column_names)
+                rows.append(blank_row)
             
-            # Get number of data rows (rows before separator)
-            n = separator_idx
+            # Calculate aggregated statistics
+            # Extract mean and std values
+            means = [data[0] for data in stats_data]
+            stds = [data[1] for data in stats_data]
             
-            # Convert means and stds to DataFrames
+            # Convert to DataFrames for easier calculations
             means_df = pd.DataFrame(means)
             stds_df = pd.DataFrame(stds)
             
-            # Calculate aggregated statistics
-            # Number of iterations
+            # Number of iterations and samples
             k = len(means_df)
             
-            # Total number of samples
-            N = n * k
+            # Calculate average number of samples per iteration if we have data
+            n = int(np.mean(samples_per_iteration)) if samples_per_iteration else 1
+            N = n * k  # Total number of samples
             
-            # Calculate overall mean
+            # Calculate overall mean (average of means)
             overall_mean = means_df.mean(numeric_only=True)
             
-            # Calculate average variance
+            # Calculate average variance from standard deviations
             avg_variance = stds_df.pow(2).mean(numeric_only=True)
             
-            # Calculate variance of means
-            means_variance = means_df.var(ddof=1, numeric_only=True) if k > 1 else pd.Series(0, index=means_df.columns, dtype='float64')
+            # Calculate variance of means (between-group variance)
+            means_variance = means_df.var(ddof=1, numeric_only=True) if k > 1 else pd.Series(0, index=means_df.columns)
             
-            # Calculate total variance
+            # Initialize total variance
             total_variance = pd.Series(0, index=avg_variance.index, dtype='float64')
             
+            # Calculate total variance using the correct pooled variance formula
             if N > 1:
                 if n > 1:
                     for col in avg_variance.index:
@@ -753,41 +797,36 @@ class BenchmarkDataManager:
                     total_variance = means_variance
             else:
                 total_variance = avg_variance
-                
+            
             # Calculate overall standard deviation
             overall_std = np.sqrt(total_variance)
             
-            # Create the aggregated DataFrame
-            agg_df = template_df.iloc[:n].copy()
-            
             # Add separator row
-            separator_row = pd.Series("------------", index=agg_df.columns)
-            agg_df = pd.concat([agg_df, separator_row.to_frame().T], ignore_index=True)
+            separator_row = pd.Series(["-" * 12] * len(column_names), index=column_names)
+            rows.append(separator_row)
             
-            # Add overall mean row
-            mean_row = pd.Series(index=agg_df.columns)
-            for col in agg_df.columns:
-                if col in overall_mean.index:
-                    mean_row[col] = overall_mean[col]
-                else:
-                    mean_row[col] = "N/A"
-            agg_df = pd.concat([agg_df, mean_row.to_frame().T], ignore_index=True)
+            # Add aggregated mean row
+            rows.append(overall_mean)
             
-            # Add overall std dev row
-            std_row = pd.Series(index=agg_df.columns)
-            for col in agg_df.columns:
-                if col in overall_std.index:
-                    std_row[col] = overall_std[col]
-                else:
-                    std_row[col] = 0
-            agg_df = pd.concat([agg_df, std_row.to_frame().T], ignore_index=True)
+            # Add aggregated std dev row
+            rows.append(overall_std)
             
-            # Save aggregated results
+            # Create the final DataFrame
+            agg_df = pd.DataFrame(rows, columns=column_names)
+            
+            # Save to file
             output_path = os.path.join(output_dir, file_name)
             agg_df.to_csv(output_path, index=False, sep=';')
             print(f"Created aggregated file: {output_path}")
-            
-        return True
+            success_count += 1
+        
+        # Report success
+        if success_count > 0:
+            print(f"Successfully aggregated {success_count} of {len(all_files)} files")
+            return True
+        else:
+            print("No files were successfully aggregated")
+            return False
 
 
 def process_command(args):
