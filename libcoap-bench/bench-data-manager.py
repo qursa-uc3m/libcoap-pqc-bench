@@ -686,6 +686,7 @@ class BenchmarkDataManager:
         
         # Dictionary to store files grouped by name
         all_files = {}
+        iterations_found =[]
         
         # Find and group files from each iteration
         for i in range(1, iterations + 1):
@@ -694,6 +695,8 @@ class BenchmarkDataManager:
             if not os.path.exists(iteration_dir):
                 print(f"Warning: Iteration directory {iteration_dir} not found")
                 continue
+            
+            iterations_found.append(i)
                 
             # Find all CSV result files
             csv_files = glob.glob(os.path.join(iteration_dir, "*.csv"))
@@ -787,12 +790,15 @@ class BenchmarkDataManager:
             rows = []
             
             # Add each iteration's mean and std values
-            for mean_row, std_row in stats_data:
+            for mean_row, std_row, modes, belows, aboves in stats_data:
                 # Add mean values row
                 rows.append(mean_row)
-                
                 # Add std values row
                 rows.append(std_row)
+                # Add mode, below and above values
+                rows.append(modes)
+                rows.append(belows)
+                rows.append(aboves)
                 
                 # Add blank row between iterations for readability
                 blank_row = pd.Series([""] * len(column_names), index=column_names)
@@ -848,8 +854,8 @@ class BenchmarkDataManager:
             overall_mode = modes_df.mode(numeric_only=True).iloc[0]
             
             # 3) average below/above per iteration, rounded to int
-            overall_below = belows_df.mean(numeric_only=True).round().astype(int)
-            overall_above = aboves_df.mean(numeric_only=True).round().astype(int)
+            overall_below = belows_df.mean(numeric_only=True).round()
+            overall_above = aboves_df.mean(numeric_only=True).round()
             
             # Add separator row
             separator_row = pd.Series(["-" * 12] * len(column_names), index=column_names)
@@ -878,7 +884,24 @@ class BenchmarkDataManager:
             agg_df.to_csv(output_path, index=False, sep=';')
             print(f"Created aggregated file: {output_path}")
             success_count += 1
-        
+            
+        if iterations_found:
+            # Define a subfolder for the iteration data
+            iterations_dir = os.path.join(output_dir, "iterations")
+            os.makedirs(iterations_dir, exist_ok=True)
+            
+            for i in iterations_found:
+                src_dir = os.path.join(base_data_dir, f"bench-data-{session_id}-{i}")
+                dst_dir = os.path.join(iterations_dir, f"bench-data-{session_id}-{i}")
+                
+                if os.path.exists(src_dir):
+                    try:
+                        import shutil
+                        shutil.move(src_dir, dst_dir)
+                        print(f"Moved iteration {i} data to {dst_dir}")
+                    except Exception as e:
+                        print(f"Error moving iteration {i} data: {e}")
+                        
         # Report success
         if success_count > 0:
             print(f"Successfully aggregated {success_count} of {len(all_files)} files")
