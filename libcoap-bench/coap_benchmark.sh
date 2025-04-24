@@ -29,12 +29,12 @@ client_auth="no"  # Default to mutual authentication
 
 # Function to display usage information
 usage() {
-    echo "Usage: $0 -n <positive_integer> -sec-mode <pki|psk|nosec> -r <time|async> [-confirm <con|non>] [-s <integer>=1] [-rasp] [-parallelization <background|parallel>] [-cert-config <CONFIG>] [-client-auth <yes|no>]"
+    echo "Usage: $0 -n <positive_integer> -sec-mode <pki|psk|nosec> -r <time|async|example_data> [-confirm <con|non>] [-s <integer>=1] [-rasp] [-parallelization <background|parallel>] [-cert-config <CONFIG>] [-client-auth <yes|no>]"
     echo ""
     echo "Required parameters:"
     echo "  -n <integer>                 Number of clients that will make requests to the server"
     echo "  -sec-mode <pki|psk|nosec>    Security mode to use"
-    echo "  -r <time|async>              Resource that the client asks for"
+    echo "  -r <time|async|example_data> Resource that the client asks for"
     echo ""
     echo "Optional parameters:"
     echo "  -confirm <con|non>           Whether messages between client and server are confirmable"
@@ -166,6 +166,50 @@ stop_energy_monitoring() {
     sleep 1
 }
 
+# Function to handle example_data resource updates in observer mode
+handle_example_data_updates() {
+    local observation_time=$1
+    local put_cmd=$2
+    
+    echo "Observer mode with example_data resource. Will send periodic updates..."
+    
+    # Calculate number of updates based on observation time
+    local min_updates=$((observation_time / 30))  # At least one update every 30 seconds 
+    local max_updates=$((observation_time / 10))   # At most one update every 10 seconds
+    if [ $min_updates -lt 1 ]; then min_updates=1; fi
+    if [ $max_updates -lt $min_updates ]; then max_updates=$min_updates; fi
+    local num_updates=$((min_updates + RANDOM % (max_updates - min_updates + 1)))
+    
+    echo "Will send $num_updates resource updates during $observation_time seconds observation period"
+    
+    # Start background process to send updates periodically
+    (
+        # Calculate average interval between updates
+        local interval=$((observation_time / (num_updates + 1)))
+        
+        for ((i=1; i<=$num_updates; i++)); do
+            # Add randomization to intervals (±30%)
+            local delay=$((interval + (RANDOM % (interval * 6 / 10) - interval * 3 / 10)))
+            if [ $delay -lt 1 ]; then delay=1; fi
+            
+            echo "Waiting $delay seconds before sending resource update $i/$num_updates..."
+            sleep $delay
+            
+            # Generate random data
+            local DATA="Sensor reading $i: Temperature $(( 20 + RANDOM % 10 )).$(( RANDOM % 10 ))°C, Humidity $(( 40 + RANDOM % 20 ))%, Time $(date +%s)"
+            
+            echo "Sending update: $DATA"
+            
+            # Execute the PUT request
+            eval "$put_cmd > /dev/null 2>&1"
+            
+            echo "Update $i/$num_updates sent successfully"
+        done
+    ) &
+    
+    # Return the PID of the background process
+    echo $!
+}
 
 # Parse command line arguments
 while [ "$#" -gt 0 ]; do
@@ -205,8 +249,9 @@ while [ "$#" -gt 0 ]; do
                         echo "Using async with query parameter: $query_value"
                     fi
                     ;;
+                example_data) r_param="$1" ;;
                 *)
-                    echo "Error: Invalid value for -r. Use time or async[?value]."
+                    echo "Error: Invalid value for -r. Use time, async[?value], or example_data."
                     usage
                     ;;
             esac
@@ -487,6 +532,33 @@ initial_time=$(date +%s.%N)
 # Execute the client commands based on parameters
 if [ -n "$custom_param" ]; then
     echo "Running with observer mode (-s $custom_param_value)"
+    PUT_UPDATES_PID=""
+    
+    # Special handling for example_data resource with observer mode
+    if [ "$r_param" == "example_data" ]; then
+        # Construct PUT command based on security settings
+        put_cmd="${COAP_BIN}/coap-client -m put -e \"$DATA\""
+                    
+        # Add security parameters based on mode
+        case "$sec_mode" in
+            pki)
+                if [ "$client_auth" = "yes" ]; then
+                    put_cmd="$put_cmd -c \"${cert_file}\" -j \"${key_file}\""
+                fi
+                put_cmd="$put_cmd -C \"${ca_file}\""
+                ;;
+            psk)
+                put_cmd="$put_cmd -k \"$(cat ${ACTIVE_PSK})\" -u uc3m"
+                ;;
+            nosec)
+                # No additional parameters needed
+                ;;
+        esac
+                    
+        # Add protocol, address and resource
+        put_cmd="$put_cmd ${protocol}://${address}/${r_param}"
+        put_cmd="$put_cmd >> ${BENCH_DIR}/bench-data/put_auxiliary.txt"
+    fi
     
     if [ "$parallelization_mode" = "background" ]; then
         # Run clients in background
@@ -495,6 +567,12 @@ if [ -n "$custom_param" ]; then
             eval "$client_cmd" &
             background_pids+=($!)
         done
+
+        # Special handling for example_data resource with observer mode
+        if [ "$r_param" == "example_data" ]; then
+            PUT_UPDATES_PID=$(handle_example_data_updates "$custom_param_value" "$put_cmd") 
+        fi
+
         wait "${background_pids[@]}"
     elif [ "$parallelization_mode" = "parallel" ]; then
         # Run clients in parallel across cores
@@ -505,11 +583,22 @@ if [ -n "$custom_param" ]; then
         
         parallel -j$n ::: "${dynamic_commands[@]}" &
         parallel_pid=$!
+
+        # Special handling for example_data resource with observer mode
+        if [ "$r_param" == "example_data" ]; then
+            PUT_UPDATES_PID=$(handle_example_data_updates "$custom_param_value" "$put_cmd")
+        fi
+
         wait $parallel_pid
     else
         echo "Observer mode requires parallelization. Please run with --parallelization <background|parallel>." 
         echo "Exiting ..."
         exit 1
+    fi
+
+    # Kill the update process if it's still running
+    if [ -n "$PUT_UPDATES_PID" ]; then
+        kill $PUT_UPDATES_PID 2>/dev/null || true
     fi
 else
     # Non-observer mode execution
