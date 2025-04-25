@@ -169,7 +169,8 @@ stop_energy_monitoring() {
 # Function to handle example_data resource updates in observer mode
 handle_example_data_updates() {
     local observation_time=$1
-    local put_cmd=$2
+    local put_cmd_base=$2
+    local output_file="${BENCH_DIR}/bench-data/put_auxiliary.txt"
     
     echo "Observer mode with example_data resource. Will send periodic updates..."
     
@@ -181,6 +182,9 @@ handle_example_data_updates() {
     local num_updates=$((min_updates + RANDOM % (max_updates - min_updates + 1)))
     
     echo "Will send $num_updates resource updates during $observation_time seconds observation period"
+    
+    # Create the output file with a header
+    echo "# PUT operations log - started at $(date)" > "$output_file"
     
     # Start background process to send updates periodically
     (
@@ -196,19 +200,47 @@ handle_example_data_updates() {
             sleep $delay
             
             # Generate random data
-            local DATA="Sensor reading $i: Temperature $(( 20 + RANDOM % 10 )).$(( RANDOM % 10 ))°C, Humidity $(( 40 + RANDOM % 20 ))%, Time $(date +%s)"
+            local DATA="Sensor reading $i: Temperature $(( 20 + RANDOM % 10 )).$(( RANDOM % 10 ))°C, Time $(date +%s)"
             
             echo "Sending update: $DATA"
             
-            # Execute the PUT request
-            eval "$put_cmd > /dev/null 2>&1"
+            # Create a temporary file for this specific run
+            local tmp_file="${BENCH_DIR}/bench-data/put_temp_$i.txt"
             
-            echo "Update $i/$num_updates sent successfully"
+            # Build the command - without redirection in the command string
+            local full_cmd="${put_cmd_base} -e \"$DATA\" ${protocol}://${address}/${r_param}"
+            echo "Running command: ${full_cmd}"
+            
+            # Use tee to capture output and also display it
+            (eval "$full_cmd" 2>&1 | tee "$tmp_file")
+            local exit_status=${PIPESTATUS[0]}
+            
+            # Append this command's output to the main log file
+            echo -e "\n# Update $i/$num_updates ($(date))" >> "$output_file"
+            echo "# Command: $full_cmd" >> "$output_file"
+            echo "# Payload: $DATA" >> "$output_file"
+            cat "$tmp_file" >> "$output_file"
+            rm -f "$tmp_file"
+            
+            if [ $exit_status -eq 0 ]; then
+                echo "Update $i/$num_updates sent successfully"
+                echo "# Status: Success" >> "$output_file"
+            else
+                echo "Warning: Update $i/$num_updates failed with exit code $exit_status"
+                echo "# Status: Failed with exit code $exit_status" >> "$output_file"
+            fi
+            echo -e "# End of update $i\n" >> "$output_file"
         done
+        
+        echo "# PUT operations completed at $(date)" >> "$output_file"
     ) &
     
-    # Return the PID of the background process
-    echo $!
+    # Get the PID of the background process
+    local updates_pid=$!
+    echo "Started resource update process with PID: $updates_pid"
+    
+    # Return the PID to the caller
+    return $updates_pid
 }
 
 # Parse command line arguments
@@ -493,7 +525,7 @@ if [ "${MEASURE_ENERGY:-false}" == "true" ]; then
 fi
 
 # Construct the coap client base command based on security mode
-client_cmd="${COAP_BIN}/coap-client -m get ${confirm_flag}"
+client_cmd="${COAP_BIN}/coap-client -m get ${confirm_flag} -w"
 
 # Add protocol and destination
 protocol=$([ "$sec_mode" = "nosec" ] && echo "coap" || echo "coaps")
@@ -536,19 +568,19 @@ if [ -n "$custom_param" ]; then
     
     # Special handling for example_data resource with observer mode
     if [ "$r_param" == "example_data" ]; then
-        # Construct PUT command based on security settings
-        put_cmd="${COAP_BIN}/coap-client -m put -e \"$DATA\""
+        # Construct PUT command base (without the -e parameter and payload)
+        put_cmd_base="${COAP_BIN}/coap-client -m put ${confirm_flag}"
                     
         # Add security parameters based on mode
         case "$sec_mode" in
             pki)
                 if [ "$client_auth" = "yes" ]; then
-                    put_cmd="$put_cmd -c \"${cert_file}\" -j \"${key_file}\""
+                    put_cmd_base="$put_cmd_base -c \"${cert_file}\" -j \"${key_file}\""
                 fi
-                put_cmd="$put_cmd -C \"${ca_file}\""
+                put_cmd_base="$put_cmd_base -C \"${ca_file}\""
                 ;;
             psk)
-                put_cmd="$put_cmd -k \"$(cat ${ACTIVE_PSK})\" -u uc3m"
+                put_cmd_base="$put_cmd_base -k \"$(cat ${ACTIVE_PSK})\" -u uc3m"
                 ;;
             nosec)
                 # No additional parameters needed
@@ -556,8 +588,7 @@ if [ -n "$custom_param" ]; then
         esac
                     
         # Add protocol, address and resource
-        put_cmd="$put_cmd ${protocol}://${address}/${r_param}"
-        put_cmd="$put_cmd >> ${BENCH_DIR}/bench-data/put_auxiliary.txt"
+        put_cmd_base="$put_cmd_base"
     fi
     
     if [ "$parallelization_mode" = "background" ]; then
@@ -568,12 +599,22 @@ if [ -n "$custom_param" ]; then
             background_pids+=($!)
         done
 
+        sleep 1
+
         # Special handling for example_data resource with observer mode
         if [ "$r_param" == "example_data" ]; then
-            PUT_UPDATES_PID=$(handle_example_data_updates "$custom_param_value" "$put_cmd") 
+            handle_example_data_updates "$custom_param_value" "$put_cmd_base"
+            # Capture the PID of the background process using $?
+            PUT_UPDATES_PID=$!
+            echo "Captured update process PID: $PUT_UPDATES_PID"
         fi
 
         wait "${background_pids[@]}"
+        # Kill the update process if it's still running
+        if [ -n "$PUT_UPDATES_PID" ]; then
+            echo "Terminating resource update process (PID: $PUT_UPDATES_PID)..."
+            kill $PUT_UPDATES_PID 2>/dev/null || true
+        fi
     elif [ "$parallelization_mode" = "parallel" ]; then
         # Run clients in parallel across cores
         dynamic_commands=()
@@ -584,21 +625,32 @@ if [ -n "$custom_param" ]; then
         parallel -j$n ::: "${dynamic_commands[@]}" &
         parallel_pid=$!
 
+        sleep 1
+
         # Special handling for example_data resource with observer mode
         if [ "$r_param" == "example_data" ]; then
-            PUT_UPDATES_PID=$(handle_example_data_updates "$custom_param_value" "$put_cmd")
+            handle_example_data_updates "$custom_param_value" "$put_cmd_base"
+            # Capture the PID of the background process using $?
+            PUT_UPDATES_PID=$!
+            echo "Captured update process PID: $PUT_UPDATES_PID"
         fi
 
-        wait $parallel_pid
+        # wait for them to finish (or expire)
+        wait "$parallel_pid"
+
+        # Kill the update process if it's still running
+        if [ -n "$PUT_UPDATES_PID" ]; then
+            echo "Terminating resource update process (PID: $PUT_UPDATES_PID)..."
+            kill $PUT_UPDATES_PID 2>/dev/null || true
+        fi
     else
         echo "Observer mode requires parallelization. Please run with --parallelization <background|parallel>." 
         echo "Exiting ..."
         exit 1
     fi
 
-    # Kill the update process if it's still running
-    if [ -n "$PUT_UPDATES_PID" ]; then
-        kill $PUT_UPDATES_PID 2>/dev/null || true
+    if [ "$r_param" = "example_data" ]; then
+        sed -i '1d' "${BENCH_DIR}/bench-data/auxiliary.txt"
     fi
 else
     # Non-observer mode execution
