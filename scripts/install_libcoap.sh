@@ -73,10 +73,10 @@ fi
 sudo rm $libcoap_dir/examples/coap-client.c
 cp $libcoap_dir/../libcoap-bench/coap-client.c $libcoap_dir/examples/
 
-read -p "Do you want to install CUSTMO SERVER:" is_custom_server
+read -p "Do you want to install CUSTOM SERVER (y|n):" is_custom_server
 
 if [ "$is_custom_server" = "y" ] || [ "$is_custom_server" = "Y" ]; then
-    echo "Creating default server ..."
+    echo "Creating custom server ..."
     sudo rm $libcoap_dir/examples/coap-server.c
     cp $libcoap_dir/../libcoap-bench/coap-server.c $libcoap_dir/examples/
 fi
