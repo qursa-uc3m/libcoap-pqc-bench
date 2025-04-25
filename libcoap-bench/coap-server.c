@@ -495,7 +495,7 @@ hnd_get_async(coap_resource_t *resource,
  */
 
 #ifndef INITIAL_EXAMPLE_SIZE
-#define INITIAL_EXAMPLE_SIZE 1500
+#define INITIAL_EXAMPLE_SIZE 500
 #endif
 static void
 hnd_get_example_data(coap_resource_t *resource,

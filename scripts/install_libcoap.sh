@@ -73,13 +73,13 @@ fi
 sudo rm $libcoap_dir/examples/coap-client.c
 cp $libcoap_dir/../libcoap-bench/coap-client.c $libcoap_dir/examples/
 
-#read -p "Do you want to install CUSTMO SERVER:" is_custom_server
+read -p "Do you want to install CUSTMO SERVER:" is_custom_server
 
-#if [ "$is_custom_server" = "y" ] || [ "$is_custom_server" = "Y" ]; then
-#    echo "Creating default server ..."
-#    sudo rm $libcoap_dir/examples/coap-server.c
-#    cp $libcoap_dir/../libcoap-bench/coap-server.c $libcoap_dir/examples/
-#fi
+if [ "$is_custom_server" = "y" ] || [ "$is_custom_server" = "Y" ]; then
+    echo "Creating default server ..."
+    sudo rm $libcoap_dir/examples/coap-server.c
+    cp $libcoap_dir/../libcoap-bench/coap-server.c $libcoap_dir/examples/
+fi
 
 # Configure based on custom_install flag
 if [ "$custom_install" == "wolfssl" ]; then
