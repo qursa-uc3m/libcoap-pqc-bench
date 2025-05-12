@@ -83,7 +83,10 @@ configure_computer() {
     done
     
     # Remove any existing routes in the ssh-route table
-    ip route flush table ssh-route
+    if ip route show table ssh-route 2>/dev/null | grep -q .; then
+        ip route flush table ssh-route
+        echo -e "${GREEN}✓ Flushed existing routes in ssh-route table${NC}"
+    fi
     
     # Add the new rule and route
     ip rule add to $RPI dport 22 table ssh-route
