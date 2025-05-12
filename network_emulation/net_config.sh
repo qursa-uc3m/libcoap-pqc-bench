@@ -12,7 +12,7 @@ REPO_ROOT=$(dirname "$SCRIPT_DIR")
 
 # Default VM configuration
 VM_USER="dasobral"
-VM_HOST="vm-network"
+VM_HOST="192.168.0.172"
 VM_INTERFACE="ens3"
 
 # Color codes for output
@@ -124,11 +124,11 @@ show_current() {
         echo "  Rate: $rate"
         
         # Try to identify the scenario
-        if [[ "$delay" == "20.0ms" ]] && [[ "$loss" == "1.00%" ]]; then
+        if [[ "$delay" == "20ms" ]] && [[ "$loss" == "1%" ]]; then
             echo -e "  ${GREEN}Scenario: Smart Factory${NC}"
-        elif [[ "$delay" == "5.0ms" ]] && [[ "$loss" == "0.10%" ]]; then
+        elif [[ "$delay" == "5ms" ]] && [[ "$loss" == "0.1%" ]]; then
             echo -e "  ${GREEN}Scenario: Smart Home${NC}"
-        elif [[ "$delay" == "50.0ms" ]] && [[ "$loss" == "2.00%" ]]; then
+        elif [[ "$delay" == "50ms" ]] && [[ "$loss" == "2%" ]]; then
             echo -e "  ${GREEN}Scenario: Public Transport${NC}"
         else
             echo -e "  ${YELLOW}Scenario: Custom/Unknown${NC}"
