@@ -67,6 +67,8 @@ if [ "$skip_clone" = false ]; then
     git clone https://github.com/obgm/libcoap
     cd libcoap
     #git checkout $libcoap_version
+else
+    cd libcoap
 fi
 
 # default client or not
