@@ -840,7 +840,10 @@ class BenchmarkDataManager:
                 if n > 1:
                     for col in avg_variance.index:
                         if col in means_variance.index:
-                            total_variance[col] = ((n-1) * avg_variance[col] + n * means_variance[col]) / (N-1)
+                            if col == 'cpu_cycles':
+                                total_variance[col] = means_variance[col]
+                            else:
+                                total_variance[col] = ((n-1) * avg_variance[col] + n * means_variance[col]) / (N-1)
                 else:
                     total_variance = means_variance
             else:

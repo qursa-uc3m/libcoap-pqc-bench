@@ -17,27 +17,66 @@ security_mode_colors = {
     "nosec": color_palette[6]
 }
 
-def read_csv(file_path, metric_column):
+def read_csv(file_path, metric_column, n):
     """
-    Read CSV file and extract the metric value and standard deviation.
+    Read CSV file and extract the metric and standard deviation values from specified columns.
     
     Args:
         file_path (str): Path to the CSV file.
-        metric_column (str): Name of the column to extract.
-        
+        metric_column (str): Column name for the metric value.
+
     Returns:
-        tuple: (metric_value, std_dev_value) or (None, None) if file not found or other error.
+        tuple: Metric value and standard deviation value, or None, None if an error occurs.
     """
     try:
-        # Read CSV file with semicolon delimiter
         df = pd.read_csv(file_path, sep=';')
         
-        # Get the last but one row (mean value) and the specified metric column
-        metric_value = float(df.iloc[-2][metric_column])
-        # Get the last row (standard deviation) and the specified metric column
-        std_dev_value = float(df.iloc[-1][metric_column])
+        # Separator row with dashes (------------)
+        sep_idx = None
+        for i, row in df.iterrows():
+            first_col = str(row.iloc[0]) if not pd.isna(row.iloc[0]) else ""
+            if '------------' in first_col:
+                sep_idx = i
+                break
+            
+        if sep_idx is None:
+            print(f"Warning: Could not find separator row in {file_path}")
+            return None, None
         
+        mean_idx = sep_idx + 1
+        std_idx = sep_idx + 2
+        mode_idx = sep_idx + 3 
+        
+        discrete_metrics = ['frames_sent', 'bytes_sent', 'frames_received', 
+                              'bytes_received', 'total_frames', 'total_bytes']
+        
+        if metric_column in df.columns:
+            # Extract mean and std
+            metric_value = pd.to_numeric(df.iloc[mean_idx][metric_column])
+            std_dev_value = pd.to_numeric(df.iloc[std_idx][metric_column])
+            
+            # Extract mode
+            mode_value = df.iloc[mode_idx][metric_column]
+            
+            # Discrete metrics: mode is the primary value
+            if not pd.isna(mode_value) and metric_column in discrete_metrics:
+                metric_value = pd.to_numeric(mode_value, errors='coerce')
+                
+                # Estimate std from below/above mode counts
+                below_count = pd.to_numeric(df.iloc[mode_idx + 1][metric_column], errors='coerce')
+                above_count = pd.to_numeric(df.iloc[mode_idx + 2][metric_column], errors='coerce')
+                
+                # Measure of dispersion based on counts
+                total_count = n # Total number of samples
+                
+                if total_count > 0:
+                    # Spread relative to the mode, scaled by the mode value
+                    mode_freq = n - (below_count + above_count)
+                    std_dev_value = (1 - mode_freq / n) * metric_value 
+                
+
         return metric_value, std_dev_value
+    
     except (FileNotFoundError, KeyError, IndexError, ValueError) as e:
         print(f"Error reading {file_path}: {e}")
         return None, None
@@ -212,7 +251,7 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
         
         if psk_files:
             psk_file_path = psk_files[0]
-            metric_value_psk, std_dev_psk = read_csv(psk_file_path, metric)
+            metric_value_psk, std_dev_psk = read_csv(psk_file_path, metric, n)
             if metric_value_psk is not None:
                 data['psk']['values'].append(metric_value_psk)
                 data['psk']['std_devs'].append(std_dev_psk)
@@ -240,7 +279,7 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
             
             if pki_files:
                 pki_file_path = pki_files[0]
-                metric_value_pki, std_dev_pki = read_csv(pki_file_path, metric)
+                metric_value_pki, std_dev_pki = read_csv(pki_file_path, metric, n)
                 if metric_value_pki is not None:
                     data[cert_type]['values'].append(metric_value_pki)
                     data[cert_type]['std_devs'].append(std_dev_pki)
@@ -263,7 +302,7 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
     
     if nosec_files:
         nosec_file_path = nosec_files[0]
-        metric_value_horizontal, std_dev_horizontal = read_csv(nosec_file_path, metric)
+        metric_value_horizontal, std_dev_horizontal = read_csv(nosec_file_path, metric, n)
         if metric_value_horizontal is not None:
             data['nosec']['value'] = metric_value_horizontal
             data['nosec']['std_dev'] = std_dev_horizontal
@@ -472,7 +511,7 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
                 
                 if pki_files:
                     file_path = pki_files[0]
-                    metric_value, std_dev_value = read_csv(file_path, metric)
+                    metric_value, std_dev_value = read_csv(file_path, metric, n)
                     
                     if metric_value is not None and std_dev_value is not None:
                         bar_pos = group_center + (bar_idx - (num_bar_types - 1) / 2) * 1.2
@@ -504,7 +543,7 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
             
             if psk_files:
                 file_path = psk_files[0]
-                metric_value, std_dev_value = read_csv(file_path, metric)
+                metric_value, std_dev_value = read_csv(file_path, metric, n)
                 
                 if metric_value is not None and std_dev_value is not None:
                     bar_pos = group_center + (bar_idx - (num_bar_types - 1) / 2) * 1.2
@@ -546,7 +585,7 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
         
         if nosec_files:
             file_path = nosec_files[0]
-            metric_value, std_dev_value = read_csv(file_path, metric)
+            metric_value, std_dev_value = read_csv(file_path, metric, n)
             
             if metric_value is not None and std_dev_value is not None:
                 bar_pos = nosec_positions[scen_idx]
@@ -662,7 +701,7 @@ def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=
             
             if pki_files:
                 file_path = pki_files[0]
-                metric_value, _ = read_csv(file_path, metric)
+                metric_value, _ = read_csv(file_path, metric, n)
                 
                 if metric_value is not None:
                     heat_data[alg_idx, cert_idx] = metric_value
@@ -1023,7 +1062,7 @@ def parse_args():
     
     # Parse arguments
     args = parser.parse_args()
-    
+
     # Process scenarios
     scenarios = [scenario.strip().upper() for scenario in args.scenarios.split(',')]
     
