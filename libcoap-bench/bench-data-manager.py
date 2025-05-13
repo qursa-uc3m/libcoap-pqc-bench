@@ -18,13 +18,12 @@ Usage:
 import os
 import sys
 import re
-import csv
 import numpy as np
 import pandas as pd
 import argparse
 import glob
 from collections import Counter
-from typing import Dict, List, Optional, Tuple, Union, Any
+from typing import List, Optional
 
 class BenchmarkConfig:
     """Represents the configuration of a benchmark test"""
@@ -202,12 +201,16 @@ class BenchmarkData:
         # Statistical calculations
         self.mean_values = {}
         self.std_values = {}
+        
+        # NEW: Add min/max values storage
+        self.min_values = {}
+        self.max_values = {}
     
     def load_time_data(self, time_file: str) -> bool:
         """Load timing data from time_output.txt file"""
         try:
             with open(time_file, 'r') as file:
-                times = [float(line.strip()) for line in file]
+                times = [float(line.strip()) for line in file if line.strip()]
                 self.raw_data['times'] = times
                 self.metrics['duration'] = np.mean(times)
                 return True
@@ -303,13 +306,18 @@ class BenchmarkData:
                 # Convert to numpy array for easier calculations
                 data = np.array(data)
                 
-                # Store the extracted metrics
-                self.metrics['frames_sent'] = np.mean(data[:, 0])
-                self.metrics['bytes_sent'] = np.mean(data[:, 1])
-                self.metrics['frames_received'] = np.mean(data[:, 2])
-                self.metrics['bytes_received'] = np.mean(data[:, 3])
-                self.metrics['total_frames'] = np.mean(data[:, 4])
-                self.metrics['total_bytes'] = np.mean(data[:, 5])
+                # Define column names for clarity
+                cols = ['frames_sent', 'bytes_sent', 'frames_received', 
+                        'bytes_received', 'total_frames', 'total_bytes']
+                
+                # Store the extracted metrics (mean values)
+                for idx, key in enumerate(cols):
+                    values = data[:, idx]
+                    self.metrics[key] = np.mean(values)
+                    
+                    # NEW: Also calculate min/max for discrete metrics
+                    self.min_values[key] = np.min(values)
+                    self.max_values[key] = np.max(values)
                 
                 # Store raw data for potential further analysis
                 self.raw_data['network_stats'] = data
@@ -464,6 +472,43 @@ class BenchmarkData:
             for k, v in self.above_mode.items():
                 above_row[k] = v
             rows.append(above_row)
+            
+            # NEW: Add min/max rows only for discrete metrics
+            # Discrete metrics we want to track
+            discrete_metrics = ['frames_sent', 'bytes_sent', 'frames_received', 'bytes_received', 
+                              'total_frames', 'total_bytes']
+            
+            # Check if we have min/max values for any discrete metrics
+            has_discrete_stats = False
+            for metric in discrete_metrics:
+                if metric in self.min_values:
+                    has_discrete_stats = True
+                    break
+            
+            if has_discrete_stats:
+                # Add separator for clarity
+                rows.append({col: '======' for col in columns})
+                
+                # Add min values row
+                min_row = {c: '--' for c in columns}
+                for k, v in self.min_values.items():
+                    if k in columns and k in discrete_metrics:
+                        min_row[k] = v
+                rows.append(min_row)
+                
+                # Add max values row
+                max_row = {c: '--' for c in columns}
+                for k, v in self.max_values.items():
+                    if k in columns and k in discrete_metrics:
+                        max_row[k] = v
+                rows.append(max_row)
+                
+                # Add range row (max - min)
+                range_row = {c: '--' for c in columns}
+                for k in self.min_values:
+                    if k in self.max_values and k in columns and k in discrete_metrics:
+                        range_row[k] = self.max_values[k] - self.min_values[k]
+                rows.append(range_row)
             
             # Write to CSV
             df = pd.DataFrame(rows)
@@ -730,8 +775,10 @@ class BenchmarkDataManager:
             
             # Extract statistics from each file
             stats_data = []
+            extended_data = []  # For min/max data
             column_names = None
             samples_per_iteration = []  # Track number of samples in each iteration
+            has_extended_stats = False
             
             for file_path in file_paths:
                 try:
@@ -765,6 +812,38 @@ class BenchmarkDataManager:
                     mode_row  = df.iloc[separator_idx + 3].copy()
                     below_row = df.iloc[separator_idx + 4].copy()
                     above_row = df.iloc[separator_idx + 5].copy()
+                    
+                    # Look for extended stats (min/max) if available
+                    extended_separator_idx = None
+                    for i in range(separator_idx + 6, len(df)):
+                        row = df.iloc[i]
+                        first_col = str(row.iloc[0]) if not pd.isna(row.iloc[0]) else ""
+                        if '======' in first_col:
+                            extended_separator_idx = i
+                            has_extended_stats = True
+                            break
+                    
+                    # Extract min/max/range if available
+                    if extended_separator_idx is not None and extended_separator_idx + 3 <= len(df):
+                        min_row = df.iloc[extended_separator_idx + 1].copy()
+                        max_row = df.iloc[extended_separator_idx + 2].copy()
+                        range_row = df.iloc[extended_separator_idx + 3].copy()
+                        
+                        # Convert to numeric values where possible
+                        for col in df.columns:
+                            if col in ['frames_sent', 'bytes_sent', 'frames_received', 'bytes_received', 'total_frames', 'total_bytes']:
+                                try:
+                                    min_row[col] = pd.to_numeric(min_row[col], errors='coerce')
+                                    max_row[col] = pd.to_numeric(max_row[col], errors='coerce')
+                                    range_row[col] = pd.to_numeric(range_row[col], errors='coerce')
+                                except:
+                                    pass
+                        
+                        extended_data.append((min_row, max_row, range_row))
+                    else:
+                        # If extended stats are expected but not found, create placeholders
+                        empty_row = pd.Series(['--'] * len(df.columns), index=df.columns)
+                        extended_data.append((empty_row, empty_row, empty_row))
                     
                     # Convert to numeric values where possible
                     for row in (mean_row, std_row, mode_row, below_row, above_row):
@@ -873,11 +952,61 @@ class BenchmarkDataManager:
             # append aggregated mode row
             rows.append(overall_mode)
 
-            # append aggregated “below mode” row
+            # append aggregated "below mode" row
             rows.append(overall_below)
 
-            # append aggregated “above mode” row
+            # append aggregated "above mode" row
             rows.append(overall_above)
+            
+            # Handle extended statistics if available
+            if has_extended_stats and extended_data:
+                # Add separator for extended stats
+                extended_separator = pd.Series(["=" * 6] * len(column_names), index=column_names)
+                rows.append(extended_separator)
+                
+                # Extract min/max/range data
+                mins, maxs, ranges = zip(*extended_data)
+                
+                # Create DataFrames for min and max values
+                mins_df = pd.DataFrame(mins)
+                maxs_df = pd.DataFrame(maxs)
+                
+                # Focus on discrete metrics only
+                discrete_metrics = ['frames_sent', 'bytes_sent', 'frames_received', 'bytes_received', 
+                                  'total_frames', 'total_bytes']
+                
+                # Calculate overall min (minimum of minimums) for discrete metrics
+                overall_min_row = pd.Series(['--'] * len(column_names), index=column_names)
+                for col in discrete_metrics:
+                    if col in mins_df.columns:
+                        numeric_mins = pd.to_numeric(mins_df[col], errors='coerce')
+                        valid_mins = numeric_mins.dropna()
+                        if len(valid_mins) > 0:
+                            overall_min_row[col] = valid_mins.min()
+                rows.append(overall_min_row)
+                
+                # Calculate overall max (maximum of maximums) for discrete metrics
+                overall_max_row = pd.Series(['--'] * len(column_names), index=column_names)
+                for col in discrete_metrics:
+                    if col in maxs_df.columns:
+                        numeric_maxs = pd.to_numeric(maxs_df[col], errors='coerce')
+                        valid_maxs = numeric_maxs.dropna()
+                        if len(valid_maxs) > 0:
+                            overall_max_row[col] = valid_maxs.max()
+                rows.append(overall_max_row)
+                
+                # Calculate overall range for discrete metrics
+                overall_range_row = pd.Series(['--'] * len(column_names), index=column_names)
+                for col in discrete_metrics:
+                    if col in overall_min_row.index and col in overall_max_row.index:
+                        try:
+                            min_val = pd.to_numeric(overall_min_row[col], errors='coerce')
+                            max_val = pd.to_numeric(overall_max_row[col], errors='coerce')
+                            if pd.notna(min_val) and pd.notna(max_val):
+                                overall_range_row[col] = max_val - min_val
+                        except:
+                            pass
+                rows.append(overall_range_row)
             
             # Create the final DataFrame
             agg_df = pd.DataFrame(rows, columns=column_names)
@@ -1048,4 +1177,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())   
+    sys.exit(main())
