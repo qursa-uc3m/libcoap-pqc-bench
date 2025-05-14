@@ -740,12 +740,12 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
     
     # Generate the output filename
     clean_metric = metric.replace(' ', '_').replace('(', '').replace(')', '')
-    scenarios_str = "_".join(scenarios)
+    scenarios_str = "".join(scenarios)
     
     # Create the plots directory if it doesn't exist
     os.makedirs(f'./{plots_dir}', exist_ok=True)
     
-    output_file = f'./{plots_dir}/barplot_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}.pdf'
+    output_file = f'./{plots_dir}/barplot_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}_{scenarios_str}.pdf'
 
     plt.savefig(output_file)
     print(f"Plot saved to {output_file}")
