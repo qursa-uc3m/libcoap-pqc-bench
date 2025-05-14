@@ -80,6 +80,116 @@ def read_csv(file_path, metric_column, n):
     except (FileNotFoundError, KeyError, IndexError, ValueError) as e:
         print(f"Error reading {file_path}: {e}")
         return None, None
+    
+def read_csv_discrete(file_path, metric_column, n):
+    """
+    Read discrete metric data from CSV files with the new format.
+    Specifically designed to read min/max values after the equals separator.
+    
+    Args:
+        file_path (str): Path to the CSV file.
+        metric_column (str): Column name for the metric value.
+        n (int): Number of samples.
+
+    Returns:
+        dict: Dictionary with 'mean', 'std', 'mode', 'min', 'max' values
+    """
+    try:
+        df = pd.read_csv(file_path, sep=';')
+        
+        # Find the first separator row with dashes (------------)
+        first_sep_idx = None
+        for i, row in df.iterrows():
+            first_col = str(row.iloc[0]) if not pd.isna(row.iloc[0]) else ""
+            if '------------' in first_col:
+                first_sep_idx = i
+                break
+        
+        if first_sep_idx is None:
+            print(f"Warning: Could not find first separator row in {file_path}")
+            return None
+        
+        # Find the equals separator row
+        equals_sep_idx = None
+        for i in range(first_sep_idx + 1, len(df)):
+            first_col = str(df.iloc[i, 0]) if not pd.isna(df.iloc[i, 0]) else ""
+            if '======' in first_col:
+                equals_sep_idx = i
+                break
+        
+        if equals_sep_idx is None:
+            print(f"Warning: Could not find equals separator row in {file_path}")
+            return None
+        
+        # Extract values from their expected positions
+        result = {
+            'mean': None,
+            'std': None,
+            'mode': None,
+            'min': None,
+            'max': None
+        }
+        
+        # Mean and std are always after first separator
+        mean_idx = first_sep_idx + 1
+        std_idx = first_sep_idx + 2
+        
+        # Mode, below, above are at positions 3, 4, 5 after first separator
+        mode_idx = first_sep_idx + 3
+        below_idx = first_sep_idx + 4
+        above_idx = first_sep_idx + 5
+        
+        # Min and max are after equals separator
+        min_idx = equals_sep_idx + 1
+        max_idx = equals_sep_idx + 2
+        
+        # Extract metric values if column exists
+        if metric_column in df.columns:
+            # Get mean
+            if mean_idx < len(df):
+                result['mean'] = pd.to_numeric(df.iloc[mean_idx][metric_column], errors='coerce')
+            
+            # Get std
+            if std_idx < len(df):
+                result['std'] = pd.to_numeric(df.iloc[std_idx][metric_column], errors='coerce')
+            
+            # Get mode
+            if mode_idx < len(df):
+                mode_val = df.iloc[mode_idx][metric_column]
+                if not pd.isna(mode_val) and str(mode_val) != '--':
+                    result['mode'] = pd.to_numeric(mode_val, errors='coerce')
+            
+            # Get min
+            if min_idx < len(df):
+                min_val = df.iloc[min_idx][metric_column]
+                if not pd.isna(min_val) and str(min_val) != '--':
+                    result['min'] = pd.to_numeric(min_val, errors='coerce')
+            
+            # Get max
+            if max_idx < len(df):
+                max_val = df.iloc[max_idx][metric_column]
+                if not pd.isna(max_val) and str(max_val) != '--':
+                    result['max'] = pd.to_numeric(max_val, errors='coerce')
+            
+            # If mode not available, use mean
+            if result['mode'] is None and result['mean'] is not None:
+                result['mode'] = result['mean']
+            
+            # If min/max not available, estimate from std
+            if result['min'] is None and result['mean'] is not None and result['std'] is not None:
+                result['min'] = max(0, result['mean'] - 2 * result['std'])
+            
+            if result['max'] is None and result['mean'] is not None and result['std'] is not None:
+                result['max'] = result['mean'] + 2 * result['std']
+            
+            return result
+        else:
+            print(f"Warning: Column {metric_column} not found in {file_path}")
+            return None
+    
+    except Exception as e:
+        print(f"Error reading {file_path}: {e}")
+        return None
 
 def find_files(base_dir, pattern):
     """
@@ -1028,6 +1138,270 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     plt.savefig(output_file)
     print(f"Plot saved to {output_file}")
     plt.show()
+    
+def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None):
+    """
+    Create candlestick-style plots for discrete metrics showing min-max range with mode. We use a fat dot instead of a box, it is clearer. 
+    
+    Args:
+        metric (str): The discrete metric to be plotted.
+        algorithms_list (list): List of algorithm names.
+        cert_types_list (list): List of certificate types to include.
+        n (int): Number of repetitions.
+        scenario (str): Scenario identifier (A, B, or C).
+        rasp (bool): Whether the data is from a Raspberry Pi.
+        s (int or None): Optional 's' parameter.
+        p (str or None): Optional 'p' parameter (parallelization mode).
+        data_dir (str): Directory containing the data files.
+        custom_suffix (str): Optional suffix for data and plot directories.
+    """
+    # Get the absolute path of the script's directory
+    script_directory = os.path.dirname(os.path.realpath(__file__))
+    
+    # Get data and plots directories
+    data_dir_, plots_dir = setup_output_dirs(custom_suffix)
+    data_dir_path = os.path.join(script_directory, data_dir_)
+    
+    print(f"Data directory: {data_dir_path}")
+    print(f"Plot directory: {plots_dir}")
+    
+    # Create a figure
+    fig, ax = plt.subplots(figsize=(16, 10))
+    
+    # Generate colors for different certificate types
+    cert_colors = get_certificate_colors(cert_types_list)
+    
+    # Construct the common file pattern parts
+    s_suffix = f"_s{s}" if s else ""
+    p_suffix = f"_{p}" if p else ""
+    scenario_suffix = f"_scenario{scenario}"
+    rasp_prefix = "rasp" if rasp else ""
+    
+    # Calculate positions for candlesticks with consistent ordering
+    num_algorithms = len(algorithms_list)
+    num_cert_types = len(cert_types_list)
+    
+    # Total items per algorithm group: cert_types + PSK
+    items_per_algo = num_cert_types + 1
+    
+    # Calculate spacing
+    item_spacing = 2.0  # Space between individual candlesticks
+    group_spacing = 0.5  # Space between algorithm groups
+    
+    # Store data for plotting with consistent ordering
+    plot_data = []
+    all_values = []
+    
+    # Process data in the exact order specified by cert_types_list
+    for alg_idx, algorithm in enumerate(algorithms_list):
+        base_position = alg_idx * (items_per_algo * item_spacing + group_spacing)
+        
+        # First: PKI certificates in the order they were specified
+        for cert_idx, cert_type in enumerate(cert_types_list):
+            patterns = get_file_patterns(algorithm, cert_type, n, s, p, scenario, rasp)
+            pki_pattern = patterns['pki']
+            pki_files = find_files(data_dir_path, pki_pattern)
+            
+            if not pki_files:
+                pki_pattern = patterns['pki_client_auth']
+                pki_files = find_files(data_dir_path, pki_pattern)
+            
+            if pki_files:
+                file_path = pki_files[0]
+                data = read_csv_discrete(file_path, metric, n)
+                
+                if data and data.get('mode') is not None:
+                    position = base_position + cert_idx * item_spacing
+                    plot_data.append({
+                        'pos': position,
+                        'data': data,
+                        'label': f'{algorithm} {cert_type}',
+                        'algorithm': algorithm,
+                        'cert_type': cert_type,
+                        'color': cert_colors[cert_type]
+                    })
+                    all_values.extend([data.get('min', 0), data.get('max', 0), data.get('mode', 0)])
+        
+        # Then: PSK for this algorithm
+        patterns = get_file_patterns(algorithm, "", n, s, p, scenario, rasp)
+        psk_pattern = patterns['psk']
+        psk_files = find_files(data_dir_path, psk_pattern)
+        
+        if psk_files:
+            file_path = psk_files[0]
+            data = read_csv_discrete(file_path, metric, n)
+            
+            if data and data.get('mode') is not None:
+                position = base_position + num_cert_types * item_spacing
+                plot_data.append({
+                    'pos': position,
+                    'data': data,
+                    'label': f'{algorithm} PSK',
+                    'algorithm': algorithm,
+                    'cert_type': 'PSK',
+                    'color': security_mode_colors['psk']
+                })
+                all_values.extend([data.get('min', 0), data.get('max', 0), data.get('mode', 0)])
+    
+    # Finally: NoSec (positioned after all algorithm groups)
+    patterns = get_file_patterns("", "", n, s, p, scenario, rasp)
+    nosec_pattern = patterns['nosec']
+    nosec_files = find_files(data_dir_path, nosec_pattern)
+    
+    if not nosec_files:
+        nosec_pattern = patterns['nosec_flexible']
+        nosec_files = find_files(data_dir_path, nosec_pattern)
+    
+    if nosec_files:
+        file_path = nosec_files[0]
+        data = read_csv_discrete(file_path, metric, n)
+        
+        if data and data.get('mode') is not None:
+            # Position NoSec with extra spacing from the last group
+            last_algo_end = (num_algorithms - 1) * (items_per_algo * item_spacing + group_spacing) + items_per_algo * item_spacing
+            position = last_algo_end + group_spacing
+            plot_data.append({
+                'pos': position,
+                'data': data,
+                'label': 'NoSec',
+                'algorithm': 'NoSec',
+                'cert_type': 'NoSec',
+                'color': security_mode_colors['nosec']
+            })
+            all_values.extend([data.get('min', 0), data.get('max', 0), data.get('mode', 0)])
+    
+    # Create candlestick plot with fat dots for modes
+    for item in plot_data:
+        data = item['data']
+        pos = item['pos']
+        color = item['color']
+        
+        mode = data.get('mode', data.get('mean'))
+        if mode is None:
+            continue
+            
+        min_val = data.get('min', mode)
+        max_val = data.get('max', mode)
+        
+        # Increase line width significantly
+        line_width = item_spacing * 0.8  # Much wider horizontal lines
+        
+        # Always draw vertical line if there's a range
+        if min_val != max_val:
+            # Draw vertical line with increased width
+            ax.plot([pos, pos], [min_val, max_val], color=color, linewidth=2)
+            
+            # Draw horizontal lines with increased width and length
+            ax.plot([pos - line_width/2, pos + line_width/2], [min_val, min_val], 
+                    color=color, linewidth=2, solid_capstyle='round')
+            ax.plot([pos - line_width/2, pos + line_width/2], [max_val, max_val], 
+                    color=color, linewidth=2, solid_capstyle='round')
+        else:
+            # If min=max=mode, draw a single horizontal line
+            ax.plot([pos - line_width/2, pos + line_width/2], [mode, mode], 
+                    color=color, linewidth=2, solid_capstyle='round')
+        
+        # Draw the fat red dot for the mode LAST so it's on top
+        ax.plot(pos, mode, 'o', color='gray', markersize=8, markeredgecolor='gray', 
+                markeredgewidth=1.0, zorder=1)  # Higher zorder puts it on top
+    
+    # Set x-axis labels at algorithm centers
+    algorithm_positions = {}
+    algorithm_groups = {}
+    
+    # Group positions by algorithm
+    for item in plot_data:
+        alg = item['algorithm']
+        if alg != 'NoSec':
+            if alg not in algorithm_groups:
+                algorithm_groups[alg] = []
+            algorithm_groups[alg].append(item['pos'])
+    
+    # Calculate centers for each algorithm
+    for alg, positions in algorithm_groups.items():
+        if positions:
+            algorithm_positions[alg] = sum(positions) / len(positions)
+    
+    # Add NoSec separately
+    nosec_items = [item for item in plot_data if item['algorithm'] == 'NoSec']
+    if nosec_items:
+        algorithm_positions['NoSec'] = nosec_items[0]['pos']
+    
+    # Set ticks at algorithm centers
+    ax.set_xticks(list(algorithm_positions.values()))
+    ax.set_xticklabels(list(algorithm_positions.keys()), rotation=0, ha='center', fontsize=11)
+    
+    # Add correct vertical dashed lines between algorithm groups
+    if len(algorithm_groups) > 1:
+        sorted_algs = sorted(algorithm_groups.keys(), key=lambda x: min(algorithm_groups[x]))
+        for i in range(len(sorted_algs) - 1):
+            curr_positions = algorithm_groups[sorted_algs[i]]
+            next_positions = algorithm_groups[sorted_algs[i+1]]
+            
+            # Find the gap between groups
+            max_curr = max(curr_positions)
+            min_next = min(next_positions)
+            separator_pos = (max_curr + min_next) / 2
+            
+            ax.axvline(x=separator_pos, color='gray', linestyle='--', alpha=0.5, linewidth=1.0)
+    
+    # Add separator before NoSec
+    if nosec_items and algorithm_groups:
+        last_positions = []
+        for positions in algorithm_groups.values():
+            last_positions.extend(positions)
+        max_algo_pos = max(last_positions)
+        nosec_pos = nosec_items[0]['pos']
+        separator_pos = (max_algo_pos + nosec_pos) / 2
+        ax.axvline(x=separator_pos, color='gray', linestyle='--', alpha=0.5, linewidth=1.0)
+        
+    # Set y-axis limits with proper padding
+    if all_values:
+        non_none_values = [v for v in all_values if v is not None]
+        if non_none_values:
+            y_min = min(non_none_values)
+            y_max = max(non_none_values)
+            padding = (y_max - y_min) * 0.1 if y_max > y_min else y_max * 0.1
+            ax.set_ylim(y_min - padding, y_max + padding)
+    
+    # Set labels and title
+    ax.set_ylabel(metric.replace('_', ' ').title())
+    ax.set_xlabel('Algorithm / Configuration')
+    ax.margins(x=0.02)
+    title = f'{metric.replace("_", " ").title()} - n={n}, scenario={scenario}'
+    if s is not None:
+        title += f', s={s}'
+    if p is not None:
+        title += f', {p}'
+    ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
+    
+    # Create legend with proper positioning
+    legend_entries = {}
+    for cert_type in cert_types_list:
+        legend_entries[cert_type] = cert_colors[cert_type]
+    legend_entries['PSK'] = security_mode_colors['psk']
+    legend_entries['NoSec'] = security_mode_colors['nosec']
+    
+    # Add red dot for mode in legend
+    handles = [Patch(facecolor=color, label=label) for label, color in legend_entries.items()]
+    handles.append(Line2D([0], [0], marker='o', color='gray', label='Mode', 
+                         markersize=10, markeredgecolor='gray', markeredgewidth=1, linestyle=''))
+    
+    ax.legend(handles=handles, loc='upper left', bbox_to_anchor=(1.01, 1), ncol=1)
+    
+    # Add grid
+    ax.grid(True, alpha=0.3, axis='both')
+    ax.set_axisbelow(True)
+    
+    # Save the plot
+    clean_metric = metric.replace(' ', '_').replace('(', '').replace(')', '')
+    os.makedirs(f'./{plots_dir}', exist_ok=True)
+    output_file = f'./{plots_dir}/candlestick_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}.pdf'
+    
+    plt.tight_layout(rect=[0, 0.02, 0.95, 0.98])
+    plt.savefig(output_file, bbox_inches='tight')
+    print(f"Plot saved to {output_file}")
+    plt.show()
 
 def parse_args():
     """Parse command line arguments using argparse."""
@@ -1036,10 +1410,16 @@ def parse_args():
         formatter_class=argparse.RawTextHelpFormatter
     )
     
-    # Required arguments
+    # Default values
+    default_algorithms = "KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5"
+    default_cert_types = "RSA_2048,EC_P256,EC_ED25519,DILITHIUM_LEVEL2,DILITHIUM_LEVEL3,,DILITHIUM_LEVEL5,FALCON_LEVEL1,FALCON_LEVEL5"
+    
+    # Required arguments - now with defaults
     parser.add_argument('metric', help='Metric to be plotted (e.g., "duration", "Energy (Wh)")')
-    parser.add_argument('algorithms', help='Comma-separated list of algorithms (e.g., "KYBER_LEVEL1,KYBER_LEVEL3")')
-    parser.add_argument('cert_types', help='Comma-separated list of certificate types (e.g., "DILITHIUM_LEVEL2,RSA_2048")')
+    parser.add_argument('--algorithms', default=default_algorithms, 
+                        help=f'Comma-separated list of algorithms (default: "{default_algorithms}")')
+    parser.add_argument('--cert-types', dest='cert_types', default=default_cert_types,
+                        help=f'Comma-separated list of certificate types (default: "{default_cert_types}")')
     parser.add_argument('n', type=int, help='Number of repetitions')
     
     # Plot type selection
@@ -1048,10 +1428,11 @@ def parse_args():
     plot_type.add_argument('--barplot', action='store_true', help='Generate bar plot')
     plot_type.add_argument('--heatmap', action='store_true', help='Generate heat map')
     plot_type.add_argument('--boxplot', action='store_true', help='Generate box plot for variability analysis')
+    plot_type.add_argument('--candlestick', action='store_true', help='Generate candlestick plot for discrete metrics')
     
     # Scenarios
     parser.add_argument('--scenarios', default='A', 
-                        help='Comma-separated list of scenarios (e.g., "A,B,C"). For scatter, heatmap, boxplot, radar, and efficiency plots, only the first scenario is used.')
+                        help='Comma-separated list of scenarios (e.g., "A,B,C"). For scatter, heatmap, boxplot, and candlestick plots, only the first scenario is used.')
     
     # Optional arguments
     parser.add_argument('--rasp', action='store_true', help='Use Raspberry Pi dataset')
@@ -1099,6 +1480,12 @@ def main():
     elif args.boxplot:
         print(f"Generating box plot for scenario {scenario}...")
         create_box_plot(
+            args.metric, algorithms, cert_types, args.n, scenario,
+            args.rasp, args.s, args.p, args.data_dir, args.custom_suffix
+        )
+    elif args.candlestick:
+        print(f"Generating candlestick plot for scenario {scenario}...")
+        create_discrete_candlestick_plot(
             args.metric, algorithms, cert_types, args.n, scenario,
             args.rasp, args.s, args.p, args.data_dir, args.custom_suffix
         )
