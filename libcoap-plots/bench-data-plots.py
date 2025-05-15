@@ -7,6 +7,7 @@ import glob
 import matplotlib.colors as mcolors
 from matplotlib.patches import Patch
 from matplotlib.lines import Line2D
+import matplotlib.patheffects as path_effects
 import argparse
 
 # Generate the color palette
@@ -561,60 +562,52 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
 
     # Generate colors for different certificate types
     cert_colors = get_certificate_colors(cert_types_list)
+    
+    # Define signature families
+    sig_families = {
+        'Classical' : ['RSA_2048', 'EC_P256', 'EC_ED25519'],
+        'DILITHIUM' : ['DILITHIUM_LEVEL2', 'DILITHIUM_LEVEL3', 'DILITHIUM_LEVEL5'],
+        'FALCON' : ['FALCON_LEVEL1', 'FALCON_LEVEL5']
+    }
+    
+    family_patterns = {
+        'Classical' : '', 
+        'DILITHIUM' : 'x',
+        'FALCON' : '.'
+    }
+    
+    # Set pattern for each cert type
+    def get_pattern(cert_type):
+        for family, certs in sig_families.items():
+            if cert_type in certs:
+                return family_patterns[family]
+        return ''
 
-    # Calculate the number of types of bars we'll have
-    num_bar_types = 1 + len(cert_types_list)  # PSK + all certificate types (PKI)
-    
-    # Calculate the number of bar groups (algorithm + scenario combinations)
-    num_algorithms = len(algorithms_list)
-    num_scenarios = len(scenarios)
-    num_groups = num_algorithms * num_scenarios
-    
-    # Define the spacing between groups and individual bars
-    group_width = num_bar_types * 1.2  # Total width for a group of bars
-    bar_width = 1.0  # Width of each bar
-    group_spacing = 2.0  # Space between groups
-    
-    # Calculate positions for each group
-    group_positions = np.arange(num_groups) * (group_width + group_spacing)
-    
-    # Calculate position for nosec bars (separate section)
-    nosec_start = group_positions[-1] + group_width + group_spacing if num_groups > 0 else 0
-    nosec_positions = np.array([nosec_start + i * 1.5 for i in range(num_scenarios)])
-    
-    # Create a dictionary to store bar positions
-    bar_positions = {}
-    x_labels = []
-    
     # Common file pattern parts
     s_suffix = f"_s{s}" if s else ""
     p_suffix = f"_{p}" if p else ""
     rasp_prefix = "rasp" if rasp else ""
     
-    # Dictionary to store legend entries
-    legend_entries = {}
+    # Data collection with proper tracking
+    bar_data = []  # List to store all bar data
+    x_labels = []  # Labels for x-axis
     
-    # Process and plot each algorithm and scenario combination
-    group_idx = 0
+    # Process each algorithm and scenario combination
     for alg_idx, algorithm in enumerate(algorithms_list):
         for scen_idx, scenario in enumerate(scenarios):
             scenario_suffix = f"_scenario{scenario}"
-            group_center = group_positions[group_idx]
-            bar_idx = 0
             
-            # Set the x label for this group
-            x_labels.append((group_center, f"{algorithm}-{scenario}"))
+            # Group bars for this algorithm-scenario combo
+            group_bars = []
             
             # Process each certificate type (PKI)
             for cert_idx, cert_type in enumerate(cert_types_list):
-                # Get file patterns
                 patterns = get_file_patterns(algorithm, cert_type, n, s, p, scenario, rasp)
                 
-                # PKI file pattern
+                # Try PKI patterns
                 pki_pattern = patterns['pki']
                 pki_files = find_files(data_dir_path, pki_pattern)
                 
-                # Try with client-auth if needed
                 if not pki_files:
                     pki_pattern = patterns['pki_client_auth']
                     pki_files = find_files(data_dir_path, pki_pattern)
@@ -624,27 +617,16 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
                     metric_value, std_dev_value = read_csv(file_path, metric, n)
                     
                     if metric_value is not None and std_dev_value is not None:
-                        bar_pos = group_center + (bar_idx - (num_bar_types - 1) / 2) * 1.2
-                        
-                        # Add error bars
-                        (_, caps, _) = ax.errorbar(bar_pos, metric_value, yerr=std_dev_value, 
-                                                  capsize=5, fmt='o', color='black', markersize=5)
-                        for cap in caps:
-                            cap.set_markeredgewidth(1)
-                        
-                        # Add the bar
-                        ax.bar(bar_pos, metric_value, width=bar_width, 
-                               color=cert_colors[cert_type], edgecolor='black', linewidth=1)
-                        
-                        # Add to legend entries
-                        legend_name = f'PKI ({cert_type})'
-                        legend_entries[legend_name] = cert_colors[cert_type]
-                        
-                        # Store the bar position
-                        key = (algorithm, scenario, f"PKI ({cert_type})")
-                        bar_positions[key] = bar_pos
-                
-                bar_idx += 1
+                        group_bars.append({
+                            'value': metric_value,
+                            'std': std_dev_value,
+                            'color': cert_colors[cert_type],
+                            'pattern': get_pattern(cert_type),
+                            'label': f'PKI ({cert_type})',
+                            'type': 'pki',
+                            'cert_type': cert_type
+                        })
+                        print(f"Found data for {algorithm} {cert_type} {scenario}: {metric_value}")
             
             # Process PSK
             patterns = get_file_patterns(algorithm, "", n, s, p, scenario, rasp)
@@ -656,39 +638,34 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
                 metric_value, std_dev_value = read_csv(file_path, metric, n)
                 
                 if metric_value is not None and std_dev_value is not None:
-                    bar_pos = group_center + (bar_idx - (num_bar_types - 1) / 2) * 1.2
-                    
-                    # Add error bars
-                    (_, caps, _) = ax.errorbar(bar_pos, metric_value, yerr=std_dev_value, 
-                                              capsize=5, fmt='o', color='black', markersize=5)
-                    for cap in caps:
-                        cap.set_markeredgewidth(1)
-                    
-                    # Add the bar
-                    ax.bar(bar_pos, metric_value, width=bar_width, 
-                           color=security_mode_colors['psk'], edgecolor='black', linewidth=1)
-                    
-                    # Add to legend entries
-                    legend_entries['PSK'] = security_mode_colors['psk']
-                    
-                    # Store the bar position
-                    key = (algorithm, scenario, 'PSK')
-                    bar_positions[key] = bar_pos
+                    group_bars.append({
+                        'value': metric_value,
+                        'std': std_dev_value,
+                        'color': security_mode_colors['psk'],
+                        'pattern': '',
+                        'label': 'PSK',
+                        'type': 'psk',
+                        'cert_type': None
+                    })
+                    print(f"Found data for {algorithm} PSK {scenario}: {metric_value}")
             
-            group_idx += 1
+            # Only add the group if it has data
+            if group_bars:
+                bar_data.append({
+                    'algorithm': algorithm,
+                    'scenario': scenario,
+                    'bars': group_bars,
+                    'label': f"{algorithm}-{scenario}"
+                })
     
-    # Process and plot nosec for each scenario
+    # Process NoSec for each scenario
     for scen_idx, scenario in enumerate(scenarios):
         scenario_suffix = f"_scenario{scenario}"
         
-        # Get file patterns
         patterns = get_file_patterns("", "", n, s, p, scenario, rasp)
-        
-        # NoSec file pattern
         nosec_pattern = patterns['nosec']
         nosec_files = find_files(data_dir_path, nosec_pattern)
         
-        # Try a more flexible pattern if needed
         if not nosec_files:
             nosec_pattern = patterns['nosec_flexible']
             nosec_files = find_files(data_dir_path, nosec_pattern)
@@ -698,29 +675,80 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
             metric_value, std_dev_value = read_csv(file_path, metric, n)
             
             if metric_value is not None and std_dev_value is not None:
-                bar_pos = nosec_positions[scen_idx]
-                
-                # Add error bars
-                (_, caps, _) = ax.errorbar(bar_pos, metric_value, yerr=std_dev_value, 
-                                          capsize=5, fmt='o', color='black', markersize=5)
-                for cap in caps:
-                    cap.set_markeredgewidth(1)
-                
-                # Add the bar
-                ax.bar(bar_pos, metric_value, width=bar_width, 
-                       color=security_mode_colors['nosec'], edgecolor='black', linewidth=1)
-                
-                # Add to legend entries
-                legend_entries['NoSec'] = security_mode_colors['nosec']
-                
-                # Add nosec label
-                x_labels.append((bar_pos, f"NoSec-{scenario}"))
+                bar_data.append({
+                    'algorithm': 'NoSec',
+                    'scenario': scenario,
+                    'bars': [{
+                        'value': metric_value,
+                        'std': std_dev_value,
+                        'color': security_mode_colors['nosec'],
+                        'pattern': '',
+                        'label': 'NoSec',
+                        'type': 'nosec',
+                        'cert_type': None
+                    }],
+                    'label': f"NoSec-{scenario}"
+                })
+                print(f"Found data for NoSec {scenario}: {metric_value}")
     
-    # Set the x-ticks and labels
-    xtick_positions, xtick_labels = zip(*x_labels)
+    # Now plot all bars with proper positioning
+    bar_width = 0.8
+    group_spacing = 0.5
+    current_pos = 0
+    xtick_positions = []
+    xtick_labels = []
+    
+    # Track all unique labels for legend
+    legend_entries = {}
+    pattern_entries = {}
+    
+    for group_idx, group in enumerate(bar_data):
+        num_bars = len(group['bars'])
+        
+        # Calculate positions for this group
+        bar_positions = []
+        for i in range(num_bars):
+            pos = current_pos + i * bar_width
+            bar_positions.append(pos)
+        
+        # Plot bars in this group
+        for bar_idx, bar in enumerate(group['bars']):
+            pos = bar_positions[bar_idx]
+            
+            # Plot the bar
+            rect = ax.bar(pos, bar['value'], width=bar_width, 
+              color=bar['color'], edgecolor='black', linewidth=1.5,
+              hatch=bar['pattern'])
+            
+            if bar['pattern']:
+                rect[0].set_path_effects([path_effects.withStroke(linewidth=1, foreground='white')])
+            
+            # Add error bar
+            ax.errorbar(pos, bar['value'], yerr=bar['std'], 
+                        capsize=5, fmt='none', color='black', linewidth=1.5)
+            
+            # Track legend entry
+            if bar['label'] not in legend_entries:
+                legend_entries[bar['label']] = bar['color']
+                
+            # Track pattern entries for certificate families
+            if bar['cert_type']:
+                for family, certs in sig_families.items():
+                    if bar['cert_type'] in certs:
+                        pattern_entries[family] = family_patterns[family]
+        
+        # Set x-tick at center of group
+        group_center = current_pos + (num_bars - 1) * bar_width / 2
+        xtick_positions.append(group_center)
+        xtick_labels.append(group['label'])
+        
+        # Move to next group position
+        current_pos += num_bars * bar_width + group_spacing
+    
+    # Set x-ticks and labels
     ax.set_xticks(xtick_positions)
     ax.set_xticklabels(xtick_labels, rotation=45, ha='right', fontsize=10)
-
+    
     # Set axis labels and title
     ax.set_xlabel('Algorithm - Scenario - Mode')
     ax.set_ylabel(metric)
@@ -732,10 +760,30 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
         title += f', p={p}'
     ax.set_title(title)
     
-    # Create a custom legend
-    handles = [Patch(facecolor=color, label=label) for label, color in legend_entries.items()]
-    ax.legend(handles=handles, loc='upper right', bbox_to_anchor=(1.15, 1), ncol=1)
-
+    # Create custom legend
+    # First part: security mode legend
+    color_handles = [Patch(facecolor=color, label=label, edgecolor='black') 
+                    for label, color in legend_entries.items()]
+    
+    # Second part: pattern legend for certificate families
+    pattern_handles = []
+    if pattern_entries:
+        pattern_handles.append(Line2D([0], [0], color='none', label='Certificate Families:'))
+        for family, pattern in pattern_entries.items():
+            pattern_handles.append(Patch(facecolor='lightgray', edgecolor='black', 
+                                       hatch=pattern, label=f'{family}'))
+    
+    # Combine handles
+    all_handles = color_handles
+    if pattern_handles:
+        all_handles.append(Line2D([0], [0], color='none', label=''))  # Separator
+        all_handles.extend(pattern_handles)
+    
+    ax.legend(handles=all_handles, loc='upper right', bbox_to_anchor=(1.15, 1), ncol=1)
+    
+    # Add grid for better readability
+    ax.grid(True, axis='y', alpha=0.3)
+    
     plt.tight_layout()
     
     # Generate the output filename
