@@ -1189,7 +1189,10 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     
 def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None):
     """
-    Create candlestick-style plots for discrete metrics showing min-max range with mode. We use a fat dot instead of a box, it is clearer. 
+    Create candlestick-style plots for discrete metrics showing min-max range with mode.
+    Improved version with:
+    - Fixed legend (no empty slot)
+    - Different line styles for different certificate families
     
     Args:
         metric (str): The discrete metric to be plotted.
@@ -1218,6 +1221,26 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
     
     # Generate colors for different certificate types
     cert_colors = get_certificate_colors(cert_types_list)
+    
+    # Define signature families and line styles
+    sig_families = {
+        'Classical': ['RSA_2048', 'EC_P256', 'EC_ED25519'],
+        'DILITHIUM': ['DILITHIUM_LEVEL2', 'DILITHIUM_LEVEL3', 'DILITHIUM_LEVEL5'],
+        'FALCON': ['FALCON_LEVEL1', 'FALCON_LEVEL5']
+    }
+    
+    family_line_styles = {
+        'Classical': '-',
+        'DILITHIUM': '--',
+        'FALCON': '-.'
+    }
+    
+    # Helper function to get the line style for a certificate
+    def get_line_style(cert_type):
+        for family, certs in sig_families.items():
+            if cert_type in certs:
+                return family_line_styles[family]
+        return '-'  # Default solid line
     
     # Construct the common file pattern parts
     s_suffix = f"_s{s}" if s else ""
@@ -1266,7 +1289,8 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
                         'label': f'{algorithm} {cert_type}',
                         'algorithm': algorithm,
                         'cert_type': cert_type,
-                        'color': cert_colors[cert_type]
+                        'color': cert_colors[cert_type],
+                        'line_style': get_line_style(cert_type)
                     })
                     all_values.extend([data.get('min', 0), data.get('max', 0), data.get('mode', 0)])
         
@@ -1287,7 +1311,8 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
                     'label': f'{algorithm} PSK',
                     'algorithm': algorithm,
                     'cert_type': 'PSK',
-                    'color': security_mode_colors['psk']
+                    'color': security_mode_colors['psk'],
+                    'line_style': '-'  # Default solid line for PSK
                 })
                 all_values.extend([data.get('min', 0), data.get('max', 0), data.get('mode', 0)])
     
@@ -1314,7 +1339,8 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
                 'label': 'NoSec',
                 'algorithm': 'NoSec',
                 'cert_type': 'NoSec',
-                'color': security_mode_colors['nosec']
+                'color': security_mode_colors['nosec'],
+                'line_style': '-'  # Default solid line for NoSec
             })
             all_values.extend([data.get('min', 0), data.get('max', 0), data.get('mode', 0)])
     
@@ -1323,6 +1349,7 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
         data = item['data']
         pos = item['pos']
         color = item['color']
+        line_style = item['line_style']
         
         mode = data.get('mode', data.get('mean'))
         if mode is None:
@@ -1336,22 +1363,23 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
         
         # Always draw vertical line if there's a range
         if min_val != max_val:
-            # Draw vertical line with increased width
-            ax.plot([pos, pos], [min_val, max_val], color=color, linewidth=2)
+            # Draw vertical line with increased width and appropriate line style
+            ax.plot([pos, pos], [min_val, max_val], 
+                    color=color, linewidth=2, linestyle=line_style)
             
             # Draw horizontal lines with increased width and length
             ax.plot([pos - line_width/2, pos + line_width/2], [min_val, min_val], 
-                    color=color, linewidth=2, solid_capstyle='round')
+                    color=color, linewidth=2, linestyle='-', solid_capstyle='round')
             ax.plot([pos - line_width/2, pos + line_width/2], [max_val, max_val], 
-                    color=color, linewidth=2, solid_capstyle='round')
+                    color=color, linewidth=2, linestyle='-', solid_capstyle='round')
         else:
             # If min=max=mode, draw a single horizontal line
             ax.plot([pos - line_width/2, pos + line_width/2], [mode, mode], 
-                    color=color, linewidth=2, solid_capstyle='round')
+                    color=color, linewidth=2, linestyle='-', solid_capstyle='round')
         
-        # Draw the fat red dot for the mode LAST so it's on top
+        # Draw the mode point LAST so it's on top
         ax.plot(pos, mode, 'o', color='gray', markersize=8, markeredgecolor='gray', 
-                markeredgewidth=1.0, zorder=1)  # Higher zorder puts it on top
+                markeredgewidth=1.0, zorder=10)  # Higher zorder puts it on top
     
     # Set x-axis labels at algorithm centers
     algorithm_positions = {}
@@ -1424,18 +1452,37 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
     ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
     
     # Create legend with proper positioning
-    legend_entries = {}
+    # Create dict for certificate colors
+    cert_legend_items = {}
     for cert_type in cert_types_list:
-        legend_entries[cert_type] = cert_colors[cert_type]
-    legend_entries['PSK'] = security_mode_colors['psk']
-    legend_entries['NoSec'] = security_mode_colors['nosec']
+        cert_legend_items[f"PKI ({cert_type})"] = cert_colors[cert_type]
     
-    # Add red dot for mode in legend
-    handles = [Patch(facecolor=color, label=label) for label, color in legend_entries.items()]
-    handles.append(Line2D([0], [0], marker='o', color='gray', label='Mode', 
-                         markersize=10, markeredgecolor='gray', markeredgewidth=1, linestyle=''))
+    # Add PSK and NoSec
+    cert_legend_items['PSK'] = security_mode_colors['psk'] 
+    cert_legend_items['NoSec'] = security_mode_colors['nosec']
     
-    ax.legend(handles=handles, loc='upper left', bbox_to_anchor=(1.01, 1), ncol=1)
+    # Create line style legend items
+    line_style_legend_items = {}
+    for family, style in family_line_styles.items():
+        line_style_legend_items[family] = style
+    
+    # Create handles for certificate types (colored patches)
+    cert_handles = [Patch(facecolor=color, label=label) for label, color in cert_legend_items.items()]
+    
+    # Create handles for family line styles
+    line_style_handles = []
+    for family, style in family_line_styles.items():
+        line_style_handles.append(Line2D([0], [0], color='black', linestyle=style, label=family))
+    
+    # Add the mode point to legend
+    mode_handle = Line2D([0], [0], marker='o', color='gray', label='Mode', 
+                         markersize=10, markeredgecolor='gray', markeredgewidth=1, linestyle='')
+    
+    # Combine all handles
+    all_handles = cert_handles + [Line2D([0], [0], color='none', label='')] + line_style_handles + [mode_handle]
+    
+    # Create legend
+    ax.legend(handles=all_handles, loc='upper left', bbox_to_anchor=(1.01, 1), ncol=1)
     
     # Add grid
     ax.grid(True, alpha=0.3, axis='both')
@@ -1460,7 +1507,7 @@ def parse_args():
     
     # Default values
     default_algorithms = "KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5"
-    default_cert_types = "RSA_2048,EC_P256,EC_ED25519,DILITHIUM_LEVEL2,DILITHIUM_LEVEL3,,DILITHIUM_LEVEL5,FALCON_LEVEL1,FALCON_LEVEL5"
+    default_cert_types = "RSA_2048,EC_P256,EC_ED25519,DILITHIUM_LEVEL2,DILITHIUM_LEVEL3,DILITHIUM_LEVEL5,FALCON_LEVEL1,FALCON_LEVEL5"
     
     # Required arguments - now with defaults
     parser.add_argument('metric', help='Metric to be plotted (e.g., "duration", "Energy (Wh)")')
