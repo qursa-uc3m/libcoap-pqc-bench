@@ -63,7 +63,7 @@ show_help() {
     echo "  -energy               Enable energy measurements (requires RD-USB setup)"
     echo "  -cert-filter PATTERN  Only run certificate configs matching pattern (comma-separated)"
     echo "  -security MODES       Security modes to test (comma-separated: pki,psk,nosec)"
-    echo "  -resources RES        Resources to test (comma-separated: time,async or async?2)"
+    echo "  -resources RES        Resources to test (comma-separated: time,async or async?2,example_data)"
     echo "                        For async, you can specify delay with async?N where N is seconds"
     echo "  -async-delay SECONDS  Set delay for async resource (alternative to async?N syntax)"
     echo "  -iterations N         Run each test configuration N times (enables iteration mode)"
@@ -742,7 +742,7 @@ for ((iteration=1; iteration<=ITERATIONS; iteration++)); do
                     fi
                     
                     # Run appropriate tests based on resource type
-                    if [ "$resource" == "time" ]; then
+                    if [ "$resource" == "time" ] || [ "$resource" == "example_data" ]; then
                         # Run scenarioA 
                         run_benchmark "$sec_mode" "$resource" "con" "$cert_config" "$delay" "$iteration"
                         
@@ -771,7 +771,7 @@ for ((iteration=1; iteration<=ITERATIONS; iteration++)); do
                 fi
                 
                 # Run appropriate tests based on resource type
-                if [ "$resource" == "time" ]; then
+                if [ "$resource" == "time" ] || [ "$resource" == "example_data" ]; then
                     # Run scenarioA 
                     run_benchmark "$sec_mode" "$resource" "con" "" "$delay" "$iteration"
                     
@@ -817,7 +817,7 @@ if [ $ITERATIONS -gt 1 ]; then
     for ((i=1; i<=ITERATIONS; i++)); do
         log "INFO" "  - ${BENCH_DATA_DIR}-${SESSION_ID}-${i}"
     done
-    log "INFO" "Use metrics_merge.py --aggregate --session <SESSION_ID> to analyze results across iterations."
+    log "INFO" "Use bench-data-manger.py --aggregate --session <SESSION_ID> to aggregate results across iterations."
 fi
 
 log "SUCCESS" "All benchmarks completed successfully!"
