@@ -10,7 +10,7 @@ from adjustText import adjust_text
 
 # 1. CONFIGURATION
 ROOT_DIR = '.'  # where bench-data-fiducial/ etc. live
-NETWORKS = ['fiducial', 'smarthome', 'smartfactory']
+NETWORKS = ['fiducial', 'smarthome', 'smartfactory' , 'publictransport']
 
 # Default algorithm & certificate lists
 default_algorithms = "KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5"
@@ -328,7 +328,7 @@ def summarize(all_data, metrics=None):
             
             # Calculate percentage changes based on mode values
             for metric in metrics:
-                for net in ['smarthome', 'smartfactory']:
+                for net in ['smarthome', 'smartfactory', 'publictransport']:
                     fiducial_key = f"('{metric}', 'mode', 'fiducial')"
                     net_key = f"('{metric}', 'mode', '{net}')"
                     
@@ -388,7 +388,7 @@ def summarize(all_data, metrics=None):
         
         # Calculate percentage changes
         pct_changes = {}
-        for net in ['smarthome', 'smartfactory']:
+        for net in ['smarthome', 'smartfactory', 'publictransport']:
             if 'fiducial' in mean_pivot.columns and net in mean_pivot.columns:
                 pct_changes[net] = ((mean_pivot[net] - mean_pivot['fiducial']) / mean_pivot['fiducial']) * 100
         
@@ -428,7 +428,7 @@ def summarize(all_data, metrics=None):
                             record[f"('{metric}', 'std', '{net}')"] = std_val
                 
                 # Add percentage changes
-                for net in ['smarthome', 'smartfactory']:
+                for net in ['smarthome', 'smartfactory', 'publictransport']:
                     if idx in mean_pivot.index and net in pct_changes and idx in pct_changes[net].index:
                         pct_val = pct_changes[net].loc[idx]
                         if pd.notna(pct_val):
@@ -549,7 +549,7 @@ def plot_tradeoff(all_data, metric_x, metric_y, scenario, include_nosec=False, n
         ylabel = metric_y
     
     # Define base colors for networks (solid colors)
-    network_colors = {'fiducial': 'blue', 'smarthome': 'green', 'smartfactory': 'red'}
+    network_colors = {'fiducial': 'green', 'smarthome': 'blue', 'smartfactory': 'purple', 'publictransport': 'red'}
     
     # Define markers for algorithms
     alg_markers = {
@@ -592,7 +592,7 @@ def plot_tradeoff(all_data, metric_x, metric_y, scenario, include_nosec=False, n
         x_positions = []
         y_positions = []
         
-        for net in ['fiducial', 'smarthome', 'smartfactory']:  # Fixed order
+        for net in NETWORKS:  # Fixed order
             if net in x_data_plot.columns and net in y_data_plot.columns:
                 x = x_data_plot.loc[idx, net]
                 y = y_data_plot.loc[idx, net]

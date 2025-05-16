@@ -7,7 +7,7 @@ PLOT_TYPE="$2"
 SCENARIO="${3:-A}"  # Default to A if not provided
 
 # Networks to process
-NETWORKS=("fiducial" "smarthome" "smartfactory")
+NETWORKS=("fiducial" "smarthome" "smartfactory" "publictransport")
 # CONVERT STRING TO ARRAY
 IFS=',' read -ra METRICS <<< "$METRICS_STR"
 
