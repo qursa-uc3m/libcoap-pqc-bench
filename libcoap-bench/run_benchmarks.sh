@@ -742,13 +742,13 @@ for ((iteration=1; iteration<=ITERATIONS; iteration++)); do
                     fi
                     
                     # Run appropriate tests based on resource type
-                    if [ "$resource" == "time" ] || [ "$resource" == "example_data" ]; then
+                    if [ "$resource" == "time" ]; then
                         # Run scenarioA 
                         run_benchmark "$sec_mode" "$resource" "con" "$cert_config" "$delay" "$iteration"
                         
                         # Run scenarioC 
                         run_benchmark "$sec_mode" "$resource" "non" "$cert_config" "$delay" "$iteration"
-                    elif [ "$resource" == "async" ]; then
+                    elif [ "$resource" == "async" ] || [ "$resource" == "example_data" ]; then
                         # Run scenarioB 
                         run_benchmark "$sec_mode" "$resource" "" "$cert_config" "$delay" "$iteration"
                     else
@@ -771,13 +771,13 @@ for ((iteration=1; iteration<=ITERATIONS; iteration++)); do
                 fi
                 
                 # Run appropriate tests based on resource type
-                if [ "$resource" == "time" ] || [ "$resource" == "example_data" ]; then
+                if [ "$resource" == "time" ]; then
                     # Run scenarioA 
                     run_benchmark "$sec_mode" "$resource" "con" "" "$delay" "$iteration"
                     
                     # Run scenarioC 
                     run_benchmark "$sec_mode" "$resource" "non" "" "$delay" "$iteration"
-                elif [ "$resource" == "async" ]; then
+                elif [ "$resource" == "async" ] || [ "$resource" == "example_data" ]; then
                     # Run scenarioB 
                     run_benchmark "$sec_mode" "$resource" "" "" "$delay" "$iteration"
                 else

@@ -481,9 +481,9 @@ fi
 if [ "${MEASURE_ENERGY:-false}" == "true" ]; then
     # First create the energy_filename so we can use it for energy monitoring
     # Define energy_filename_add based on scenario
-    if [[ ( "$r_param" == "time" || "$r_param" == "example_data" ) &&  "$confirm_param" == "con" ]]; then
+    if [[ "$r_param" == "time" &&  "$confirm_param" == "con" ]]; then
         energy_filename_add="_scenarioA"
-    elif [[ ( "$r_param" == "time" || "$r_param" == "example_data" ) &&  "$confirm_param" == "non" ]]; then
+    elif [[ "$r_param" == "time" &&  "$confirm_param" == "non" ]]; then
         energy_filename_add="_scenarioC"
     else
         energy_filename_add="_scenarioB"
@@ -702,11 +702,9 @@ if [ "${MEASURE_ENERGY:-false}" == "true" ]; then
 fi
 
 # Define filename_add based on scenario
-if [[ ( "$r_param" == "time" || "$r_param" == "example_data" ) \
-      &&  "$confirm_param" == "con" ]]; then
+if [[ "$r_param" == "time" &&  "$confirm_param" == "con" ]]; then
     filename_add="_scenarioA"
-elif [[ ( "$r_param" == "time" || "$r_param" == "example_data" ) \
-        &&  "$confirm_param" == "non" ]]; then
+elif [[ "$r_param" == "time" &&  "$confirm_param" == "non" ]]; then
     filename_add="_scenarioC"
 else
     filename_add="_scenarioB"
