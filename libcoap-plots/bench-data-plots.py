@@ -18,6 +18,125 @@ security_mode_colors = {
     "nosec": color_palette[6]
 }
 
+def setup_matplotlib_style(use_latex=True):
+    """
+    Set up global matplotlib style settings for consistent, publication-quality plots.
+    
+    Args:
+        use_latex (bool): Whether to use LaTeX for text rendering. 
+                          Requires LaTeX to be installed on the system.
+    """
+    
+    # Enable LaTeX rendering if requested
+    if use_latex:
+        plt.rcParams.update({
+            "text.usetex": True,
+            "text.latex.preamble": r"\usepackage{amsmath} \usepackage{amssymb} \usepackage{siunitx}",
+            "font.family": "serif",
+            "font.serif": ["Computer Modern Roman"]
+        })
+    
+    # Set consistent font sizes
+    plt.rcParams.update({
+        "font.size": 14,           # Base font size
+        "axes.titlesize": 16,       # Title font size
+        "axes.labelsize": 14,       # Axis label font size
+        "xtick.labelsize": 12,      # x-tick label font size
+        "ytick.labelsize": 12,      # y-tick label font size
+        "legend.fontsize": 12,      # Legend font size
+        "figure.titlesize": 18      # Figure title font size
+    })
+    
+    # Improve figure aesthetics
+    plt.rcParams.update({
+        "figure.figsize": (10, 6),  # Default figure size
+        "figure.dpi": 200,          # Figure resolution
+        "savefig.dpi": 300,         # Saved figure resolution
+        "savefig.format": "pdf",    # Default save format
+        "savefig.bbox": "tight",    # Tight bounding box
+        "savefig.pad_inches": 0.1   # Padding
+    })
+    
+    # Improve axes, grid, and ticks
+    plt.rcParams.update({
+        "axes.grid": True,
+        "grid.alpha": 0.4,
+        "grid.linestyle": "--",
+        "axes.axisbelow": True,     # Grid below data points
+        "axes.linewidth": 0.8,      # Axis line width
+        "axes.labelpad": 4,         # Spacing between axis and label
+        "xtick.direction": "in",    # Ticks point inward
+        "ytick.direction": "in",
+        "xtick.major.size": 5,    # Major tick size
+        "ytick.major.size": 5,
+        "xtick.minor.size": 3.5,      # Minor tick size
+        "ytick.minor.size": 3.5,
+        "xtick.major.width": 0.8,   # Tick width
+        "ytick.major.width": 0.8
+    })
+    
+    # Legend settings
+    plt.rcParams.update({
+        "legend.framealpha": 0.8,   # Legend transparency
+        "legend.edgecolor": "gray", # Legend border
+        "legend.fancybox": True     # Rounded corners
+    })
+    
+    # Export settings
+    plt.rcParams.update({
+        "pdf.fonttype": 42,         # Ensures text is editable in PDF
+        "ps.fonttype": 42           # Ensures text is editable in PS
+    })
+    
+    # Color cycle for consistent colors
+    plt.rcParams["axes.prop_cycle"] = plt.cycler(
+        color=["#4C72B0", "#55A868", "#C44E52", "#8172B3", "#CCB974", "#64B5CD"]
+    )
+    
+    # Return the rcParams in case they're needed
+    return plt.rcParams
+
+def format_labels(metric):
+    """
+    Format metric names for LaTeX with proper units and mathematical notation.
+    Removes all underscore characters from display.
+    
+    Args:
+        metric (str): The metric name to format
+        
+    Returns:
+        str: Properly formatted LaTeX string with underscores removed
+    """
+    if not metric:
+        return ""
+        
+    # Format based on metric type
+    if "cpu_cycles" in metric.lower():
+        return r'CPU Cycles ($\times 10^9$)'
+    elif "energy" in metric.lower() and "wh" in metric.lower():
+        return r'Energy (Wh)'
+    elif "power" in metric.lower() and "max" in metric.lower():
+        return r'Maximum Power (W)'
+    elif "power" in metric.lower():
+        return r'Power (W)'
+    elif "frames_sent" in metric.lower():
+        return r'Frames Sent'
+    elif "frames_received" in metric.lower():
+        return r'Frames Received'
+    elif "total_frames" in metric.lower():
+        return r'Total Frames'
+    elif "bytes_sent" in metric.lower():
+        return r'Bytes Sent'
+    elif "bytes_received" in metric.lower():
+        return r'Bytes Received'
+    elif "total_bytes" in metric.lower():
+        return r'Total Bytes'
+    elif "duration" in metric.lower():
+        return r'Duration (s)'
+    else:
+        # Generic case - REMOVE underscores (not escape them)
+        return metric.replace("_", " ").title()
+
 def read_csv(file_path, metric_column, n):
     """
     Read CSV file and extract the metric and standard deviation values from specified columns.
@@ -480,8 +599,8 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
 
     # Set labels and title
     ax.set_xlabel('Algorithms')
-    ax.set_ylabel(metric)
-    title = f'{metric} by algorithm and security mode - n={n}, scenario={scenario}'
+    ax.set_ylabel(format_labels(metric))
+    title = f'{format_labels(metric)} by algorithm and security mode - n={n}, scenario={scenario}'
     if s is not None:
         title += f', s={s}'
     if p is not None:
@@ -750,10 +869,11 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
     ax.set_xticklabels(xtick_labels, rotation=45, ha='right', fontsize=10)
     
     # Set axis labels and title
-    ax.set_xlabel('Algorithm - Scenario - Mode')
-    ax.set_ylabel(metric)
+    ax.set_ylabel(format_labels(metric))
+    ax.set_xlabel(r'Algorithm - Scenario - Mode')
     
-    title = f'{metric} by algorithm, security mode, and scenario - n={n}'
+    # Format title with LaTeX escaped characters
+    title = f'{format_labels(metric)} by algorithm and security mode - n={n}, scenario={scenario}'
     if s is not None:
         title += f', s={s}'
     if p is not None:
@@ -906,10 +1026,11 @@ def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=
                     text = ax.text(j, i, f"{heat_data[i, j]:.4f}",
                                   ha="center", va="center", color="black" if heat_data[i, j] < (max_value - min_value) * 0.7 + min_value else "white")
     
-    # Set labels and title
-    ax.set_xlabel('Certificate Types')
-    ax.set_ylabel('Algorithms')
-    title = f'Heat Map of {metric} - n={n}, scenario={scenario}'
+    # LaTeX-formatted labels
+    ax.set_xlabel(r'Certificate Types')
+    ax.set_ylabel(r'Algorithms')
+    # Format title with LaTeX escaped characters
+    title = f'Heat Map of {format_labels(metric)} - n={n}, scenario={scenario}'
     if s is not None:
         title += f', s={s}'
     if p is not None:
@@ -1111,37 +1232,127 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
         print("No valid data found for box plots. Please check your parameters.")
         return
     
-    # Prepare box plot data
+    # Group data by algorithm for better organization
+    algorithm_groups = {}
+    nosec_data = None
+
+    # First, organize data by algorithm
+    for key, data in raw_data_dict.items():
+        if len(data['values']) > 0:
+            if data['algorithm'] == 'NoSec':
+                nosec_data = data
+            else:
+                if data['algorithm'] not in algorithm_groups:
+                    algorithm_groups[data['algorithm']] = []
+                algorithm_groups[data['algorithm']].append(data)
+
+    # Prepare box plot data with consistent spacing
     box_data = []
     box_colors = []
-    labels = []
+    positions = []
+    tick_positions = []
+    tick_labels = []
+    group_boundaries = []
     
-    # Sort by algorithm and certificate type for consistent ordering
-    for key in sorted(raw_data_dict.keys()):
-        data = raw_data_dict[key]
-        if len(data['values']) > 0:
-            box_data.append(data['values'])
-            box_colors.append(data['color'])
-            # Format the label
-            if data['cert_type'] == 'PSK':
-                labels.append(f"{data['algorithm']}\nPSK")
-            elif data['cert_type'] == 'NoSec':
-                labels.append("NoSec")
-            else:
-                labels.append(f"{data['algorithm']}\n{data['cert_type']}")
+    # Define spacing parameters - use consistent values
+    box_width = 1.0
+    box_gap = 0.5  # Gap between boxes in the same group
+    group_spacing = 1.0  # Space between algorithm groups
     
-    # Create box plot
-    bp = ax.boxplot(box_data, patch_artist=True, showfliers=True, medianprops={'color': 'black'})
+    current_pos = 0  # Start position
     
+    # Process each algorithm in the specified order
+    for alg_idx, algorithm in enumerate(algorithms_list):
+        if algorithm in algorithm_groups:
+            # Get configurations for this algorithm
+            alg_configs = algorithm_groups[algorithm]
+            
+            # Separate PKI and PSK configs
+            pki_configs = [cfg for cfg in alg_configs if cfg['cert_type'] not in ('PSK', 'NoSec')]
+            psk_configs = [cfg for cfg in alg_configs if cfg['cert_type'] == 'PSK']
+            
+            # Sort PKI configs by certificate type according to cert_types_list order
+            if pki_configs:
+                cert_order = {cert: idx for idx, cert in enumerate(cert_types_list)}
+                pki_configs.sort(key=lambda x: cert_order.get(x['cert_type'], 999))
+            
+            # Place PSK at the end of each algorithm group
+            alg_configs = pki_configs + psk_configs
+            
+            # Record group start position for label placement
+            group_start = current_pos + box_gap
+            
+            # Add data for each configuration in this algorithm group
+            for config in alg_configs:
+                box_data.append(config['values'])
+                box_colors.append(config['color'])
+                positions.append(current_pos)
+                current_pos += box_width + box_gap
+            
+            # Remove the extra gap after the last box in the group
+            #current_pos -= box_gap
+            
+            # Set the label position at the center of this group
+            tick_positions.append((group_start + current_pos) / 2)
+            tick_labels.append(algorithm.replace("_", " "))
+            
+            # Add group boundary if not the last algorithm
+            if alg_idx < len(algorithms_list) - 1:
+                # Add spacing after the group
+                current_pos += group_spacing/2
+                
+                # Place boundary line in the middle of the gap
+                boundary_pos = current_pos - (group_spacing)
+                group_boundaries.append(boundary_pos)
+    
+    # Add NoSec at the end if present
+    if nosec_data is not None:
+        # Add a wider spacing before NoSec
+        nosec_spacing = group_spacing * 1.2  # 20% wider for emphasis
+        
+        # Add the boundary before NoSec
+        boundary_pos = current_pos #+ (nosec_spacing/2)
+        group_boundaries.append(boundary_pos)
+        
+        # Position for NoSec bar
+        current_pos += nosec_spacing * 1.5
+        
+        # Add NoSec data
+        box_data.append(nosec_data['values'])
+        box_colors.append(nosec_data['color'])
+        positions.append(current_pos)
+        
+        # Add tick for NoSec
+        tick_positions.append(current_pos)
+        tick_labels.append("NoSec")
+        
+        # Move past NoSec for proper plot limits
+        current_pos += box_width
+    
+    # Create box plot with precisely calculated positions
+    bp = ax.boxplot(box_data, positions=positions, patch_artist=True, 
+                    showfliers=True, medianprops={'color': 'black'}, 
+                    widths=box_width*0.9)  # Make boxes slightly narrower
+
     # Set colors for each box
     for patch, color in zip(bp['boxes'], box_colors):
         patch.set_facecolor(color)
         patch.set_alpha(0.7)
+        
+    # Add vertical dashed lines between algorithm groups
+    for boundary in group_boundaries:
+        ax.axvline(x=boundary, color='gray', linestyle='--', alpha=0.7, linewidth=1.0, zorder=0)  # Put lines behind boxes
+
+    # Set custom tick positions and labels
+    ax.set_xticks(tick_positions)
+    ax.set_xticklabels(tick_labels, ha='center')
+
+    # Set appropriate x-axis limits with some padding
+    ax.set_xlim(-box_width, current_pos + box_width)
     
-    # Set labels and title
-    ax.set_xticklabels(labels, rotation=45, ha='right')
-    ax.set_ylabel(metric)
-    title = f'Variability of {metric} across configurations - n={n}, scenario={scenario}'
+    
+    ax.set_ylabel(format_labels(metric))
+    title = f'Variability of {format_labels(metric)} across configurations - n={n}, scenario={scenario}'
     if s is not None:
         title += f', s={s}'
     if p is not None:
@@ -1441,10 +1652,10 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
             ax.set_ylim(y_min - padding, y_max + padding)
     
     # Set labels and title
-    ax.set_ylabel(metric.replace('_', ' ').title())
-    ax.set_xlabel('Algorithm / Configuration')
+    ax.set_ylabel(format_labels(metric))
+    ax.set_xlabel(r'Algorithm / Configuration')
     ax.margins(x=0.02)
-    title = f'{metric.replace("_", " ").title()} - n={n}, scenario={scenario}'
+    title = f'{format_labels(metric)} - n={n}, scenario={scenario}'
     if s is not None:
         title += f', s={s}'
     if p is not None:
@@ -1556,6 +1767,9 @@ def parse_args():
 def main():
     """Main function to parse arguments and generate plots."""
     args, algorithms, cert_types, scenarios = parse_args()
+    
+    # Setup matplotlib style with LaTeX unless disabled
+    setup_matplotlib_style(use_latex=True)
     
     # Use only the first scenario for plots that don't support multiple scenarios
     scenario = scenarios[0]
