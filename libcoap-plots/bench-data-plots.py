@@ -387,7 +387,7 @@ def get_file_patterns(algorithm, cert_type, n, s, p, scenario, rasp=False):
     
     return patterns
 
-def setup_output_dirs(custom_suffix=None):
+def setup_output_dirs(data_dir, custom_suffix=None):
     """
     Setup input and output directories based on custom suffix.
     
@@ -398,13 +398,13 @@ def setup_output_dirs(custom_suffix=None):
         tuple: (data_dir, plots_dir) directory names.
     """
     if custom_suffix:
-        data_dir = f"bench-data-{custom_suffix}"
-        plots_dir = f"bench-plots-{custom_suffix}"
+        data_dir_ = f"{data_dir}/bench-data-{custom_suffix}"
+        plots_dir = f"{data_dir}/plots-{custom_suffix}"
     else:
-        data_dir = "bench-data"
-        plots_dir = "bench-plots"
+        data_dir_ = f"{data_dir}/bench-data"
+        plots_dir = f"{data_dir}/plots"
     
-    return data_dir, plots_dir
+    return data_dir_, plots_dir
 
 def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None):
     """
@@ -426,7 +426,7 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
     script_directory = os.path.dirname(os.path.realpath(__file__))
     
     # Get data and plots directories
-    data_dir_, plots_dir = setup_output_dirs(custom_suffix)
+    data_dir_, plots_dir = setup_output_dirs(data_dir,custom_suffix)
     data_dir_path = os.path.join(script_directory, data_dir_)
     
     print(f"Data directory: {data_dir_path}")
@@ -671,7 +671,7 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
     script_directory = os.path.dirname(os.path.realpath(__file__))
     
     # Get data and plots directories
-    data_dir_, plots_dir = setup_output_dirs(custom_suffix)
+    data_dir_, plots_dir = setup_output_dirs(data_dir,custom_suffix)
     data_dir_path = os.path.join(script_directory, data_dir_)
     
     print(f"Data directory: {data_dir_path}")
@@ -939,7 +939,7 @@ def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     script_directory = os.path.dirname(os.path.realpath(__file__))
     
     # Get data and plots directories
-    data_dir_, plots_dir = setup_output_dirs(custom_suffix)
+    data_dir_, plots_dir = setup_output_dirs(data_dir,custom_suffix)
     data_dir_path = os.path.join(script_directory, data_dir_)
     
     print(f"Data directory: {data_dir_path}")
@@ -1052,7 +1052,7 @@ def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     print(f"Plot saved to {output_file}")
     plt.show()
     
-def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None):
+def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None, log_scale=True):
     """
     Create box plots to visualize variability in metrics across configurations.
     
@@ -1072,7 +1072,7 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     script_directory = os.path.dirname(os.path.realpath(__file__))
     
     # Get data and plots directories
-    data_dir_, plots_dir = setup_output_dirs(custom_suffix)
+    data_dir_, plots_dir = setup_output_dirs(data_dir,custom_suffix)
     data_dir_path = os.path.join(script_directory, data_dir_)
     
     print(f"Data directory: {data_dir_path}")
@@ -1350,6 +1350,8 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     # Set appropriate x-axis limits with some padding
     ax.set_xlim(-box_width, current_pos + box_width)
     
+    if log_scale:
+        ax.set_yscale('log')
     
     ax.set_ylabel(format_labels(metric))
     title = f'Variability of {format_labels(metric)} across configurations - n={n}, scenario={scenario}'
@@ -1421,7 +1423,7 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
     script_directory = os.path.dirname(os.path.realpath(__file__))
     
     # Get data and plots directories
-    data_dir_, plots_dir = setup_output_dirs(custom_suffix)
+    data_dir_, plots_dir = setup_output_dirs(data_dir,custom_suffix)
     data_dir_path = os.path.join(script_directory, data_dir_)
     
     print(f"Data directory: {data_dir_path}")

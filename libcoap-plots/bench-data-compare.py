@@ -10,8 +10,10 @@ import re
 from adjustText import adjust_text 
 
 # 1. CONFIGURATION
-ROOT_DIR = '.'  # where bench-data-fiducial/ etc. live
-NETWORKS = ['fiducial', 'smarthome', 'smartfactory' , 'publictransport']
+ROOT_DIR = './bench-data-pll'  # where bench-data-fiducial/ etc. live
+OUT_DIR = ROOT_DIR+'/compare_plots'
+#NETWORKS = ['fiducial', 'smarthome', 'smartfactory' , 'publictransport']
+NETWORKS = ['fiducial', 'smarthome']
 
 # Default algorithm & certificate lists
 default_algorithms = "KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5"
@@ -156,7 +158,7 @@ def parse_filename(fpath):
     
     # Handle nosec case - no algorithm or cert
     if 'nosec' in base:
-        nosec_re = re.compile(r"^udp_rasp_conv_stats_n25_nosec_scenario(?P<scen>[AC])\.csv$")
+        nosec_re = re.compile(r"^udp_rasp_conv_stats_n25(_parallel)?_nosec_scenario(?P<scen>[AC])\.csv$")
         m = nosec_re.match(base)
         if m:
             return None, None, 'nosec', m.group('scen')
@@ -165,7 +167,7 @@ def parse_filename(fpath):
     psk_re = re.compile(
         r"^udp_rasp_conv_stats_"
         r"(?P<alg>[A-Z0-9_]+)"
-        r"_n25_psk_scenario(?P<scen>[AC])\.csv$"
+        r"_n25(_parallel)?_psk_scenario(?P<scen>[AC])\.csv$"
     )
     m = psk_re.match(base)
     if m:
@@ -176,7 +178,7 @@ def parse_filename(fpath):
         r"^udp_rasp_conv_stats_"
         r"(?P<alg>[A-Z0-9_]+)"
         r"_(?P<cert>RSA_2048|EC_P256|EC_ED25519|DILITHIUM_LEVEL[235]|FALCON_LEVEL[15])"
-        r"_n25_pki_scenario(?P<scen>[AC])\.csv$"
+        r"_n25(_parallel)?_pki_scenario(?P<scen>[AC])\.csv$"
     )
     m = pki_re.match(base)
     if m:
@@ -593,7 +595,7 @@ def summarize(all_data, metrics=None):
 
 # 5. VISUALIZATION FUNCTIONS
 
-def plot_tradeoff(all_data, metric_x, metric_y, scenario, include_nosec=False, normalize=False, log_scale=False):
+def plot_tradeoff(all_data, metric_x, metric_y, scenario, include_nosec=False, normalize=False, log_scale=False, output_dir='./bench-plots-compare'):
     """
     Plot mean metric_y vs metric_x per configuration, colored by network for a given scenario
     """
@@ -671,6 +673,7 @@ def plot_tradeoff(all_data, metric_x, metric_y, scenario, include_nosec=False, n
     
     # Define base colors for networks (solid colors)
     network_colors = {'fiducial': 'green', 'smarthome': 'blue', 'smartfactory': 'purple', 'publictransport': 'red'}
+    # network_colors = {'fiducial': 'green', 'smarthome': 'blue'}
     
     # Define markers for algorithms
     alg_markers = {
@@ -815,7 +818,9 @@ def plot_tradeoff(all_data, metric_x, metric_y, scenario, include_nosec=False, n
     suffix = ''
     if normalize:
         suffix += '_normalized'
-    plt.savefig(f'tradeoff_{metric_x}_{metric_y}_{scenario}{suffix}.pdf', bbox_inches='tight')
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    plt.savefig(f'{output_dir}/tradeoff_{metric_x}_{metric_y}_{scenario}{suffix}.pdf', bbox_inches='tight')
     plt.close()
     
 def create_waterfall_plot(all_data, metric, scenario, plot_type='network', baseline_alg='KYBER_LEVEL1', 
@@ -896,6 +901,7 @@ def create_network_waterfall(all_data, ax, metric, scenario, security_mode='pki'
                          cert_type=None, algorithm=None):
     """
     Helper function to create normalized network impact waterfall plot
+    Modified to show changes more effectively
     
     Parameters match the parent function, with ax for plotting.
     """
@@ -942,97 +948,46 @@ def create_network_waterfall(all_data, ax, metric, scenario, security_mode='pki'
     # Calculate percentage changes
     df['pct_change'] = (df['normalized'] - 1) * 100
     
-    # Calculate incremental changes between networks
-    values = []
-    labels = []
-    colors = []
-    pct_labels = []
+    # Filter out the baseline network - we'll only show changes
+    df_changes = df[df['network'] != 'fiducial']
     
-    # Add baseline (always 100%)
-    values.append(1.0)  # Normalized baseline is always 1.0
-    labels.append('Fiducial\n(Baseline)')
-    colors.append('#4CAF50')  # Green for baseline
-    pct_labels.append('100%')
+    # Set up bars and labels directly
+    positions = np.arange(len(df_changes))
+    labels = [network.capitalize() for network in df_changes['network']]
+    values = df_changes['normalized'].values - 1.0  # Changes relative to baseline (which is 0)
+    pct_changes = df_changes['pct_change'].values
     
-    # Track the running total for incremental changes
-    running_total = 1.0
-    prev_network = 'fiducial'
+    # Define colors based on whether the change is an improvement or degradation
+    colors = ['#4CAF50' if v < 0 else '#F44336' for v in values]  # Green for improvement, red for degradation
     
-    # Process each network after fiducial
-    for _, row in df[df['network'] != 'fiducial'].iterrows():
-        # Calculate the incremental change from previous network
-        incremental_change = row['normalized'] - running_total
-        
-        # Add data for this network
-        values.append(incremental_change)
-        labels.append(row['network'].capitalize())
-        
-        # Determine color based on change direction
-        if incremental_change < 0:
-            colors.append('#4CAF50')  # Green for improvement
-        else:
-            colors.append('#F44336')  # Red for degradation
-        
-        # Format percentage change label
-        network_to_fiducial_pct = f"{row['pct_change']:.1f}%"
-        incremental_pct = f"{(incremental_change / running_total * 100):.1f}%"
-        pct_labels.append(f"{incremental_pct}\n(Total: {network_to_fiducial_pct})")
-        
-        # Update running total
-        running_total += incremental_change
-        prev_network = row['network']
-    
-    # Add the final total bar
-    values.append(running_total)
-    labels.append('Total')
-    colors.append('#2196F3')  # Blue for total
-    pct_labels.append(f"{((running_total - 1) * 100):.1f}%")
-    
-    # Create the waterfall chart
-    # First bar (baseline)
-    ax.bar(0, values[0], color=colors[0], edgecolor='black')
-    
-    # Calculate positions for all bars except baseline and total
-    bottoms = np.zeros(len(values) - 2)
-    running_sum = values[0]
-    
-    for i in range(len(bottoms)):
-        bottoms[i] = running_sum
-        running_sum += values[i + 1]
-    
-    # Intermediate bars (incremental changes)
-    for i in range(len(bottoms)):
-        ax.bar(i + 1, values[i + 1], bottom=bottoms[i], color=colors[i + 1], edgecolor='black')
-    
-    # Final bar (total)
-    ax.bar(len(values) - 1, values[-1], color=colors[-1], edgecolor='black')
-    
-    # Add connecting lines
-    for i in range(len(values) - 2):
-        start_x = i
-        end_x = i + 1
-        start_y = bottoms[i] if i > 0 else values[0]
-        end_y = bottoms[i]
-        
-        ax.plot([start_x, end_x], [start_y, end_y], 'k--', alpha=0.5)
+    # Plot the bars directly - representing the absolute change from baseline
+    bars = ax.bar(positions, values, color=colors, edgecolor='black', width=0.6)
     
     # Add percentage labels
-    for i, (v, pct) in enumerate(zip(values, pct_labels)):
-        if i == 0:  # Baseline
-            ax.text(i, v + 0.05, pct, ha='center', va='bottom', fontweight='bold')
-        elif i == len(values) - 1:  # Total
-            ax.text(i, v + 0.05, pct, ha='center', va='bottom', fontweight='bold')
-        else:  # Incremental bars
-            # Position based on whether change is positive or negative
-            if v < 0:
-                ax.text(i, bottoms[i-1] + v - 0.05, pct, ha='center', va='top', fontweight='bold')
-            else:
-                ax.text(i, bottoms[i-1] + v + 0.05, pct, ha='center', va='bottom', fontweight='bold')
+    for i, (v, pct) in enumerate(zip(values, pct_changes)):
+        # Position label based on bar direction
+        if v > 0:
+            y_pos = min(v + 0.5, v * 0.5)  # Cap the position for very large values
+            va_pos = 'bottom'
+        else:
+            y_pos = max(v - 0.5, v * 0.5)  # Cap the position for very large negative values
+            va_pos = 'top'
+            
+        # Format label with appropriate precision
+        if abs(pct) >= 1000:
+            label_text = f"{pct:.0f}\\%"  # No decimals for large percentages
+        elif abs(pct) >= 100:
+            label_text = f"{pct:.1f}\\%"  # One decimal for medium percentages
+        else:
+            label_text = f"{pct:.1f}\\%"  # One decimal for small percentages
+            
+        # Add the label
+        ax.text(i, y_pos, label_text, ha='center', va=va_pos, fontweight='bold')
     
     # Set axis labels and title
-    ax.set_xticks(range(len(values)))
-    ax.set_xticklabels(labels, rotation=45, ha='right')
-    ax.set_ylabel(f"Normalized {format_labels(metric)} (Fiducial = 1.0)")
+    ax.set_xticks(positions)
+    ax.set_xticklabels(labels, rotation=0, ha='center')
+    ax.set_ylabel(f"Change from Fiducial (normalized)")
     
     # Construct title based on configuration
     if security_mode == 'pki':
@@ -1044,21 +999,41 @@ def create_network_waterfall(all_data, ax, metric, scenario, security_mode='pki'
     
     ax.set_title(title)
     
-    # Set y-axis limits with padding
-    max_value = max(running_total, 1.0)
-    y_padding = max_value * 0.2
-    ax.set_ylim(0, max_value + y_padding)
+    # Add baseline reference as a horizontal dashed line
+    ax.axhline(y=0, color='gray', linestyle='--', alpha=0.7)
+    
+    # Annotate the baseline
+    #ax.text(-0.5, 0, "Fiducial\n(Baseline)", ha='center', va='center', fontweight='bold')
+    
+    # Set y-axis limits with appropriate padding
+    max_abs_change = max(abs(min(values)), abs(max(values)))
+    y_padding = max_abs_change * 0.2
+    
+    # Use a symmetric scale if changes are not too extreme
+    if max_abs_change < 10:
+        ax.set_ylim(-max_abs_change - y_padding, max_abs_change + y_padding)
+    else:
+        # For large changes, use asymmetric scale but ensure zero is visible
+        y_min = min(values) - y_padding
+        y_max = max(values) + y_padding
+        # Ensure zero is in the range with some margin
+        if y_min > -0.5:
+            y_min = -0.5
+        if y_max < 0.5:
+            y_max = 0.5
+        ax.set_ylim(y_min, y_max)
     
     # Add grid for readability
     ax.grid(True, axis='y', linestyle='--', alpha=0.7)
     
-    # Add a horizontal line at y=1.0 (baseline reference)
-    ax.axhline(y=1.0, color='gray', linestyle='--', alpha=0.7)
+    # Ensure figure has enough vertical space
+    plt.subplots_adjust(bottom=0.15, top=0.85)
 
 def create_algorithm_waterfall(all_data, ax, metric, scenario, security_mode='pki',
                            cert_type=None, network='fiducial'):
     """
     Helper function to create normalized algorithm scaling waterfall plot
+    Modified to show small changes more effectively
     
     Parameters match the parent function, with ax for plotting.
     """
@@ -1104,97 +1079,31 @@ def create_algorithm_waterfall(all_data, ax, metric, scenario, security_mode='pk
     # Calculate percentage changes
     df['pct_change'] = (df['normalized'] - 1) * 100
     
-    # Calculate incremental changes between algorithm levels
-    values = []
-    labels = []
-    colors = []
-    pct_labels = []
+    # Filter out the baseline algorithm - we'll only show changes
+    df_changes = df[df['algorithm'] != base_alg]
     
-    # Add baseline (always 100%)
-    values.append(1.0)  # Normalized baseline is always 1.0
-    labels.append(f'{base_alg}\n(Baseline)')
-    colors.append('#4CAF50')  # Green for baseline
-    pct_labels.append('100%')
+    # Set up bars and labels directly
+    positions = np.arange(len(df_changes))
+    labels = [format_labels(lab) for lab in df_changes['algorithm']]
+    values = df_changes['normalized'].values - 1.0  # Changes relative to baseline (which is 0)
+    pct_changes = df_changes['pct_change'].values
     
-    # Track the running total for incremental changes
-    running_total = 1.0
-    prev_alg = base_alg
+    # Define colors based on whether the change is an improvement or degradation
+    colors = ['#4CAF50' if v < 0 else '#F44336' for v in values]  # Green for improvement, red for degradation
     
-    # Process each algorithm level after baseline
-    for _, row in df[df['algorithm'] != base_alg].iterrows():
-        # Calculate the incremental change from previous algorithm
-        incremental_change = row['normalized'] - running_total
-        
-        # Add data for this algorithm
-        values.append(incremental_change)
-        labels.append(row['algorithm'])
-        
-        # Determine color based on change direction
-        if incremental_change < 0:
-            colors.append('#4CAF50')  # Green for improvement
-        else:
-            colors.append('#F44336')  # Red for degradation
-        
-        # Format percentage change label
-        alg_to_baseline_pct = f"{row['pct_change']:.1f}%"
-        incremental_pct = f"{(incremental_change / running_total * 100):.1f}%"
-        pct_labels.append(f"{incremental_pct}\n(Total: {alg_to_baseline_pct})")
-        
-        # Update running total
-        running_total += incremental_change
-        prev_alg = row['algorithm']
+    # Plot the bars directly - representing the absolute change from baseline
+    bars = ax.bar(positions, values, color=colors, edgecolor='black', width=0.6)
     
-    # Add the final total bar
-    values.append(running_total)
-    labels.append('Total')
-    colors.append('#2196F3')  # Blue for total
-    pct_labels.append(f"{((running_total - 1) * 100):.1f}%")
-    
-    # Create the waterfall chart
-    # First bar (baseline)
-    ax.bar(0, values[0], color=colors[0], edgecolor='black')
-    
-    # Calculate positions for all bars except baseline and total
-    bottoms = np.zeros(len(values) - 2)
-    running_sum = values[0]
-    
-    for i in range(len(bottoms)):
-        bottoms[i] = running_sum
-        running_sum += values[i + 1]
-    
-    # Intermediate bars (incremental changes)
-    for i in range(len(bottoms)):
-        ax.bar(i + 1, values[i + 1], bottom=bottoms[i], color=colors[i + 1], edgecolor='black')
-    
-    # Final bar (total)
-    ax.bar(len(values) - 1, values[-1], color=colors[-1], edgecolor='black')
-    
-    # Add connecting lines
-    for i in range(len(values) - 2):
-        start_x = i
-        end_x = i + 1
-        start_y = bottoms[i] if i > 0 else values[0]
-        end_y = bottoms[i]
-        
-        ax.plot([start_x, end_x], [start_y, end_y], 'k--', alpha=0.5)
-    
-    # Add percentage labels
-    for i, (v, pct) in enumerate(zip(values, pct_labels)):
-        if i == 0:  # Baseline
-            ax.text(i, v + 0.05, pct, ha='center', va='bottom', fontweight='bold')
-        elif i == len(values) - 1:  # Total
-            ax.text(i, v + 0.05, pct, ha='center', va='bottom', fontweight='bold')
-        else:  # Incremental bars
-            # Position based on whether change is positive or negative
-            if v < 0:
-                ax.text(i, bottoms[i-1] + v - 0.05, pct, ha='center', va='top', fontweight='bold')
-            else:
-                ax.text(i, bottoms[i-1] + v + 0.05, pct, ha='center', va='bottom', fontweight='bold')
+    # Add percentage labels on top of bars
+    for i, (v, pct) in enumerate(zip(values, pct_changes)):
+        va_pos = 'bottom' if v > 0 else 'top'
+        y_offset = 0.0001 if v > 0 else -0.0001  # Small offset to position text
+        ax.text(i, v + y_offset, f"{pct:.1f}\\%", ha='center', va=va_pos, fontweight='bold')
     
     # Set axis labels and title
-    ax.set_xticks(range(len(values)))
-    ax.set_xticklabels(labels, rotation=45, ha='right')
-    ax.set_ylabel(f"Normalized {format_labels(metric)} (KYBER_LEVEL1 = 1.0)")
+    ax.set_xticks(positions)
+    ax.set_xticklabels(labels, rotation=0, ha='center')
+    ax.set_ylabel(f"Change from {format_labels(base_alg)} (normalized)")
     
     # Construct title based on configuration
     if security_mode == 'pki':
@@ -1204,16 +1113,28 @@ def create_algorithm_waterfall(all_data, ax, metric, scenario, security_mode='pk
     
     ax.set_title(title)
     
-    # Set y-axis limits with padding
-    max_value = max(running_total, 1.0)
-    y_padding = max_value * 0.2
-    ax.set_ylim(0, max_value + y_padding)
+    # Add baseline reference as a horizontal dashed line
+    ax.axhline(y=0, color='gray', linestyle='--', alpha=0.7)
     
-    # Add grid for readability
+    # Annotate the baseline
+    #ax.text(-0.5, 0, f"{base_alg}\n(Baseline)", ha='center', va='center', fontweight='bold')
+    
+    # Calculate y-axis limits - force a minimum scale to ensure small changes are visible
+    max_abs_change = max(abs(min(values)), abs(max(values)))
+    min_scale = 0.006  # Minimum scale for y-axis (+/- 0.6%)
+    scale = max(max_abs_change, min_scale)
+    
+    # Add some padding to the scale
+    y_padding = scale * 0.2
+    ax.set_ylim(-scale - y_padding, scale + y_padding)
+    
+    # Add minor grid lines for better readability of small values
     ax.grid(True, axis='y', linestyle='--', alpha=0.7)
+    ax.grid(True, axis='y', which='minor', linestyle=':', alpha=0.4)
+    ax.minorticks_on()
     
-    # Add a horizontal line at y=1.0 (baseline reference)
-    ax.axhline(y=1.0, color='gray', linestyle='--', alpha=0.7)
+    # Ensure figure has enough vertical space
+    plt.subplots_adjust(bottom=0.15, top=0.85)
     
 def create_network_comparison_plot(all_data, metric, scenario, security_mode='pki', output_dir='./bench-plots-compare'):
     """
@@ -1399,9 +1320,9 @@ def create_network_comparison_plot(all_data, metric, scenario, security_mode='pk
                 pct_change = rel_change * 100
                 if abs(pct_change) > 5:  # Only label if significant
                     if pct_change > 0:
-                        label_text = f"+{pct_change:.1f}%"
+                        label_text = f"+{pct_change:.1f}\\%"
                     else:
-                        label_text = f"{pct_change:.1f}%"
+                        label_text = f"{pct_change:.1f}\\%"
                     
                     ax.text(bar_pos, pct_change + (5 if pct_change > 0 else -5),
                            label_text, ha='center', va='center', fontsize=7,
@@ -1445,7 +1366,7 @@ def create_network_comparison_plot(all_data, metric, scenario, security_mode='pk
     ax.legend(handles, labels, loc='upper left', bbox_to_anchor=(1.01, 1), ncol=1)
     
     # Set axis labels and title
-    ax.set_ylabel(f"Change from Fiducial Baseline (%)")
+    ax.set_ylabel(f"Change from Fiducial Baseline (\\%)")
     
     if security_mode == 'pki':
         title = f"Network Impact on {metric}\nAll PKI Configurations (Scenario {scenario})"
@@ -1526,14 +1447,14 @@ if __name__ == '__main__':
     
     # Trade-off plots
     for scen in SCENARIOS:
-        plot_tradeoff(all_data, 'cpu_cycles', 'Energy (Wh)', scen, normalize=True)
-        plot_tradeoff(all_data, 'total_bytes', 'Energy (Wh)', scen, normalize=True)
+        plot_tradeoff(all_data, 'cpu_cycles', 'Energy (Wh)', scen, normalize=True, output_dir=OUT_DIR)
+        plot_tradeoff(all_data, 'total_bytes', 'Energy (Wh)', scen, normalize=True, output_dir=OUT_DIR)
         
-        create_waterfall_plot(all_data, 'Energy (Wh)', scen, plot_type='network')
-        create_waterfall_plot(all_data, 'Energy (Wh)', scen, plot_type='algorithm')
+        create_waterfall_plot(all_data, 'Energy (Wh)', scen, plot_type='network', output_dir=OUT_DIR)
+        create_waterfall_plot(all_data, 'Energy (Wh)', scen, plot_type='algorithm', output_dir=OUT_DIR)
 
         # Generate network comparison plots for different security modes
-        create_network_comparison_plot(all_data, 'Energy (Wh)', scen, 'pki')
-        create_network_comparison_plot(all_data, 'Energy (Wh)', scen, 'psk')
+        create_network_comparison_plot(all_data, 'Energy (Wh)', scen, 'pki', output_dir=OUT_DIR)
+        create_network_comparison_plot(all_data, 'Energy (Wh)', scen, 'psk', output_dir=OUT_DIR)
     
     print("All plots generated successfully!")

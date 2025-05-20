@@ -5,9 +5,11 @@
 METRICS_STR="$1"
 PLOT_TYPE="$2"
 SCENARIO="${3:-A}"  # Default to A if not provided
+DIR="bench-data-pll"
 
 # Networks to process
-NETWORKS=("fiducial" "smarthome" "smartfactory" "publictransport")
+#NETWORKS=("fiducial" "smarthome" "smartfactory" "publictransport")
+NETWORKS=("fiducial" "smarthome")
 # CONVERT STRING TO ARRAY
 IFS=',' read -ra METRICS <<< "$METRICS_STR"
 
@@ -20,8 +22,9 @@ for NETWORK in "${NETWORKS[@]}"; do
         MPLBACKEND=Agg python bench-data-plots.py "$METRIC" $N \
             --$PLOT_TYPE \
             --scenarios "$SCENARIO" \
+            --p "parallel" \
             --rasp \
             --custom-suffix "$NETWORK" \
-            --data-dir .
+            --data-dir "$DIR"
     done
 done
