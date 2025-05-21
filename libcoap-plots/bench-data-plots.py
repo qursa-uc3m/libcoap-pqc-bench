@@ -96,13 +96,89 @@ def setup_matplotlib_style(use_latex=True):
     # Return the rcParams in case they're needed
     return plt.rcParams
 
-def format_labels(metric):
+def parse_metric_with_unit(metric_str):
+    """
+    Parse a metric string to extract the base metric and any unit conversion.
+    
+    Examples:
+    - "duration" -> ("duration", None)
+    - "duration ms" -> ("duration", "ms")
+    - "Energy (Wh)" -> ("Energy (Wh)", None)
+    - "Energy (mWh)" -> ("Energy (Wh)", "mWh")
+    
+    Args:
+        metric_str (str): The metric string from command line
+        
+    Returns:
+        tuple: (base_metric, target_unit)
+    """
+    # Check for duration with milliseconds
+    if metric_str.lower() == "duration ms":
+        return "duration", "ms"
+    
+    # Check for energy with milliwatt-hours
+    if metric_str.lower() == "energy (mwh)":
+        return "Energy (Wh)", "mWh"
+    
+    # No conversion needed
+    return metric_str, None
+
+def convert_value_based_on_unit(value, metric, target_unit):
+    """
+    Convert a value based on the target unit if needed.
+    
+    Args:
+        value: The value to convert
+        metric (str): The base metric name
+        target_unit (str or None): The target unit, if conversion is needed
+        
+    Returns:
+        The converted value or original value if no conversion needed
+    """
+    if value is None:
+        return None
+        
+    # Convert duration from seconds to milliseconds
+    if metric == "duration" and target_unit == "ms":
+        return value * 1000.0
+        
+    # Convert energy from Wh to mWh
+    if metric == "Energy (Wh)" and target_unit == "mWh":
+        return value * 1000.0
+        
+    # No conversion needed
+    return value
+
+def get_display_metric_label(metric, target_unit):
+    """
+    Get the display label for a metric based on the target unit.
+    
+    Args:
+        metric (str): The base metric name
+        target_unit (str or None): The target unit, if conversion is needed
+        
+    Returns:
+        str: The formatted metric label for display
+    """
+    if metric == "duration":
+        if target_unit == "ms":
+            return "duration ms"
+        return metric
+        
+    if metric == "Energy (Wh)":
+        if target_unit == "mWh":
+            return "Energy (mWh)"
+        return metric
+        
+    return metric
+
+def format_labels(metric, target_unit=None):
     """
     Format metric names for LaTeX with proper units and mathematical notation.
-    Removes all underscore characters from display.
     
     Args:
         metric (str): The metric name to format
+        target_unit (str or None): The target unit, if conversion is needed
         
     Returns:
         str: Properly formatted LaTeX string with underscores removed
@@ -113,8 +189,8 @@ def format_labels(metric):
     # Format based on metric type
     if "cpu_cycles" in metric.lower():
         return r'CPU Cycles ($\times 10^9$)'
-    elif "energy" in metric.lower() and "wh" in metric.lower():
-        return r'Energy (Wh)'
+    elif metric.lower() == "energy (wh)":
+        return r'Energy (mWh)' if target_unit == "mWh" else r'Energy (Wh)'
     elif "power" in metric.lower() and "max" in metric.lower():
         return r'Maximum Power (W)'
     elif "power" in metric.lower():
@@ -131,19 +207,22 @@ def format_labels(metric):
         return r'Bytes Received'
     elif "total_bytes" in metric.lower():
         return r'Total Bytes'
-    elif "duration" in metric.lower():
-        return r'Duration (s)'
+    elif metric.lower() == "duration":
+        return r'Duration (ms)' if target_unit == "ms" else r'Duration (s)'
     else:
         # Generic case - REMOVE underscores (not escape them)
         return metric.replace("_", " ").title()
 
-def read_csv(file_path, metric_column, n):
+def read_csv(file_path, metric_column, n, target_unit=None):
     """
-    Read CSV file and extract the metric and standard deviation values from specified columns.
+    Read CSV file and extract the metric and standard deviation values from specified columns,
+    applying unit conversion if needed.
     
     Args:
         file_path (str): Path to the CSV file.
         metric_column (str): Column name for the metric value.
+        n (int): Number of samples
+        target_unit (str or None): Target unit for conversion, if any
 
     Returns:
         tuple: Metric value and standard deviation value, or None, None if an error occurs.
@@ -168,12 +247,16 @@ def read_csv(file_path, metric_column, n):
         mode_idx = sep_idx + 3 
         
         discrete_metrics = ['frames_sent', 'bytes_sent', 'frames_received', 
-                              'bytes_received', 'total_frames', 'total_bytes']
+                          'bytes_received', 'total_frames', 'total_bytes']
         
         if metric_column in df.columns:
             # Extract mean and std
             metric_value = pd.to_numeric(df.iloc[mean_idx][metric_column])
             std_dev_value = pd.to_numeric(df.iloc[std_idx][metric_column])
+            
+            # Apply unit conversion if needed
+            metric_value = convert_value_based_on_unit(metric_value, metric_column, target_unit)
+            std_dev_value = convert_value_based_on_unit(std_dev_value, metric_column, target_unit)
             
             # Extract mode
             mode_value = df.iloc[mode_idx][metric_column]
@@ -181,6 +264,9 @@ def read_csv(file_path, metric_column, n):
             # Discrete metrics: mode is the primary value
             if not pd.isna(mode_value) and metric_column in discrete_metrics:
                 metric_value = pd.to_numeric(mode_value, errors='coerce')
+                
+                # Apply unit conversion if needed (for discrete metrics as well)
+                metric_value = convert_value_based_on_unit(metric_value, metric_column, target_unit)
                 
                 # Estimate std from below/above mode counts
                 below_count = pd.to_numeric(df.iloc[mode_idx + 1][metric_column], errors='coerce')
@@ -192,24 +278,26 @@ def read_csv(file_path, metric_column, n):
                 if total_count > 0:
                     # Spread relative to the mode, scaled by the mode value
                     mode_freq = n - (below_count + above_count)
-                    std_dev_value = (1 - mode_freq / n) * metric_value 
-                
-
-        return metric_value, std_dev_value
+                    std_dev_value = (1 - mode_freq / n) * metric_value
+            
+            return metric_value, std_dev_value
+        
+        return None, None
     
     except (FileNotFoundError, KeyError, IndexError, ValueError) as e:
         print(f"Error reading {file_path}: {e}")
         return None, None
     
-def read_csv_discrete(file_path, metric_column, n):
+def read_csv_discrete(file_path, metric_column, n, target_unit=None):
     """
-    Read discrete metric data from CSV files with the new format.
-    Specifically designed to read min/max values after the equals separator.
+    Read discrete metric data from CSV files with the new format,
+    applying unit conversion if needed.
     
     Args:
         file_path (str): Path to the CSV file.
         metric_column (str): Column name for the metric value.
         n (int): Number of samples.
+        target_unit (str or None): Target unit for conversion, if any
 
     Returns:
         dict: Dictionary with 'mean', 'std', 'mode', 'min', 'max' values
@@ -290,6 +378,11 @@ def read_csv_discrete(file_path, metric_column, n):
                 max_val = df.iloc[max_idx][metric_column]
                 if not pd.isna(max_val) and str(max_val) != '--':
                     result['max'] = pd.to_numeric(max_val, errors='coerce')
+            
+            # Apply unit conversion if needed
+            for key in result:
+                if result[key] is not None:
+                    result[key] = convert_value_based_on_unit(result[key], metric_column, target_unit)
             
             # If mode not available, use mean
             if result['mode'] is None and result['mean'] is not None:
@@ -406,7 +499,7 @@ def setup_output_dirs(data_dir, custom_suffix=None):
     
     return data_dir_, plots_dir
 
-def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None):
+def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None, target_unit=None):
     """
     Create scatter plots for the specified metric and algorithms under different security modes.
     
@@ -421,6 +514,7 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
         p (str or None): Optional 'p' parameter (parallelization mode).
         data_dir (str): Directory containing the data files.
         custom_suffix (str): Optional suffix for data and plot directories.
+        target_unit (str or None): Target unit for conversion if needed.
     """
     # Get the absolute path of the script's directory
     script_directory = os.path.dirname(os.path.realpath(__file__))
@@ -481,14 +575,12 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
         
         if psk_files:
             psk_file_path = psk_files[0]
-            metric_value_psk, std_dev_psk = read_csv(psk_file_path, metric, n)
+            # Pass target_unit to read_csv for potential conversion
+            metric_value_psk, std_dev_psk = read_csv(psk_file_path, metric, n, target_unit)
             if metric_value_psk is not None:
                 data['psk']['values'].append(metric_value_psk)
                 data['psk']['std_devs'].append(std_dev_psk)
                 data['psk']['algorithms'].append(algorithm)
-           #     print(f"Found PSK file for {algorithm}: {psk_file_path}")
-           # else:
-           #     print(f"Warning: Could not read PSK data from {psk_file_path}")
         else:
             print(f"Warning: Could not find PSK file for algorithm {algorithm}")
 
@@ -509,14 +601,12 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
             
             if pki_files:
                 pki_file_path = pki_files[0]
-                metric_value_pki, std_dev_pki = read_csv(pki_file_path, metric, n)
+                # Pass target_unit to read_csv for potential conversion
+                metric_value_pki, std_dev_pki = read_csv(pki_file_path, metric, n, target_unit)
                 if metric_value_pki is not None:
                     data[cert_type]['values'].append(metric_value_pki)
                     data[cert_type]['std_devs'].append(std_dev_pki)
                     data[cert_type]['algorithms'].append(algorithm)
-                #    print(f"Found PKI file for {algorithm} with {cert_type}: {pki_file_path}")
-                #else:
-                #    print(f"Warning: Could not read PKI data from {pki_file_path}")
             else:
                 print(f"Warning: Could not find PKI file for algorithm {algorithm} with {cert_type}")
     
@@ -532,13 +622,11 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
     
     if nosec_files:
         nosec_file_path = nosec_files[0]
-        metric_value_horizontal, std_dev_horizontal = read_csv(nosec_file_path, metric, n)
+        # Pass target_unit to read_csv for potential conversion
+        metric_value_horizontal, std_dev_horizontal = read_csv(nosec_file_path, metric, n, target_unit)
         if metric_value_horizontal is not None:
             data['nosec']['value'] = metric_value_horizontal
             data['nosec']['std_dev'] = std_dev_horizontal
-        #    print(f"Using nosec file: {nosec_file_path}")
-        #else:
-        #    print(f"Warning: Could not read nosec data from {nosec_file_path}")
     else:
         print(f"Warning: Could not find nosec file matching pattern {nosec_pattern}")
 
@@ -599,8 +687,9 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
 
     # Set labels and title
     ax.set_xlabel('Algorithms')
-    ax.set_ylabel(format_labels(metric))
-    title = f'{format_labels(metric)} by algorithm and security mode - n={n}, scenario={scenario}'
+    # Pass target_unit to format_labels to display correct units
+    ax.set_ylabel(format_labels(metric, target_unit))
+    title = f'{format_labels(metric, target_unit)} by algorithm and security mode - n={n}, scenario={scenario}'
     if s is not None:
         title += f', s={s}'
     if p is not None:
@@ -641,7 +730,9 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
     ax.legend()
 
     # Save the plot
-    clean_metric = metric.replace(' ', '_').replace('(', '').replace(')', '')
+    # Use the display metric name for the output filename
+    display_metric = get_display_metric_label(metric, target_unit)
+    clean_metric = display_metric.replace(' ', '_').replace('(', '').replace(')', '')
     
     # Create the directory if it doesn't exist
     os.makedirs(f'./{plots_dir}', exist_ok=True)
@@ -652,7 +743,7 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
     print(f"Plot saved to {output_file}")
     plt.show()
 
-def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None):
+def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None, target_unit=None):
     """
     Create bar plot for the specified metric and algorithms under different security modes and scenarios.
 
@@ -667,6 +758,7 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
         p (str or None): Optional 'p' parameter.
         data_dir (str): Directory containing the data files.
         custom_suffix (str): Optional suffix for data and plot directories.
+        target_unit (str or None): Target unit for conversion, (ms for duration or mWh for Energy).
     """
     script_directory = os.path.dirname(os.path.realpath(__file__))
     
@@ -733,7 +825,8 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
                 
                 if pki_files:
                     file_path = pki_files[0]
-                    metric_value, std_dev_value = read_csv(file_path, metric, n)
+                    # Pass target_unit to read_csv for potential conversion
+                    metric_value, std_dev_value = read_csv(file_path, metric, n, target_unit)
                     
                     if metric_value is not None and std_dev_value is not None:
                         group_bars.append({
@@ -754,7 +847,8 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
             
             if psk_files:
                 file_path = psk_files[0]
-                metric_value, std_dev_value = read_csv(file_path, metric, n)
+                # Pass target_unit to read_csv for potential conversion
+                metric_value, std_dev_value = read_csv(file_path, metric, n, target_unit)
                 
                 if metric_value is not None and std_dev_value is not None:
                     group_bars.append({
@@ -791,7 +885,8 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
         
         if nosec_files:
             file_path = nosec_files[0]
-            metric_value, std_dev_value = read_csv(file_path, metric, n)
+            # Pass target_unit to read_csv for potential conversion
+            metric_value, std_dev_value = read_csv(file_path, metric, n, target_unit)
             
             if metric_value is not None and std_dev_value is not None:
                 bar_data.append({
@@ -869,11 +964,12 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
     ax.set_xticklabels(xtick_labels, rotation=45, ha='right', fontsize=10)
     
     # Set axis labels and title
-    ax.set_ylabel(format_labels(metric))
+    # Pass target_unit to format_labels to display correct units
+    ax.set_ylabel(format_labels(metric, target_unit))
     ax.set_xlabel(r'Algorithm - Scenario - Mode')
     
-    # Format title with LaTeX escaped characters
-    title = f'{format_labels(metric)} by algorithm and security mode - n={n}, scenario={scenario}'
+    # Format title
+    title = f'{format_labels(metric, target_unit)} by algorithm and security mode - n={n}, scenario={scenario}'
     if s is not None:
         title += f', s={s}'
     if p is not None:
@@ -907,7 +1003,9 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
     plt.tight_layout()
     
     # Generate the output filename
-    clean_metric = metric.replace(' ', '_').replace('(', '').replace(')', '')
+    # Use the display metric name for the output filename
+    display_metric = get_display_metric_label(metric, target_unit)
+    clean_metric = display_metric.replace(' ', '_').replace('(', '').replace(')', '')
     scenarios_str = "".join(scenarios)
     
     # Create the plots directory if it doesn't exist
@@ -919,7 +1017,7 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
     print(f"Plot saved to {output_file}")
     plt.show()
     
-def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None):
+def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None, target_unit=None):
     """
     Create a heat map visualization of a metric across algorithms and certificate types.
     
@@ -934,6 +1032,7 @@ def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=
         p (str or None): Optional 'p' parameter (parallelization mode).
         data_dir (str): Directory containing the data files.
         custom_suffix (str): Optional suffix for data and plot directories.
+        target_unit (str or None): Target unit for conversion, if any.
     """
     # Get the absolute path of the script's directory
     script_directory = os.path.dirname(os.path.realpath(__file__))
@@ -979,7 +1078,8 @@ def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=
             
             if pki_files:
                 file_path = pki_files[0]
-                metric_value, _ = read_csv(file_path, metric, n)
+                # Pass target_unit to read_csv for potential conversion
+                metric_value, _ = read_csv(file_path, metric, n, target_unit)
                 
                 if metric_value is not None:
                     heat_data[alg_idx, cert_idx] = metric_value
@@ -1003,7 +1103,9 @@ def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     
     # Add colorbar
     cbar = plt.colorbar(im, ax=ax)
-    cbar.set_label(metric)
+    # Use display metric name for colorbar label
+    display_metric = get_display_metric_label(metric, target_unit)
+    cbar.set_label(display_metric)
     
     # Set ticks and labels
     ax.set_xticks(np.arange(len(cert_types_list)))
@@ -1029,8 +1131,9 @@ def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     # LaTeX-formatted labels
     ax.set_xlabel(r'Certificate Types')
     ax.set_ylabel(r'Algorithms')
-    # Format title with LaTeX escaped characters
-    title = f'Heat Map of {format_labels(metric)} - n={n}, scenario={scenario}'
+    
+    # Format title - use format_labels to get proper unit display
+    title = f'Heat Map of {format_labels(metric, target_unit)} - n={n}, scenario={scenario}'
     if s is not None:
         title += f', s={s}'
     if p is not None:
@@ -1041,7 +1144,9 @@ def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     plt.tight_layout()
     
     # Save the plot
-    clean_metric = metric.replace(' ', '_').replace('(', '').replace(')', '')
+    # Use the display metric name for the output filename
+    display_metric = get_display_metric_label(metric, target_unit)
+    clean_metric = display_metric.replace(' ', '_').replace('(', '').replace(')', '')
     
     # Create the directory if it doesn't exist
     os.makedirs(f'./{plots_dir}', exist_ok=True)
@@ -1052,7 +1157,7 @@ def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     print(f"Plot saved to {output_file}")
     plt.show()
     
-def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None, log_scale=True):
+def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None, target_unit=None, log_scale=True):
     """
     Create box plots to visualize variability in metrics across configurations.
     
@@ -1067,6 +1172,8 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
         p (str or None): Optional 'p' parameter (parallelization mode).
         data_dir (str): Directory containing the data files.
         custom_suffix (str): Optional suffix for data and plot directories.
+        target_unit (str or None): Target unit for conversion, if any.
+        log_scale (bool): Whether to use logarithmic scale for y-axis.
     """
     # Get the absolute path of the script's directory
     script_directory = os.path.dirname(os.path.realpath(__file__))
@@ -1131,6 +1238,11 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
                             # Filter out non-numeric values (if any)
                             raw_values = pd.to_numeric(data_rows[metric], errors='coerce').dropna().values
                             
+                            # Apply unit conversion if needed
+                            if target_unit:
+                                raw_values = np.array([convert_value_based_on_unit(val, metric, target_unit) 
+                                                       for val in raw_values])
+                            
                             # Store values in the dictionary
                             key = f"{algorithm}_{cert_type}"
                             raw_data_dict[key] = {
@@ -1171,6 +1283,11 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
                     if metric in data_rows.columns:
                         # Filter out non-numeric values (if any)
                         raw_values = pd.to_numeric(data_rows[metric], errors='coerce').dropna().values
+                        
+                        # Apply unit conversion if needed
+                        if target_unit:
+                            raw_values = np.array([convert_value_based_on_unit(val, metric, target_unit) 
+                                                  for val in raw_values])
                         
                         # Store values in the dictionary
                         key = f"{algorithm}_PSK"
@@ -1215,6 +1332,11 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
                 if metric in data_rows.columns:
                     # Filter out non-numeric values (if any)
                     raw_values = pd.to_numeric(data_rows[metric], errors='coerce').dropna().values
+                    
+                    # Apply unit conversion if needed
+                    if target_unit:
+                        raw_values = np.array([convert_value_based_on_unit(val, metric, target_unit) 
+                                              for val in raw_values])
                     
                     # Store values in the dictionary
                     key = f"NoSec"
@@ -1353,8 +1475,9 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     if log_scale:
         ax.set_yscale('log')
     
-    ax.set_ylabel(format_labels(metric))
-    title = f'Variability of {format_labels(metric)} across configurations - n={n}, scenario={scenario}'
+    # Pass target_unit to format_labels to display correct units
+    ax.set_ylabel(format_labels(metric, target_unit))
+    title = f'Variability of {format_labels(metric, target_unit)} across configurations - n={n}, scenario={scenario}'
     if s is not None:
         title += f', s={s}'
     if p is not None:
@@ -1389,7 +1512,9 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     plt.tight_layout()
     
     # Save the plot
-    clean_metric = metric.replace(' ', '_').replace('(', '').replace(')', '')
+    # Use the display metric name for the output filename
+    display_metric = get_display_metric_label(metric, target_unit)
+    clean_metric = display_metric.replace(' ', '_').replace('(', '').replace(')', '')
     
     # Create the directory if it doesn't exist
     os.makedirs(f'./{plots_dir}', exist_ok=True)
@@ -1400,7 +1525,7 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     print(f"Plot saved to {output_file}")
     plt.show()
     
-def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None):
+def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None, target_unit=None):
     """
     Create candlestick-style plots for discrete metrics showing min-max range with mode.
     Improved version with:
@@ -1418,6 +1543,7 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
         p (str or None): Optional 'p' parameter (parallelization mode).
         data_dir (str): Directory containing the data files.
         custom_suffix (str): Optional suffix for data and plot directories.
+        target_unit (str or None): Target unit for conversion, if any.
     """
     # Get the absolute path of the script's directory
     script_directory = os.path.dirname(os.path.realpath(__file__))
@@ -1492,7 +1618,8 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
             
             if pki_files:
                 file_path = pki_files[0]
-                data = read_csv_discrete(file_path, metric, n)
+                # Pass target_unit for unit conversion
+                data = read_csv_discrete(file_path, metric, n, target_unit)
                 
                 if data and data.get('mode') is not None:
                     position = base_position + cert_idx * item_spacing
@@ -1514,7 +1641,8 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
         
         if psk_files:
             file_path = psk_files[0]
-            data = read_csv_discrete(file_path, metric, n)
+            # Pass target_unit for unit conversion
+            data = read_csv_discrete(file_path, metric, n, target_unit)
             
             if data and data.get('mode') is not None:
                 position = base_position + num_cert_types * item_spacing
@@ -1540,7 +1668,8 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
     
     if nosec_files:
         file_path = nosec_files[0]
-        data = read_csv_discrete(file_path, metric, n)
+        # Pass target_unit for unit conversion
+        data = read_csv_discrete(file_path, metric, n, target_unit)
         
         if data and data.get('mode') is not None:
             # Position NoSec with extra spacing from the last group
@@ -1654,10 +1783,11 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
             ax.set_ylim(y_min - padding, y_max + padding)
     
     # Set labels and title
-    ax.set_ylabel(format_labels(metric))
+    # Pass target_unit to format_labels for proper unit display
+    ax.set_ylabel(format_labels(metric, target_unit))
     ax.set_xlabel(r'Algorithm / Configuration')
     ax.margins(x=0.02)
-    title = f'{format_labels(metric)} - n={n}, scenario={scenario}'
+    title = f'{format_labels(metric, target_unit)} - n={n}, scenario={scenario}'
     if s is not None:
         title += f', s={s}'
     if p is not None:
@@ -1702,7 +1832,9 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
     ax.set_axisbelow(True)
     
     # Save the plot
-    clean_metric = metric.replace(' ', '_').replace('(', '').replace(')', '')
+    # Use the display metric name for the output filename
+    display_metric = get_display_metric_label(metric, target_unit)
+    clean_metric = display_metric.replace(' ', '_').replace('(', '').replace(')', '')
     os.makedirs(f'./{plots_dir}', exist_ok=True)
     output_file = f'./{plots_dir}/candlestick_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}.pdf'
     
@@ -1710,7 +1842,7 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
     plt.savefig(output_file, bbox_inches='tight')
     print(f"Plot saved to {output_file}")
     plt.show()
-
+    
 def parse_args():
     """Parse command line arguments using argparse."""
     parser = argparse.ArgumentParser(
@@ -1723,7 +1855,7 @@ def parse_args():
     default_cert_types = "RSA_2048,EC_P256,EC_ED25519,DILITHIUM_LEVEL2,DILITHIUM_LEVEL3,DILITHIUM_LEVEL5,FALCON_LEVEL1,FALCON_LEVEL5"
     
     # Required arguments - now with defaults
-    parser.add_argument('metric', help='Metric to be plotted (e.g., "duration", "Energy (Wh)")')
+    parser.add_argument('metric', help='Metric to be plotted (e.g., "duration", "duration ms", "Energy (Wh)", "Energy (mWh)")')
     parser.add_argument('--algorithms', default=default_algorithms, 
                         help=f'Comma-separated list of algorithms (default: "{default_algorithms}")')
     parser.add_argument('--cert-types', dest='cert_types', default=default_cert_types,
@@ -1770,6 +1902,9 @@ def main():
     """Main function to parse arguments and generate plots."""
     args, algorithms, cert_types, scenarios = parse_args()
     
+    # Parse the metric and target unit
+    base_metric, target_unit = parse_metric_with_unit(args.metric)
+    
     # Setup matplotlib style with LaTeX unless disabled
     setup_matplotlib_style(use_latex=True)
     
@@ -1779,33 +1914,38 @@ def main():
     if args.scatter:
         print(f"Generating scatter plot for scenario {scenario}...")
         create_scatter_plot(
-            args.metric, algorithms, cert_types, args.n, scenario,
-            args.rasp, args.s, args.p, args.data_dir, args.custom_suffix
+            base_metric, algorithms, cert_types, args.n, scenario,
+            args.rasp, args.s, args.p, args.data_dir, args.custom_suffix,
+            target_unit=target_unit
         )
     elif args.heatmap:
         print(f"Generating heat map for scenario {scenario}...")
         create_heat_map(
-            args.metric, algorithms, cert_types, args.n, scenario,
-            args.rasp, args.s, args.p, args.data_dir, args.custom_suffix
+            base_metric, algorithms, cert_types, args.n, scenario,
+            args.rasp, args.s, args.p, args.data_dir, args.custom_suffix,
+            target_unit=target_unit
         )
     elif args.boxplot:
         print(f"Generating box plot for scenario {scenario}...")
         create_box_plot(
-            args.metric, algorithms, cert_types, args.n, scenario,
-            args.rasp, args.s, args.p, args.data_dir, args.custom_suffix
+            base_metric, algorithms, cert_types, args.n, scenario,
+            args.rasp, args.s, args.p, args.data_dir, args.custom_suffix,
+            target_unit=target_unit
         )
     elif args.candlestick:
         print(f"Generating candlestick plot for scenario {scenario}...")
         create_discrete_candlestick_plot(
-            args.metric, algorithms, cert_types, args.n, scenario,
-            args.rasp, args.s, args.p, args.data_dir, args.custom_suffix
+            base_metric, algorithms, cert_types, args.n, scenario,
+            args.rasp, args.s, args.p, args.data_dir, args.custom_suffix,
+            target_unit=target_unit
         )
     else:
         # Bar plot supports multiple scenarios
         print(f"Generating bar plot for scenarios {', '.join(scenarios)}...")
         create_bar_plot(
-            args.metric, algorithms, cert_types, args.n, scenarios,
-            args.rasp, args.s, args.p, args.data_dir, args.custom_suffix
+            base_metric, algorithms, cert_types, args.n, scenarios,
+            args.rasp, args.s, args.p, args.data_dir, args.custom_suffix,
+            target_unit=target_unit
         )
 
 if __name__ == "__main__":
