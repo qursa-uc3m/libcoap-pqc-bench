@@ -29,7 +29,7 @@ algorithms = [a.strip() for a in default_algorithms.split(',') if a.strip()]
 cert_types = [c.strip() for c in default_cert_types.split(',') if c.strip()]
 
 # Metrics & scenarios
-METRIC_CTS = ['cpu_cycles', 'Energy (Wh)', 'Power (W)', 'Max Power (W)']
+METRIC_CTS = ['duration', 'cpu_cycles', 'Energy (Wh)', 'Power (W)', 'Max Power (W)']
 METRIC_DSC = ['total_frames','total_bytes','frames_sent','bytes_sent','frames_received','bytes_received']
 SCENARIOS = ['A', 'C']
 
@@ -53,23 +53,23 @@ def setup_matplotlib_style(use_latex=True):
     
     # Set consistent font sizes
     plt.rcParams.update({
-        "font.size": 11,           # Base font size
-        "axes.titlesize": 12,       # Title font size
-        "axes.labelsize": 11,       # Axis label font size
-        "xtick.labelsize": 10,      # x-tick label font size
-        "ytick.labelsize": 10,      # y-tick label font size
-        "legend.fontsize": 10,      # Legend font size
-        "figure.titlesize": 14      # Figure title font size
+        "font.size": 16,           # Base font size
+        "axes.titlesize": 18,       # Title font size
+        "axes.labelsize": 16,       # Axis label font size
+        "xtick.labelsize": 16,      # x-tick label font size
+        "ytick.labelsize": 16,      # y-tick label font size
+        "legend.fontsize": 18,      # Legend font size
+        "figure.titlesize": 22      # Figure title font size
     })
     
     # Improve figure aesthetics
     plt.rcParams.update({
-        "figure.figsize": (10, 6),  # Default figure size
+        "figure.figsize": (14, 10),  # Default figure size
         "figure.dpi": 100,          # Figure resolution
         "savefig.dpi": 300,         # Saved figure resolution
         "savefig.format": "pdf",    # Default save format
         "savefig.bbox": "tight",    # Tight bounding box
-        "savefig.pad_inches": 0.1   # Padding
+        "savefig.pad_inches": 0.2   # Padding
     })
     
     # Improve axes, grid, and ticks
@@ -82,10 +82,10 @@ def setup_matplotlib_style(use_latex=True):
         "axes.labelpad": 4,         # Spacing between axis and label
         "xtick.direction": "in",    # Ticks point inward
         "ytick.direction": "in",
-        "xtick.major.size": 3.5,    # Major tick size
-        "ytick.major.size": 3.5,
-        "xtick.minor.size": 2,      # Minor tick size
-        "ytick.minor.size": 2,
+        "xtick.major.size": 5,    # Major tick size
+        "ytick.major.size": 5,
+        "xtick.minor.size": 3.5,      # Minor tick size
+        "ytick.minor.size": 3.5,
         "xtick.major.width": 0.8,   # Tick width
         "ytick.major.width": 0.8
     })
@@ -127,11 +127,11 @@ def format_labels(metric):
         
     # Format based on metric type
     if "cpu_cycles" in metric.lower():
-        return r'CPU Cycles ($\times 10^9$)'
+        return r'CPU Cycles'
     elif "energy" in metric.lower() and "wh" in metric.lower():
         return r'Energy (Wh)'
     elif "power" in metric.lower() and "max" in metric.lower():
-        return r'Maximum Power (W)'
+        return r'Max. Power (W)'
     elif "power" in metric.lower():
         return r'Power (W)'
     elif "frames_sent" in metric.lower():
@@ -1395,6 +1395,701 @@ def create_network_comparison_plot(all_data, metric, scenario, security_mode='pk
     
     return filename
 
+def create_spider_plot(all_data, metrics, scenario, security_modes=['pki', 'psk', 'nosec'], 
+                      algorithms=None, certificates=None, include_legend=True,
+                      normalization='min_max', baseline_network='fiducial', 
+                      apply_metric_inversion=True, max_security_configs=9,
+                      output_dir='./bench-plots-compare'):
+    """
+    Create a spider (radar) plot comparing metrics across different networks.
+    
+    Parameters:
+    -----------
+    all_data : list
+        The benchmark data loaded from load_all()
+    metrics : list
+        List of metrics to include in the plot (e.g., ['cpu_cycles', 'Energy (Wh)', 'total_bytes'])
+    scenario : str
+        The scenario to use ('A' or 'C')
+    security_modes : list
+        List of security modes to include ('pki', 'psk', 'nosec')
+    algorithms : list or None
+        List of algorithms to include (default: None, include all)
+    certificates : list or None
+        List of certificate types to include (default: None, include all)
+    include_legend : bool
+        Whether to include a legend (default: True)
+    normalization : str
+        Normalization method ('min_max', 'max_percent', 'z_score', 'log', 'baseline_relative')
+    baseline_network : str
+        Network to use as the baseline for normalization (default: 'fiducial')
+    apply_metric_inversion : bool
+        If True, invert metrics where lower is better (so higher values are always better)
+    max_security_configs : int
+        Maximum number of security configurations to include (default: 9)
+    output_dir : str
+        Directory to save the output plot
+    """
+    try:
+        # Extract networks
+        all_networks = set()
+        for item in all_data:
+            all_networks.add(item['network'])
+        
+        networks = sorted(list(n for n in all_networks if n != baseline_network))
+        
+        if not networks:
+            print(f"Warning: No non-baseline networks found. Cannot create spider plot.")
+            return None
+            
+        # Define which metrics should be inverted (lower is better -> higher is better)
+        invert_metrics = set(['cpu_cycles', 'Energy (Wh)', 'Power (W)', 'Max Power (W)', 
+                             'duration', 'total_bytes', 'total_frames'])
+        
+        # Collect all raw data that matches our criteria
+        raw_data = {}  # (alg, cert, mode, network) -> {metric_name: value}
+        available_metrics = set()
+        
+        for item in all_data:
+            # Skip if scenario doesn't match
+            if item['scenario'] != scenario:
+                continue
+            
+            # Get metric name as string (important for category objects)
+            metric_name = str(item['metric'])
+            
+            # Skip if not in requested metrics
+            if metric_name not in metrics:
+                continue
+                
+            # Add to available metrics set
+            available_metrics.add(metric_name)
+                
+            # Skip if security mode doesn't match
+            if item['mode'] not in security_modes:
+                continue
+                
+            # For PKI, filter by algorithms and certificates
+            if item['mode'] == 'pki':
+                if algorithms and item['alg'] not in algorithms:
+                    continue
+                if certificates and item['cert'] not in certificates:
+                    continue
+            # For PSK, filter only by algorithms
+            elif item['mode'] == 'psk':
+                if algorithms and item['alg'] not in algorithms:
+                    continue
+                    
+            # Create configuration key
+            config_key = (item['alg'], item['cert'], item['mode'], item['network'])
+            
+            # Initialize dictionary for this config if needed
+            if config_key not in raw_data:
+                raw_data[config_key] = {}
+                
+            # Store the value
+            raw_data[config_key][metric_name] = item['mean']
+            
+            # Apply metric inversion if needed
+            if apply_metric_inversion and metric_name in invert_metrics:
+                if raw_data[config_key][metric_name] != 0:  # Avoid division by zero
+                    raw_data[config_key][metric_name] = 1.0 / raw_data[config_key][metric_name]
+        
+        # Check what metrics we actually have data for
+        metrics_to_use = sorted(list(available_metrics))
+        
+        if len(metrics_to_use) < 3:
+            print(f"Error: Not enough metrics with data. Found: {metrics_to_use}")
+            return None
+            
+        print(f"Using metrics: {metrics_to_use}")
+        
+        # Group raw data by security configuration
+        sec_configs = {}  # (alg, cert, mode) -> set of networks
+        
+        for config_key in raw_data:
+            alg, cert, mode, network = config_key
+            sec_key = (alg, cert, mode)
+            
+            if sec_key not in sec_configs:
+                sec_configs[sec_key] = set()
+                
+            sec_configs[sec_key].add(network)
+        
+        # Find security configurations that have data for all networks and all metrics
+        valid_configs = []
+        
+        for sec_key, networks_set in sec_configs.items():
+            if baseline_network not in networks_set:
+                continue  # Skip if missing baseline
+                
+            if not all(net in networks_set for net in networks):
+                continue  # Skip if missing any network
+                
+            # Check if we have all metrics for all networks
+            all_metrics_present = True
+            for network in networks_set:
+                config_key = sec_key + (network,)
+                if config_key not in raw_data:
+                    all_metrics_present = False
+                    break
+                    
+                if not all(m in raw_data[config_key] for m in metrics_to_use):
+                    all_metrics_present = False
+                    break
+                    
+            if all_metrics_present:
+                valid_configs.append(sec_key)
+        
+        # If we still don't have any valid configs, we need to relax our requirements
+        if not valid_configs:
+            print("Warning: No configurations have complete data. Using partial data instead.")
+            
+            # Just use configs that have the baseline and at least one non-baseline network
+            for sec_key, networks_set in sec_configs.items():
+                if baseline_network not in networks_set:
+                    continue  # Must have baseline
+                    
+                if not any(net in networks_set for net in networks):
+                    continue  # Must have at least one other network
+                    
+                valid_configs.append(sec_key)
+        
+        # Sort configs to ensure consistent order
+        valid_configs.sort()
+        
+        # Limit to max number of configs
+        if len(valid_configs) > max_security_configs:
+            print(f"Limiting from {len(valid_configs)} to {max_security_configs} configurations")
+            valid_configs = valid_configs[:max_security_configs]
+            
+        if not valid_configs:
+            print("Error: No valid configurations found.")
+            return None
+            
+        print(f"Using {len(valid_configs)} security configurations")
+        
+        # Normalize the data with a much more robust approach
+        norm_data = {}
+        
+        # For each metric, collect all available values first
+        metric_values = {}
+        for metric in metrics_to_use:
+            metric_values[metric] = []
+            
+            for config_key, metrics_dict in raw_data.items():
+                if metric in metrics_dict:
+                    if pd.notna(metrics_dict[metric]):  # Skip NaN values
+                        metric_values[metric].append(metrics_dict[metric])
+        
+        # Print information about available values
+        for metric in metrics_to_use:
+            if metric_values[metric]:
+                print(f"Metric {metric}: {len(metric_values[metric])} values, "
+                    f"range: {min(metric_values[metric]):.6g} to {max(metric_values[metric]):.6g}")
+            else:
+                print(f"Warning: No values found for metric {metric}")
+        
+        # Apply normalizations - with detailed error messages and fallbacks
+        if normalization == 'min_max':
+            print("Using min-max normalization")
+            for metric in metrics_to_use:
+                norm_data[metric] = {}
+                
+                if not metric_values[metric]:
+                    continue
+                    
+                try:
+                    min_val = min(metric_values[metric])
+                    max_val = max(metric_values[metric])
+                    range_val = max_val - min_val
+                    
+                    if range_val <= 0:
+                        print(f"Warning: Zero range for metric {metric} - using constant value")
+                        # Use constant 0.5 for all points
+                        for config_key, metrics_dict in raw_data.items():
+                            if metric in metrics_dict:
+                                norm_data[metric][config_key] = 0.5
+                        continue
+                    
+                    # Apply min-max normalization
+                    for config_key, metrics_dict in raw_data.items():
+                        if metric in metrics_dict:
+                            try:
+                                norm_val = (metrics_dict[metric] - min_val) / range_val
+                                # Sometimes small floating point errors can push outside [0,1]
+                                norm_val = max(0.0, min(1.0, norm_val))
+                                norm_data[metric][config_key] = norm_val
+                            except Exception as e:
+                                print(f"Error normalizing {metric} for {config_key}: {e}")
+                                # Use 0.5 as fallback
+                                norm_data[metric][config_key] = 0.5
+                except Exception as e:
+                    print(f"Error in min-max normalization for {metric}: {e}")
+                    # Use raw values scaled to [0,1] as fallback
+                    for config_key, metrics_dict in raw_data.items():
+                        if metric in metrics_dict:
+                            try:
+                                if max(metric_values[metric]) > 0:
+                                    norm_data[metric][config_key] = metrics_dict[metric] / max(metric_values[metric])
+                                else:
+                                    norm_data[metric][config_key] = 0.5
+                            except:
+                                norm_data[metric][config_key] = 0.5
+        
+        elif normalization == 'max_percent':
+            print("Using max-percent normalization")
+            for metric in metrics_to_use:
+                norm_data[metric] = {}
+                
+                if not metric_values[metric]:
+                    continue
+                    
+                try:
+                    max_val = max(metric_values[metric])
+                    
+                    if max_val <= 0:
+                        print(f"Warning: Zero maximum for metric {metric} - using constant value")
+                        # Use constant 0.5 for all points
+                        for config_key, metrics_dict in raw_data.items():
+                            if metric in metrics_dict:
+                                norm_data[metric][config_key] = 0.5
+                        continue
+                    
+                    # Apply max-percent normalization
+                    for config_key, metrics_dict in raw_data.items():
+                        if metric in metrics_dict:
+                            try:
+                                norm_val = metrics_dict[metric] / max_val
+                                # Sometimes small floating point errors can push outside [0,1]
+                                norm_val = max(0.0, min(1.0, norm_val))
+                                norm_data[metric][config_key] = norm_val
+                            except Exception as e:
+                                print(f"Error normalizing {metric} for {config_key}: {e}")
+                                # Use 0.5 as fallback
+                                norm_data[metric][config_key] = 0.5
+                except Exception as e:
+                    print(f"Error in max-percent normalization for {metric}: {e}")
+                    # Use 0.5 as fallback for all values
+                    for config_key, metrics_dict in raw_data.items():
+                        if metric in metrics_dict:
+                            norm_data[metric][config_key] = 0.5
+        
+        elif normalization == 'log':
+            print("Using log normalization")
+            for metric in metrics_to_use:
+                norm_data[metric] = {}
+                
+                if not metric_values[metric]:
+                    continue
+                    
+                try:
+                    min_val = min(metric_values[metric])
+                    max_val = max(metric_values[metric])
+                    
+                    # Handle zero/negative values with an offset
+                    offset = 0
+                    if min_val <= 0:
+                        offset = abs(min_val) + 1e-6
+                    
+                    # Handle cases where all values are the same
+                    if max_val + offset == min_val + offset:
+                        print(f"Warning: All values the same for {metric} after log offset")
+                        for config_key, metrics_dict in raw_data.items():
+                            if metric in metrics_dict:
+                                norm_data[metric][config_key] = 0.5
+                        continue
+                    
+                    # Apply log transformation
+                    log_min = np.log(min_val + offset)
+                    log_max = np.log(max_val + offset)
+                    log_range = log_max - log_min
+                    
+                    if log_range <= 0:
+                        print(f"Warning: Zero log range for metric {metric} - using constant value")
+                        for config_key, metrics_dict in raw_data.items():
+                            if metric in metrics_dict:
+                                norm_data[metric][config_key] = 0.5
+                        continue
+                    
+                    # Apply log normalization
+                    for config_key, metrics_dict in raw_data.items():
+                        if metric in metrics_dict:
+                            try:
+                                log_val = np.log(metrics_dict[metric] + offset)
+                                norm_val = (log_val - log_min) / log_range
+                                # Sometimes small floating point errors can push outside [0,1]
+                                norm_val = max(0.0, min(1.0, norm_val))
+                                norm_data[metric][config_key] = norm_val
+                            except Exception as e:
+                                print(f"Error log-normalizing {metric} for {config_key}: {e}")
+                                # Use 0.5 as fallback
+                                norm_data[metric][config_key] = 0.5
+                except Exception as e:
+                    print(f"Error in log normalization for {metric}: {e}")
+                    # Use raw values scaled to [0,1] as fallback
+                    for config_key, metrics_dict in raw_data.items():
+                        if metric in metrics_dict:
+                            try:
+                                if max(metric_values[metric]) > 0:
+                                    norm_data[metric][config_key] = metrics_dict[metric] / max(metric_values[metric])
+                                else:
+                                    norm_data[metric][config_key] = 0.5
+                            except:
+                                norm_data[metric][config_key] = 0.5
+        
+        elif normalization == 'z_score':
+            print("Using z-score normalization")
+            for metric in metrics_to_use:
+                norm_data[metric] = {}
+                
+                if not metric_values[metric]:
+                    continue
+                    
+                if len(metric_values[metric]) < 2:
+                    print(f"Warning: Not enough values for z-score of {metric} - using constant")
+                    for config_key, metrics_dict in raw_data.items():
+                        if metric in metrics_dict:
+                            norm_data[metric][config_key] = 0.5
+                    continue
+                    
+                try:
+                    mean_val = np.mean(metric_values[metric])
+                    std_val = np.std(metric_values[metric])
+                    
+                    if std_val <= 0:
+                        print(f"Warning: Zero std dev for metric {metric} - using constant value")
+                        for config_key, metrics_dict in raw_data.items():
+                            if metric in metrics_dict:
+                                norm_data[metric][config_key] = 0.5
+                        continue
+                    
+                    # Apply z-score normalization
+                    for config_key, metrics_dict in raw_data.items():
+                        if metric in metrics_dict:
+                            try:
+                                z = (metrics_dict[metric] - mean_val) / std_val
+                                # Map z-scores to [0,1], assuming most values fall in [-3,3]
+                                norm_val = (z + 3) / 6
+                                # Clamp to [0,1]
+                                norm_val = max(0.0, min(1.0, norm_val))
+                                norm_data[metric][config_key] = norm_val
+                            except Exception as e:
+                                print(f"Error z-score normalizing {metric} for {config_key}: {e}")
+                                # Use 0.5 as fallback
+                                norm_data[metric][config_key] = 0.5
+                except Exception as e:
+                    print(f"Error in z-score normalization for {metric}: {e}")
+                    # Use raw values scaled to [0,1] as fallback
+                    for config_key, metrics_dict in raw_data.items():
+                        if metric in metrics_dict:
+                            try:
+                                if max(metric_values[metric]) > 0:
+                                    norm_data[metric][config_key] = metrics_dict[metric] / max(metric_values[metric])
+                                else:
+                                    norm_data[metric][config_key] = 0.5
+                            except:
+                                norm_data[metric][config_key] = 0.5
+                                
+        elif normalization == 'baseline_relative':
+            print("Using baseline-relative normalization")
+            for metric in metrics_to_use:
+                norm_data[metric] = {}
+                
+                if not metric_values[metric]:
+                    continue
+                
+                # Count how many configs we normalized successfully 
+                successful_normalizations = 0
+                
+                # For each valid configuration
+                for sec_key in valid_configs:
+                    # Get baseline key
+                    baseline_key = sec_key + (baseline_network,)
+                    
+                    # Skip if baseline doesn't exist
+                    if baseline_key not in raw_data or metric not in raw_data[baseline_key]:
+                        continue
+                        
+                    baseline_val = raw_data[baseline_key][metric]
+                    
+                    # Skip if baseline is zero
+                    if baseline_val == 0:
+                        continue
+                    
+                     # Process baseline network specifically
+                    config_key = baseline_key
+                    if config_key in raw_data and metric in raw_data[config_key]:
+                        # Set baseline to 1.0 
+                        norm_data[metric][config_key] = 1.0
+                        successful_normalizations += 1
+                    
+                    # Apply normalization for all networks with this config
+                    for network in networks:
+                        config_key = sec_key + (network,)
+                        
+                        if config_key not in raw_data or metric not in raw_data[config_key]:
+                            continue
+                        
+                        try:
+                            # Get ratio to baseline
+                            val = raw_data[config_key][metric]
+                            ratio = val / baseline_val
+                            
+                            # Scale to [0,1.1] with 1.0 as the baseline point
+                            if ratio < 1:
+                                # Worse than baseline: scale to [0, 1.0)
+                                norm_data[metric][config_key] = ratio
+                            elif ratio > 1:
+                                # Better than baseline: scale to (1.0, 1.1]
+                                # Cap improvement at 10% beyond baseline
+                                norm_data[metric][config_key] = min(ratio, 1.1)
+                            else:
+                                # Equal to baseline
+                                norm_data[metric][config_key] = 1.0
+                                
+                            successful_normalizations += 1
+                        except Exception as e:
+                            print(f"Error in baseline relative normalization for {metric}, {config_key}: {e}")
+                            # Use 0.5 as fallback
+                            norm_data[metric][config_key] = 0.5
+                
+                print(f"Baseline-relative normalization for {metric}: {successful_normalizations} successful normalizations")
+                
+                # If baseline normalization failed for everything, fall back to min-max
+                if successful_normalizations == 0:
+                    print(f"Warning: No successful baseline normalizations for {metric}. Falling back to min-max.")
+                    
+                    try:
+                        min_val = min(metric_values[metric])
+                        max_val = max(metric_values[metric])
+                        range_val = max_val - min_val
+                        
+                        if range_val <= 0:
+                            # All values the same
+                            for config_key, metrics_dict in raw_data.items():
+                                if metric in metrics_dict:
+                                    norm_data[metric][config_key] = 0.5
+                        else:
+                            # Apply min-max normalization as fallback
+                            for config_key, metrics_dict in raw_data.items():
+                                if metric in metrics_dict:
+                                    try:
+                                        norm_val = (metrics_dict[metric] - min_val) / range_val
+                                        norm_data[metric][config_key] = norm_val
+                                    except:
+                                        norm_data[metric][config_key] = 0.5
+                    except Exception as e:
+                        print(f"Error in fallback normalization for {metric}: {e}")
+                        # Just use constants as last resort
+                        for config_key, metrics_dict in raw_data.items():
+                            if metric in metrics_dict:
+                                norm_data[metric][config_key] = 0.5
+        else:
+            print(f"Unknown normalization method: {normalization}, using max percent as fallback")
+            # Fall back to max percent normalization
+            for metric in metrics_to_use:
+                norm_data[metric] = {}
+                
+                if not metric_values[metric]:
+                    continue
+                    
+                try:
+                    max_val = max(metric_values[metric])
+                    
+                    if max_val <= 0:
+                        # Use constant
+                        for config_key, metrics_dict in raw_data.items():
+                            if metric in metrics_dict:
+                                norm_data[metric][config_key] = 0.5
+                    else:
+                        # Use max percent
+                        for config_key, metrics_dict in raw_data.items():
+                            if metric in metrics_dict:
+                                try:
+                                    norm_data[metric][config_key] = metrics_dict[metric] / max_val
+                                except:
+                                    norm_data[metric][config_key] = 0.5
+                except Exception as e:
+                    print(f"Error in fallback normalization for {metric}: {e}")
+                    # Use constants
+                    for config_key, metrics_dict in raw_data.items():
+                        if metric in metrics_dict:
+                            norm_data[metric][config_key] = 0.5
+                            
+        # Final safety check - ensure EVERY metric and config has a value
+        for metric in metrics_to_use:
+            if metric not in norm_data:
+                norm_data[metric] = {}
+            
+            for config_key, metrics_dict in raw_data.items():
+                if metric in metrics_dict and config_key not in norm_data[metric]:
+                    print(f"Warning: Missing normalized value for {metric}, {config_key}. Using 0.5")
+                    norm_data[metric][config_key] = 0.5
+        
+        # Setup the plot - FIX FOR POLAR PLOT ISSUES
+        fig = plt.figure(figsize=(14, 10))
+        
+        # Number of metrics
+        N = len(metrics_to_use)
+        
+        # Calculate angles for each metric (evenly spaced)
+        theta = np.linspace(0, 2*np.pi, N, endpoint=False)
+        
+        # *** NO ROTATION - METRICS ON AXES ***
+        # We won't rotate the polar coordinates as that seems to cause issues
+        
+        # Create subplot using standard axes - IMPORTANT CHANGE
+        ax = fig.add_subplot(111, projection='polar')
+        
+        # Set direction to clockwise
+        ax.set_theta_direction(-1)
+        
+        # Start at 90 degrees (top)
+        ax.set_theta_offset(np.pi/2)
+        
+        # Draw axis lines for each variable
+        for i in range(N):
+            ax.plot([theta[i], theta[i]], [0, 1.1], 'k-', linewidth=0.5)
+        
+        # Add rings at different levels
+        if normalization == 'baseline_relative':
+            # Add rings at 0.25, 0.5, 0.75 and 1.0 (baseline)
+            for level in [0.25, 0.5, 0.75]:
+                ax.plot(np.linspace(0, 2*np.pi, 100), [level]*100, 'k--', alpha=0.3)
+            # Add solid line for baseline
+            ax.plot(np.linspace(0, 2*np.pi, 100), [1.0]*100, 'g-', alpha=0.5)
+        else:
+            # Standard rings for other normalizations
+            for level in [0.25, 0.5, 0.75]:
+                ax.plot(np.linspace(0, 2*np.pi, 100), [level]*100, 'k--', alpha=0.3)
+        
+        # Set limits - ensure the plot has the full range
+        if normalization == 'baseline_relative':
+            ax.set_ylim(0, 1.1)  # Allow space for values up to 10% better than baseline
+        else:
+            ax.set_ylim(0, 1)  # Standard range for other normalizations
+        
+        # Set ticks and labels for each variable
+        ax.set_xticks(theta)
+        ax.set_xticklabels([format_labels(m) for m in metrics_to_use])
+        # Move all labels outward
+        ax.tick_params(axis='x', pad=30)  # Increase this number for more spacing
+                
+        # Define colors and styles
+        network_colors = {
+            'fiducial': 'forestgreen',
+            'smarthome': 'royalblue',
+            'smartfactory': 'darkorchid',
+            'publictransport': 'crimson'
+        }
+        
+        # Define line styles for different security configurations
+        line_styles = ['-', '--', '-.', ':']
+        marker_styles = ['o', 's', '^', 'D', 'v', 'p', '*', 'h', 'X']
+        
+        # Plot the data
+        legend_handles = []
+        legend_labels = []
+        
+        # Determine which networks to plot (skip baseline if using baseline_relative)
+        plot_networks = networks if normalization == 'baseline_relative' else networks + [baseline_network]
+        
+        # For each valid configuration
+        for i, sec_key in enumerate(valid_configs):
+            alg, cert, mode = sec_key
+            
+            # Choose line style
+            line_style = line_styles[i % len(line_styles)]
+            marker_style = marker_styles[i % len(marker_styles)]
+            
+            # Get readable config name
+            if mode == 'pki':
+                config_label = f"{alg} + {cert}"
+            elif mode == 'psk':
+                config_label = f"{alg} (PSK)"
+            else:
+                config_label = "NOSEC"
+            
+            # For each network
+            for network in plot_networks:
+                # Create full key
+                full_key = sec_key + (network,)
+                
+                # Skip if any metric is missing for this config
+                skip = False
+                values = []
+                
+                for metric in metrics_to_use:
+                    if metric not in norm_data or full_key not in norm_data[metric]:
+                        skip = True
+                        break
+                    
+                    values.append(norm_data[metric][full_key])
+                
+                if skip:
+                    continue
+                
+                # *** IMPORTANT FIX: Ensure values form a complete loop ***
+                # Close the loop by appending first value
+                values_for_plot = np.concatenate((values, [values[0]]))
+                theta_for_plot = np.concatenate((theta, [theta[0]]))
+                
+                # Plot this configuration
+                color = network_colors.get(network, 'gray')
+                
+                # Plot the line
+                line = ax.plot(theta_for_plot, values_for_plot, linestyle=line_style, marker=marker_style,
+                         color=color, linewidth=2, alpha=0.7, markersize=8)[0]
+                
+                # Fill area
+                ax.fill(theta_for_plot, values_for_plot, color=color, alpha=0.1)
+                
+                # Add to legend
+                legend_handles.append(line)
+                legend_labels.append(f"{network} - {config_label}")
+        
+        # Add title
+        title = f"Impact of Network Conditions on {security_modes} - Scenario {scenario}"
+        ax.set_title(title, pad=25)
+        
+        # Add legend with better placement
+        if include_legend:
+            fig.subplots_adjust(right=0.7)  # Make room for legend
+            ax.legend(legend_handles, legend_labels, loc='center left',
+                     bbox_to_anchor=(1.1, 0.5))
+            
+        # Add explanation for baseline_relative
+        #if normalization == 'baseline_relative':
+        #    plt.figtext(0.5, 0.01, f"Values are relative to {baseline_network} baseline\n"
+        #            f"1.0 = Equal to baseline, <1.0 = Worse, >1.0 = Better",
+        #            ha='center', va='center', fontsize=10)
+        
+        # Generate output filename
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Create metrics string for filename
+        metrics_str = "_".join(m.replace(" ", "").replace("(", "").replace(")", "") for m in metrics_to_use)
+        if len(metrics_str) > 50:
+            metrics_str = f"{len(metrics_to_use)}_metrics"
+            
+        security_str = "_".join(security_modes)
+        
+        filename = f"{output_dir}/spider_{scenario}_{security_str}_{normalization}_{metrics_str}.pdf"
+        
+        # Save figure
+        plt.savefig(filename, bbox_inches='tight')
+        print(f"Saved spider plot to: {filename}")
+        
+        return filename
+    
+    except Exception as e:
+        import traceback
+        print(f"Error in create_spider_plot: {str(e)}")
+        traceback.print_exc()
+        plt.close()
+        return None
+
 # MAIN
 if __name__ == '__main__':
     print("Loading data from all networks and security modes...")
@@ -1447,14 +2142,30 @@ if __name__ == '__main__':
     
     # Trade-off plots
     for scen in SCENARIOS:
-        plot_tradeoff(all_data, 'cpu_cycles', 'Energy (Wh)', scen, normalize=True, output_dir=OUT_DIR)
-        plot_tradeoff(all_data, 'total_bytes', 'Energy (Wh)', scen, normalize=True, output_dir=OUT_DIR)
+        #plot_tradeoff(all_data, 'cpu_cycles', 'Energy (Wh)', scen, normalize=True, output_dir=OUT_DIR)
+        #plot_tradeoff(all_data, 'total_bytes', 'Energy (Wh)', scen, normalize=True, output_dir=OUT_DIR)
         
-        create_waterfall_plot(all_data, 'Energy (Wh)', scen, plot_type='network', output_dir=OUT_DIR)
-        create_waterfall_plot(all_data, 'Energy (Wh)', scen, plot_type='algorithm', output_dir=OUT_DIR)
+        #create_waterfall_plot(all_data, 'Energy (Wh)', scen, plot_type='network', output_dir=OUT_DIR)
+        #create_waterfall_plot(all_data, 'Energy (Wh)', scen, plot_type='algorithm', output_dir=OUT_DIR)
 
         # Generate network comparison plots for different security modes
-        create_network_comparison_plot(all_data, 'Energy (Wh)', scen, 'pki', output_dir=OUT_DIR)
-        create_network_comparison_plot(all_data, 'Energy (Wh)', scen, 'psk', output_dir=OUT_DIR)
+        #create_network_comparison_plot(all_data, 'Energy (Wh)', scen, 'pki', output_dir=OUT_DIR)
+        #create_network_comparison_plot(all_data, 'Energy (Wh)', scen, 'psk', output_dir=OUT_DIR)
+        
+        pass
+            
+    # Spider plots
+    for scen in SCENARIOS:
+        for norm in ['min_max', 'max_percent', 'z_score', 'baseline_relative']:
+            create_spider_plot(
+            all_data,
+                metrics=['duration', 'cpu_cycles', 'Energy (Wh)', 'Power (W)', 'Max Power (W)', 'bytes_sent', 'bytes_received' ,'frames_sent', 'frames_received'],
+                scenario=scen,
+                security_modes=['psk'],
+                algorithms=['KYBER_LEVEL1'],  # Specify algorithm(s)
+                certificates=['RSA_2048', 'DILITHIUM_LEVEL2', 'FALCON_LEVEL1'],    # Specify certificate(s)
+                normalization=norm,
+                output_dir=OUT_DIR
+            )
     
     print("All plots generated successfully!")
