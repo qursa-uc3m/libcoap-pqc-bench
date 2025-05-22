@@ -7,7 +7,7 @@ install_mode="default"
 install_dir=$build_dir
 libcoap_dir="$(pwd)/libcoap"
 groups_spec=false
-libcoap_version="cb20c482b2bb857a2f06c342ecb8c8c6d5f387ce"
+libcoap_version="ce2057b7a91a6934aa7c0eb4fd3d899a476b025f" # Develop branch, last good commit
 algorithm="KYBER_LEVEL5"
 
 # Parse command line arguments
@@ -66,7 +66,7 @@ if [ "$skip_clone" = false ]; then
     sudo rm -rf ./libcoap
     git clone https://github.com/obgm/libcoap
     cd libcoap
-    #git checkout $libcoap_version
+    git checkout $libcoap_version
 else
     cd libcoap
 fi
