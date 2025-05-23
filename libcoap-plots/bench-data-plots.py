@@ -1232,11 +1232,21 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
                     if separator_idx is not None:
                         # Get all data rows before the separator
                         data_rows = df.iloc[:separator_idx]
-                        
+                        #print(f"DEBUG: data_rows shape: {data_rows.shape}")
+                        #print(f"DEBUG: First 10 rows of data_rows:")
+                        #print(data_rows.head(10))
                         # Extract the metric column
                         if metric in data_rows.columns:
                             # Filter out non-numeric values (if any)
+                            #print(f"DEBUG: Raw {metric} column values:")
+                            metric_column = data_rows[metric]
+                            #print(f"DEBUG: Total values in column: {len(metric_column)}")
+                            #print(f"DEBUG: Non-null values: {metric_column.notna().sum()}")
+                            #print(f"DEBUG: Sample values: {metric_column.dropna().head(10).tolist()}")
+                            
                             raw_values = pd.to_numeric(data_rows[metric], errors='coerce').dropna().values
+                            #print(f"DEBUG: Final raw_values length: {len(raw_values)}")
+                            #print(f"DEBUG: Final raw_values sample: {raw_values[:10]}")
                             
                             # Apply unit conversion if needed
                             if target_unit:
@@ -1452,10 +1462,12 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
         current_pos += box_width
     
     # Create box plot with precisely calculated positions
-    bp = ax.boxplot(box_data, positions=positions, patch_artist=True, 
-                    showfliers=True, medianprops={'color': 'black'}, 
-                    widths=box_width*0.9)  # Make boxes slightly narrower
-
+    bp = ax.boxplot(box_data, positions=positions, 
+                    patch_artist=True, 
+                    showfliers=False,
+                    medianprops={'color': 'black'}, 
+                    widths=box_width*0.9, # Make boxes slightly narrower
+    )
     # Set colors for each box
     for patch, color in zip(bp['boxes'], box_colors):
         patch.set_facecolor(color)
@@ -1523,7 +1535,181 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     
     plt.savefig(output_file)
     print(f"Plot saved to {output_file}")
+    
+    # Analyze and save outliers  
+    outlier_results = analyze_and_save_outliers(
+        box_data, 
+        metric, 
+        scenario, 
+        plots_dir,
+        n=n
+    )
+    
     plt.show()
+    
+def analyze_and_save_outliers(box_data, metric_name, scenario, plots_dir, n=None, multiplier=5.0):
+    """
+    Simple outlier analysis using magnitude-based detection.
+    
+    Outliers are defined as values that are more than `multiplier` times 
+    larger than the minimum value in the dataset.
+    
+    Parameters:
+    -----------
+    box_data : list of arrays
+        Data for each configuration 
+    metric_name : str  
+        Name of the metric (for filename)
+    scenario : str
+        Scenario identifier 
+    plots_dir : str
+        Directory to save the CSV file
+    n : int or None
+        Number of iterations (for documentation)
+    multiplier : float
+        Multiplier for outlier detection (default: 5.0)
+    """
+    
+    # Extract only mean values from box_data (every other value starting from 0)
+    mean_data = []
+    for data in box_data:
+        data_array = np.array(data)
+        # Take every other value starting from index 0 (the means)
+        means_only = data_array[::2]  # This gives you indices 0, 2, 4, 6, ... (the means)
+        mean_data.append(means_only)
+    
+    # Analyze outliers for each configuration
+    outlier_summary = []
+    total_measurements = 0
+    total_outliers = 0
+    
+    for i, data in enumerate(mean_data):
+        data = np.array(data)
+        print(f"\nConfig {i}:")
+        print(f"  Data length: {len(data)}")
+        print(f"  Dataset (means): {data}")
+        print(f"  Data range: {np.min(data):.6f} to {np.max(data):.6f}")
+        
+        # Magnitude-based outlier detection
+        min_value = np.min(data)
+        threshold = min_value * multiplier
+        outliers = data[data > threshold]
+        
+        n_total = len(data)
+        n_outliers = len(outliers)
+        outlier_percentage = (n_outliers / n_total) * 100 if n_total > 0 else 0
+        
+        total_measurements += n_total
+        total_outliers += n_outliers
+        
+        outlier_info = {
+            'config_index': i,
+            'config_name': f'Config_{i+1}',
+            'n_total': n_total,
+            'n_outliers': n_outliers,
+            'outlier_percentage': round(outlier_percentage, 1),
+            'outlier_values': outliers.tolist() if n_outliers > 0 else [],
+            'min_value': round(min_value, 6),
+            'threshold': round(threshold, 6),
+            'median': round(np.median(data), 6),
+            'mean': round(np.mean(data), 6),
+            'max_value': round(np.max(data), 6),
+            'detection_method': f'magnitude (>{multiplier}x min)',
+        }
+        
+        outlier_summary.append(outlier_info)
+    
+    # Print summary to screen
+    print(f"\n{'='*70}")
+    print(f"OUTLIER ANALYSIS - {metric_name} (Scenario {scenario})")
+    print(f"{'='*70}")
+    print(f"Total configurations: {len(mean_data)}")
+    print(f"Total measurements: {total_measurements}")
+    print(f"Total outliers: {total_outliers} ({total_outliers/total_measurements*100:.1f}%)")
+    if n:
+        print(f"Iterations per configuration: {n}")
+    print(f"Detection method: Magnitude-based (values > {multiplier}x minimum)")
+    print(f"\nConfiguration Details:")
+    print("-" * 70)
+    
+    for info in outlier_summary:
+        print(f"{info['config_name']} (index {info['config_index']}):")
+        print(f"  Measurements: {info['n_total']}")
+        print(f"  Range: {info['min_value']:.6f} to {info['max_value']:.6f}")
+        print(f"  Threshold: {info['threshold']:.6f} (>{multiplier}x min)")
+        print(f"  Outliers: {info['n_outliers']} ({info['outlier_percentage']}%)")
+        print(f"  Central tendency: median={info['median']:.6f}, mean={info['mean']:.6f}")
+        
+        if info['n_outliers'] > 0:
+            outlier_values = info['outlier_values']
+            if len(outlier_values) <= 5:
+                print(f"  Outlier values: {[round(x, 6) for x in outlier_values]}")
+            else:
+                print(f"  Outlier values: {[round(x, 6) for x in outlier_values[:3]]} ... {[round(x, 6) for x in outlier_values[-2:]]}")
+        print()
+    
+    # Create a flattened version for CSV
+    csv_data = []
+    for info in outlier_summary:
+        row = {
+            'config_index': info['config_index'],
+            'config_name': info['config_name'],
+            'n_total': info['n_total'],
+            'n_outliers': info['n_outliers'], 
+            'outlier_percentage': info['outlier_percentage'],
+            'min_value': info['min_value'],
+            'threshold': info['threshold'],
+            'median': info['median'],
+            'mean': info['mean'],
+            'max_value': info['max_value'],
+            'detection_method': info['detection_method']
+        }
+        
+        # Add outlier values as separate columns
+        outlier_values = info['outlier_values']
+        for j, outlier_val in enumerate(outlier_values):
+            row[f'outlier_{j+1}'] = round(outlier_val, 6)
+        
+        csv_data.append(row)
+    
+    # Create DataFrame and save
+    df = pd.DataFrame(csv_data)
+    
+    # Generate filename
+    clean_metric = metric_name.replace(' ', '_').replace('(', '').replace(')', '')
+    filename = f"outliers_{clean_metric}_scenario{scenario}_magnitude{multiplier}x.csv"
+    filepath = f"./{plots_dir}/{filename}"
+    
+    # Ensure directory exists
+    os.makedirs(f'./{plots_dir}', exist_ok=True)
+    
+    # Save CSV
+    df.to_csv(filepath, index=False)
+    print(f"Outlier data saved to: {filepath}")
+    
+    # Summary file
+    summary_filename = f"outliers_summary_{clean_metric}_scenario{scenario}_magnitude{multiplier}x.txt"
+    summary_filepath = f"./{plots_dir}/{summary_filename}"
+    
+    with open(summary_filepath, 'w') as f:
+        f.write(f"OUTLIER ANALYSIS SUMMARY\n")
+        f.write(f"Metric: {metric_name}\n")
+        f.write(f"Scenario: {scenario}\n")
+        f.write(f"Total configurations: {len(mean_data)}\n")
+        f.write(f"Total measurements: {total_measurements}\n")
+        f.write(f"Total outliers: {total_outliers} ({total_outliers/total_measurements*100:.1f}%)\n")
+        if n:
+            f.write(f"Iterations per configuration: {n}\n")
+        f.write(f"Detection method: Magnitude-based (values > {multiplier}x minimum)\n")
+        f.write(f"Multiplier used: {multiplier}\n\n")
+        
+        f.write("Config_Index,Config_Name,Total,Outliers,Percentage,Min_Value,Threshold,Median,Mean\n")
+        for info in outlier_summary:
+            f.write(f"{info['config_index']},{info['config_name']},{info['n_total']},{info['n_outliers']},{info['outlier_percentage']}%,{info['min_value']:.6f},{info['threshold']:.6f},{info['median']:.6f},{info['mean']:.6f}\n")
+    
+    print(f"Summary saved to: {summary_filepath}")
+    
+    return outlier_summary
     
 def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None, target_unit=None):
     """
@@ -1930,7 +2116,7 @@ def main():
         create_box_plot(
             base_metric, algorithms, cert_types, args.n, scenario,
             args.rasp, args.s, args.p, args.data_dir, args.custom_suffix,
-            target_unit=target_unit
+            target_unit=target_unit, log_scale=True
         )
     elif args.candlestick:
         print(f"Generating candlestick plot for scenario {scenario}...")
