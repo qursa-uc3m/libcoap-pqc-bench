@@ -2,15 +2,15 @@ import os
 import glob
 import pandas as pd
 import numpy as np
-from scipy.stats import ttest_rel
+from scipy import stats
 import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
 from matplotlib.lines import Line2D
 import re
 from adjustText import adjust_text 
+from datetime import datetime
 
 # 1. CONFIGURATION
-ROOT_DIR = './bench-data-pll'  # where bench-data-fiducial/ etc. live
+ROOT_DIR = './bench-data-pll-15'  # where bench-data-fiducial/ etc. live
 OUT_DIR = ROOT_DIR+'/compare_plots'
 #NETWORKS = ['fiducial', 'smarthome', 'smartfactory' , 'publictransport']
 NETWORKS = ['fiducial', 'smarthome']
@@ -810,7 +810,7 @@ def plot_tradeoff(all_data, metric_x, metric_y, scenario, include_nosec=False, n
                                          markersize=10, label='No Security', 
                                          markerfacecolor='lightgray'))
     
-    plt.legend(handles=legend_elements, loc='upper left', bbox_to_anchor=(1.01, 1), ncol=1)
+    plt.legend(handles=legend_elements, loc='best', bbox_to_anchor=(1.01, 1), ncol=1)
     plt.grid(True, ls='--', alpha=0.3, which='both')
     plt.tight_layout()
     
@@ -1363,7 +1363,7 @@ def create_network_comparison_plot(all_data, metric, scenario, security_mode='pk
             handles.append(plt.Rectangle((0,0),1,1, color=color))
     
     # Add the legend
-    ax.legend(handles, labels, loc='upper left', bbox_to_anchor=(1.01, 1), ncol=1)
+    ax.legend(handles, labels, loc='best', bbox_to_anchor=(1.01, 1), ncol=1)
     
     # Set axis labels and title
     ax.set_ylabel(f"Change from Fiducial Baseline (\\%)")
@@ -2056,7 +2056,7 @@ def create_spider_plot(all_data, metrics, scenario, security_modes=['pki', 'psk'
         # Add legend with better placement
         if include_legend:
             fig.subplots_adjust(right=0.7)  # Make room for legend
-            ax.legend(legend_handles, legend_labels, loc='center left',
+            ax.legend(legend_handles, legend_labels, loc='best',
                      bbox_to_anchor=(1.1, 0.5))
             
         # Add explanation for baseline_relative
@@ -2089,6 +2089,1089 @@ def create_spider_plot(all_data, metrics, scenario, security_modes=['pki', 'psk'
         traceback.print_exc()
         plt.close()
         return None
+    
+def create_network_difference_plot(all_data, metric, scenario, 
+                                  baseline_network='fiducial',
+                                  comparison_networks=None,
+                                  sample_size=15,
+                                  security_modes=['pki', 'psk', 'nosec'],
+                                  algorithms=None, certificates=None,
+                                  alpha=0.05, output_dir='./bench-plots-compare'):
+    """
+    Create difference plots showing network impact on energy consumption
+    with proper error propagation and statistical significance testing.
+    
+    This function calculates the difference between baseline network (fiducial)
+    and other networks for each security configuration, providing a clean
+    way to analyze network impact while handling outliers properly.
+    
+    Parameters:
+    -----------
+    all_data : list
+        The benchmark data loaded from load_all()
+    metric : str
+        Metric to analyze (e.g., 'Energy (Wh)', 'duration', 'cpu_cycles')
+    scenario : str
+        Scenario identifier ('A' or 'C')
+    baseline_network : str
+        Network to use as baseline (default: 'fiducial')
+    comparison_networks : list or None
+        Networks to compare against baseline (default: ['smarthome'])
+    security_modes : list
+        Security modes to include ('pki', 'psk', 'nosec')
+    algorithms : list or None
+        Algorithms to include (default: all from global list)
+    certificates : list or None
+        Certificate types to include (default: all from global list)
+    alpha : float
+        Significance level for statistical tests (default: 0.05)
+    output_dir : str
+        Directory to save plots and reports
+    
+    Returns:
+    --------
+    dict : Dictionary containing difference statistics and file paths
+    """
+    
+    # Set defaults
+    if comparison_networks is None:
+        comparison_networks = ['smarthome']
+    if algorithms is None:
+        algorithms = ['KYBER_LEVEL1', 'KYBER_LEVEL3', 'KYBER_LEVEL5']
+    if certificates is None:
+        certificates = ['RSA_2048', 'EC_P256', 'EC_ED25519', 
+                       'DILITHIUM_LEVEL2', 'DILITHIUM_LEVEL3', 'DILITHIUM_LEVEL5',
+                       'FALCON_LEVEL1', 'FALCON_LEVEL5']
+    
+    print(f"Creating network difference plot for {metric} (Scenario {scenario})")
+    print(f"Baseline: {baseline_network}")
+    print(f"Comparisons: {comparison_networks}")
+    
+    # Convert data to easier format for processing
+    data_by_config = {}
+    
+    for item in all_data:
+        if (item['scenario'] != scenario or 
+            item['metric'] != metric or
+            item['network'] not in [baseline_network] + comparison_networks):
+            continue
+        
+        # Create configuration key
+        config_key = (item['alg'], item['cert'], item['mode'])
+        
+        # Initialize if needed
+        if config_key not in data_by_config:
+            data_by_config[config_key] = {}
+        
+        # Store data by network
+        data_by_config[config_key][item['network']] = {
+            'mean': item['mean'],
+            'std': item['std']
+        }
+    
+    # Calculate differences for each comparison network
+    all_differences = []
+    
+    for comp_network in comparison_networks:
+        print(f"\nProcessing differences: {comp_network} - {baseline_network}")
+        
+        network_differences = []
+        
+        for config_key, network_data in data_by_config.items():
+            alg, cert, mode = config_key
+            
+            # Skip if not in requested security modes
+            if mode not in security_modes:
+                continue
+                
+            # Skip if specific algorithms/certificates requested and not in list
+            if mode == 'pki':
+                if (algorithms and alg not in algorithms) or (certificates and cert not in certificates):
+                    continue
+            elif mode == 'psk':
+                if algorithms and alg not in algorithms:
+                    continue
+            # nosec always included if in security_modes
+            
+            # Check if we have data for both networks
+            if baseline_network not in network_data or comp_network not in network_data:
+                continue
+            
+            baseline_data = network_data[baseline_network]
+            comparison_data = network_data[comp_network]
+            
+            # Calculate difference with error propagation
+            diff_stats = calculate_network_difference_statistics(
+                comparison_data, baseline_data, sample_size, config_key, comp_network, baseline_network
+            )
+            
+            if diff_stats:
+                network_differences.append(diff_stats)
+        
+        if network_differences:
+            all_differences.extend(network_differences)
+    
+    if not all_differences:
+        print("No valid differences found for plotting")
+        return None
+    
+    # Create the plot
+    fig, ax = plt.subplots(figsize=(16, 10))
+    
+    # Sort differences by configuration for consistent plotting
+    all_differences.sort(key=lambda x: (x['mode'], x['alg'] or 'zzz', x['cert'] or 'zzz'))
+    
+    # Prepare plot data
+    positions = np.arange(len(all_differences))
+    differences = [d['mean_diff'] for d in all_differences]
+    ci_lower = [d['ci_lower'] for d in all_differences]
+    ci_upper = [d['ci_upper'] for d in all_differences]
+    p_values = [d['p_value'] for d in all_differences]
+    labels = [d['config_label'] for d in all_differences]
+    
+    # Color based on statistical significance and magnitude
+    colors = []
+    for diff, p_val in zip(differences, p_values):
+        if p_val < alpha:
+            # Significant: red for positive (network penalty), blue for negative (network benefit)
+            colors.append('#d32f2f' if diff > 0 else '#1976d2')
+        else:
+            # Not significant: gray
+            colors.append('#757575')
+    
+    # Create bar plot
+    bars = ax.bar(positions, differences, color=colors, alpha=0.7, edgecolor='black', linewidth=0.5)
+    
+    # Add confidence intervals
+    err_lower = np.array(differences) - np.array(ci_lower)
+    err_upper = np.array(ci_upper) - np.array(differences)
+    ax.errorbar(positions, differences, yerr=[err_lower, err_upper],
+                fmt='none', color='black', capsize=3, capthick=1)
+    
+    # Add horizontal line at zero (no difference)
+    ax.axhline(y=0, color='black', linestyle='-', linewidth=1, alpha=0.8)
+    
+    # Add significance indicators
+    max_diff = max(ci_upper) if ci_upper else max(differences) if differences else 1
+    min_diff = min(ci_lower) if ci_lower else min(differences) if differences else -1
+    y_range = max_diff - min_diff
+    
+    for i, (pos, diff, p_val, ci_u) in enumerate(zip(positions, differences, p_values, ci_upper)):
+        if p_val < alpha:
+            significance = '***' if p_val < 0.001 else '**' if p_val < 0.01 else '*'
+            # Position significance marker above error bar
+            y_pos = ci_u + y_range * 0.02
+            ax.text(pos, y_pos, significance, ha='center', va='bottom', 
+                   fontweight='bold', color='red', fontsize=8)
+    
+    # Customize plot
+    ax.set_xticks(positions)
+    ax.set_xticklabels(labels, rotation=30, ha='right', fontsize=9)
+    ax.set_ylabel(f'Network Impact on {format_labels(metric)} (Comparison - Baseline)')
+    ax.set_xlabel('Security Configuration')
+    
+    #ax.set_yscale('symlog')
+    
+    # Create title
+    comp_networks_str = ' vs '.join(comparison_networks)
+    title = f'Network Impact: {comp_networks_str} vs {baseline_network}\n'
+    title += f'{format_labels(metric)} (Scenario {scenario})'
+    ax.set_title(title, fontsize=14, pad=20)
+    
+    # Add legend
+    legend_elements = [
+        plt.Rectangle((0,0),1,1, color='#d32f2f', alpha=0.7, label=f'Significant increase (p $<$ {alpha})'),
+        plt.Rectangle((0,0),1,1, color='#1976d2', alpha=0.7, label=f'Significant decrease (p $<$ {alpha})'),
+        plt.Rectangle((0,0),1,1, color='#757575', alpha=0.7, label=f'No significant difference (p $\\geq$ {alpha})')
+    ]
+    ax.legend(handles=legend_elements, loc='best', bbox_to_anchor=(1.0, 1.0))
+    
+    # Add grid
+    ax.grid(True, axis='y', alpha=0.3)
+    ax.set_axisbelow(True)
+    
+    # Adjust layout
+    plt.tight_layout()
+    
+    # Generate filename
+    os.makedirs(output_dir, exist_ok=True)
+    clean_metric = metric.replace(' ', '_').replace('(', '').replace(')', '')
+    comp_str = '_'.join(comparison_networks)
+    filename = f"{output_dir}/network_difference_{clean_metric}_{security_modes[:]}_{scenario}_{comp_str}_vs_{baseline_network}.pdf"
+    
+    # Save plot
+    plt.savefig(filename, bbox_inches='tight')
+    print(f"Network difference plot saved to: {filename}")
+    
+    # Generate statistical report
+    report = generate_network_difference_report(all_differences, metric, scenario, 
+                                              baseline_network, comparison_networks, sample_size, alpha)
+    
+    # Save report
+    report_file = filename.replace('.pdf', '_report.txt')
+    with open(report_file, 'w') as f:
+        f.write(report)
+    print(f"Statistical report saved to: {report_file}")
+    
+    # Show plot
+    plt.show()
+    
+    # Return results
+    return {
+        'differences': all_differences,
+        'plot_file': filename,
+        'report_file': report_file,
+        'significant_differences': [d for d in all_differences if d['p_value'] < alpha],
+        'total_comparisons': len(all_differences),
+        'alpha': alpha
+    }
+
+def calculate_network_difference_statistics(comparison_data, baseline_data, sample_size, config_key, comp_network, baseline_network):
+    """
+    Calculate statistical difference between network conditions with proper error propagation.
+    
+    Parameters:
+    -----------
+    comparison_data : dict
+        Data from comparison network {'mean': float, 'std': float}
+    baseline_data : dict
+        Data from baseline network {'mean': float, 'std': float}
+    config_key : tuple
+        (algorithm, certificate, mode) configuration identifier
+    comp_network : str
+        Name of comparison network
+    baseline_network : str
+        Name of baseline network
+    
+    Returns:
+    --------
+    dict : Statistical difference analysis
+    """
+    
+    try:
+        alg, cert, mode = config_key
+        
+        # Extract values
+        mean_comp = float(comparison_data['mean'])
+        std_comp = float(comparison_data['std'])
+        mean_base = float(baseline_data['mean'])
+        std_base = float(baseline_data['std'])
+        
+        # Calculate difference
+        mean_diff = mean_comp - mean_base
+        
+        # Error propagation for difference (assuming independent measurements)
+        # For difference A - B: σ_diff = √(σ_A² + σ_B²)
+        std_diff = np.sqrt(std_comp**2 + std_base**2)
+        
+        # Assume sample size (you might want to make this configurable)
+        n = sample_size  # Based on your experimental setup
+        
+        # Standard error of the difference
+        se_diff = std_diff / np.sqrt(n)
+        
+        # t-statistic for testing if difference is significantly different from zero
+        t_stat = mean_diff / se_diff if se_diff > 0 else 0
+        
+        # Degrees of freedom (conservative estimate)
+        df = n - 1
+        
+        # p-value (two-tailed test)
+        p_value = 2 * (1 - stats.t.cdf(abs(t_stat), df)) if se_diff > 0 else 1.0
+        
+        # 95% confidence interval
+        t_critical = stats.t.ppf(0.975, df)
+        margin_error = t_critical * se_diff
+        ci_lower = mean_diff - margin_error
+        ci_upper = mean_diff + margin_error
+        
+        # Effect size (Cohen's d - standardized difference)
+        pooled_std = np.sqrt((std_comp**2 + std_base**2) / 2)
+        cohens_d = mean_diff / pooled_std if pooled_std > 0 else 0
+        
+        # Create readable configuration label
+        if mode == 'nosec':
+            config_label = 'NoSec'
+        elif mode == 'psk':
+            config_label = f'{alg} (PSK)' if alg else 'PSK'
+        elif mode == 'pki':
+            if alg and cert:
+                # Shorten labels for readability
+                alg_short = alg.replace('KYBER_LEVEL', 'K').replace('_', '')
+                cert_short = cert.replace('DILITHIUM_LEVEL', 'D').replace('FALCON_LEVEL', 'F').replace('_', '')
+                config_label = f'{alg_short}+{cert_short}'
+            else:
+                config_label = 'PKI'
+        else:
+            config_label = f'{alg or ""}+{cert or ""}'
+        
+        return {
+            'config_key': config_key,
+            'alg': alg,
+            'cert': cert,
+            'mode': mode,
+            'config_label': config_label,
+            'comparison_network': comp_network,
+            'baseline_network': baseline_network,
+            'mean_diff': mean_diff,
+            'std_diff': std_diff,
+            'se_diff': se_diff,
+            'ci_lower': ci_lower,
+            'ci_upper': ci_upper,
+            't_statistic': t_stat,
+            'p_value': p_value,
+            'degrees_freedom': df,
+            'cohens_d': cohens_d,
+            'mean_comparison': mean_comp,
+            'mean_baseline': mean_base,
+            'std_comparison': std_comp,
+            'std_baseline': std_base
+        }
+        
+    except (ValueError, TypeError, KeyError) as e:
+        print(f"Error calculating difference statistics for {config_key}: {e}")
+        return None
+
+def generate_network_difference_report(differences, metric, scenario, baseline_network, comparison_networks, sample_size, alpha):
+    """Generate comprehensive text report for network difference analysis."""
+    
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    report = f"""NETWORK DIFFERENCE ANALYSIS REPORT
+{'=' * 70}
+Metric: {format_labels(metric)}
+Scenario: {scenario}
+Baseline Network: {baseline_network}
+Comparison Networks: {', '.join(comparison_networks)}
+Significance Level: α = {alpha}
+Generated: {timestamp}
+
+SUMMARY STATISTICS
+{'-' * 40}
+"""
+    
+    significant_diffs = [d for d in differences if d['p_value'] < alpha]
+    positive_diffs = [d for d in significant_diffs if d['mean_diff'] > 0]
+    negative_diffs = [d for d in significant_diffs if d['mean_diff'] < 0]
+    
+    report += f"""Total comparisons: {len(differences)}
+Significant differences: {len(significant_diffs)} ({len(significant_diffs)/len(differences)*100:.1f}%)
+  - Network penalties (positive): {len(positive_diffs)}
+  - Network benefits (negative): {len(negative_diffs)}
+Non-significant differences: {len(differences) - len(significant_diffs)}
+
+"""
+    
+    if positive_diffs:
+        report += f"""SIGNIFICANT NETWORK PENALTIES (p < {alpha})
+{'-' * 60}
+These configurations show significantly higher energy consumption
+under network stress compared to baseline conditions.
+
+"""
+        
+        for diff in sorted(positive_diffs, key=lambda x: x['mean_diff'], reverse=True):
+            effect_size = interpret_cohens_d(diff['cohens_d'])
+            report += f"""
+{diff['config_label']} ({diff['comparison_network']} vs {diff['baseline_network']}):
+  Network penalty: {diff['mean_diff']:.4f} ± {diff['se_diff']:.4f}
+  95% CI: [{diff['ci_lower']:.4f}, {diff['ci_upper']:.4f}]
+  t-statistic: {diff['t_statistic']:.3f} (df = {diff['degrees_freedom']})
+  p-value: {diff['p_value']:.6f}
+  Effect size (Cohen's d): {diff['cohens_d']:.3f} ({effect_size})
+  Baseline: {diff['mean_baseline']:.4f}, Network: {diff['mean_comparison']:.4f}
+"""
+    
+    if negative_diffs:
+        report += f"""
+SIGNIFICANT NETWORK BENEFITS (p < {alpha})
+{'-' * 60}
+These configurations show significantly lower energy consumption
+under network stress (unexpected but possible).
+
+"""
+        
+        for diff in sorted(negative_diffs, key=lambda x: x['mean_diff']):
+            effect_size = interpret_cohens_d(diff['cohens_d'])
+            report += f"""
+{diff['config_label']} ({diff['comparison_network']} vs {diff['baseline_network']}):
+  Network benefit: {diff['mean_diff']:.4f} ± {diff['se_diff']:.4f}
+  95% CI: [{diff['ci_lower']:.4f}, {diff['ci_upper']:.4f}]
+  t-statistic: {diff['t_statistic']:.3f} (df = {diff['degrees_freedom']})
+  p-value: {diff['p_value']:.6f}
+  Effect size (Cohen's d): {diff['cohens_d']:.3f} ({effect_size})
+  Baseline: {diff['mean_baseline']:.4f}, Network: {diff['mean_comparison']:.4f}
+"""
+    
+    if not significant_diffs:
+        report += f"""NO SIGNIFICANT NETWORK EFFECTS FOUND
+{'-' * 60}
+All configurations show no statistically significant difference
+between baseline and network conditions. This could indicate:
+1. Network conditions have minimal impact on energy consumption
+2. Measurement variability is too high to detect differences
+3. The chosen network conditions are too mild to cause measurable effects
+"""
+    
+    # Non-significant differences summary
+    non_significant = [d for d in differences if d['p_value'] >= alpha]
+    if non_significant:
+        report += f"""
+NON-SIGNIFICANT DIFFERENCES (p ≥ {alpha})
+{'-' * 60}
+"""
+        for diff in sorted(non_significant, key=lambda x: x['p_value']):
+            report += f"{diff['config_label']}: Δ = {diff['mean_diff']:.4f}, p = {diff['p_value']:.3f}\n"
+    
+    report += f"""
+INTERPRETATION GUIDELINES
+{'-' * 40}
+Statistical Significance (p-value):
+  p < 0.001: Very strong evidence of network effect
+  p < 0.01:  Strong evidence of network effect
+  p < 0.05:  Moderate evidence of network effect
+  p ≥ 0.05:  No significant network effect detected
+
+Effect Size (Cohen's d):
+  |d| < 0.2:  Small effect
+  |d| < 0.5:  Medium effect
+  |d| ≥ 0.8:  Large effect
+
+Network Impact Interpretation:
+  Positive differences: Network conditions increase energy consumption
+  Negative differences: Network conditions decrease energy consumption
+  Zero differences: No measurable network impact
+
+METHODOLOGICAL NOTES
+{'-' * 40}
+• Error propagation: σ_diff = √(σ_baseline² + σ_comparison²)
+• Independence assumption: Measurements assumed independent
+• Sample size: n = {sample_size} per configuration
+• Two-tailed t-test: Tests if difference is significantly different from zero
+• Confidence intervals: 95% confidence level
+• Multiple comparisons: Consider Bonferroni correction for family-wise error rate
+
+RECOMMENDATIONS
+{'-' * 40}
+"""
+    
+    if len(positive_diffs) > len(differences) * 0.5:
+        report += "• HIGH NETWORK SENSITIVITY: Most configurations show significant network penalties\n"
+        report += "• Consider network-aware deployment strategies\n"
+        report += "• Investigate network resilience improvements\n"
+    elif len(significant_diffs) > 0:
+        report += "• MODERATE NETWORK SENSITIVITY: Some configurations affected by network conditions\n"
+        report += "• Focus on robust configurations for deployment\n"
+    else:
+        report += "• LOW NETWORK SENSITIVITY: Configurations appear network-resilient\n"
+        report += "• Current network conditions have minimal impact\n"
+    
+    if len(significant_diffs) > 1:
+        report += f"• MULTIPLE COMPARISONS: Consider Bonferroni correction (α = {alpha/len(differences):.4f})\n"
+    
+    large_effects = [d for d in significant_diffs if abs(d['cohens_d']) >= 0.8]
+    if large_effects:
+        report += f"• LARGE EFFECTS DETECTED: {len(large_effects)} configurations show substantial network impact\n"
+    
+    return report
+
+def interpret_cohens_d(d):
+    """Interpret Cohen's d effect size."""
+    abs_d = abs(d)
+    if abs_d < 0.2:
+        return "negligible"
+    elif abs_d < 0.5:
+        return "small"
+    elif abs_d < 0.8:
+        return "medium"
+    else:
+        return "large"
+    
+def create_algorithm_difference_plot(all_data, metric, scenario,
+                                    baseline_algorithm='KYBER_LEVEL1',
+                                    comparison_algorithms=None,
+                                    sample_size=15,
+                                    networks=None,
+                                    security_modes=['pki', 'psk'],
+                                    certificates=None,
+                                    alpha=0.05, output_dir='./bench-plots-compare'):
+    """
+    Create difference plots showing algorithm scaling impact on performance
+    with proper error propagation and statistical significance testing.
+    
+    This function calculates the difference between baseline algorithm (KYBER_LEVEL1)
+    and other algorithms within the same network and security configuration.
+    
+    Parameters:
+    -----------
+    all_data : list
+        The benchmark data loaded from load_all()
+    metric : str
+        Metric to analyze (e.g., 'Energy (Wh)', 'duration', 'cpu_cycles')
+    scenario : str
+        Scenario identifier ('A' or 'C')
+    baseline_algorithm : str
+        Algorithm to use as baseline (default: 'KYBER_LEVEL1')
+    comparison_algorithms : list or None
+        Algorithms to compare against baseline (default: ['KYBER_LEVEL3', 'KYBER_LEVEL5'])
+    networks : list or None
+        Networks to include (default: ['fiducial', 'smarthome'])
+    security_modes : list
+        Security modes to include ('pki', 'psk', 'nosec')
+    certificates : list or None
+        Certificate types to include for PKI mode (default: all)
+    alpha : float
+        Significance level for statistical tests (default: 0.05)
+    output_dir : str
+        Directory to save plots and reports
+    
+    Returns:
+    --------
+    dict : Dictionary containing difference statistics and file paths
+    """
+    
+    # Set defaults
+    if comparison_algorithms is None:
+        comparison_algorithms = ['KYBER_LEVEL3', 'KYBER_LEVEL5']
+    if networks is None:
+        networks = ['fiducial', 'smarthome']
+    if certificates is None:
+        certificates = ['RSA_2048', 'EC_P256', 'EC_ED25519', 
+                       'DILITHIUM_LEVEL2', 'DILITHIUM_LEVEL3', 'DILITHIUM_LEVEL5',
+                       'FALCON_LEVEL1', 'FALCON_LEVEL5']
+    
+    print(f"Creating corrected algorithm difference plot for {metric} (Scenario {scenario})")
+    print(f"Baseline: {baseline_algorithm}")
+    print(f"Comparisons: {comparison_algorithms}")
+    print(f"Networks: {networks}")
+    
+    # Step 1: Extract and organize data by (network, mode, cert) -> {algorithm: data}
+    configurations = {}
+    
+    for item in all_data:
+        if (item['scenario'] != scenario or 
+            item['metric'] != metric or
+            item['network'] not in networks):
+            continue
+        
+        network = item['network']
+        mode = item['mode']
+        cert = item['cert']  # Will be None for PSK and NoSec
+        alg = item['alg']    # Will be None for NoSec
+        
+        # Skip NoSec mode (no algorithm to compare)
+        if mode == 'nosec':
+            continue
+            
+        # Filter by security modes
+        if mode not in security_modes:
+            continue
+            
+        # Filter certificates for PKI mode
+        if mode == 'pki' and certificates and cert not in certificates:
+            continue
+            
+        # Filter algorithms - must have baseline and at least one comparison
+        if alg not in [baseline_algorithm] + comparison_algorithms:
+            continue
+        
+        # Create configuration key
+        # For PKI: (network, mode, cert)
+        # For PSK: (network, mode, None) - since cert is None for PSK
+        config_key = (network, mode, cert)
+        
+        if config_key not in configurations:
+            configurations[config_key] = {}
+        
+        # Store data by algorithm
+        configurations[config_key][alg] = {
+            'mean': item['mean'],
+            'std': item['std']
+        }
+    
+    print(f"Found {len(configurations)} unique configurations")
+    
+    # Debug: Show what configurations we found
+    for config_key, alg_data in configurations.items():
+        network, mode, cert = config_key
+        algs = list(alg_data.keys())
+        cert_str = cert if cert else "None"
+        print(f"  {network} + {mode} + {cert_str}: algorithms {algs}")
+    
+    # Step 2: Calculate differences for each configuration and comparison algorithm
+    all_differences = []
+    
+    for config_key, algorithm_data in configurations.items():
+        network, mode, cert = config_key
+        
+        # Check if we have baseline algorithm data
+        if baseline_algorithm not in algorithm_data:
+            print(f"Warning: No {baseline_algorithm} data for {config_key}")
+            continue
+        
+        baseline_data = algorithm_data[baseline_algorithm]
+        
+        # Calculate differences for each comparison algorithm
+        for comp_alg in comparison_algorithms:
+            if comp_alg not in algorithm_data:
+                continue
+                
+            comparison_data = algorithm_data[comp_alg]
+            
+            # Calculate the difference: comparison - baseline
+            mean_diff = comparison_data['mean'] - baseline_data['mean']
+            
+            # Error propagation: sqrt(std_comp^2 + std_base^2)
+            std_diff = np.sqrt(comparison_data['std']**2 + baseline_data['std']**2)
+            
+            # Statistical test (assuming n=15)
+            n = sample_size
+            se_diff = std_diff / np.sqrt(n)
+            
+            if se_diff > 0:
+                t_stat = mean_diff / se_diff
+                df = n - 1
+                p_value = 2 * (1 - stats.t.cdf(abs(t_stat), df))
+                
+                # Confidence interval
+                t_critical = stats.t.ppf(0.975, df)
+                margin_error = t_critical * se_diff
+                ci_lower = mean_diff - margin_error
+                ci_upper = mean_diff + margin_error
+            else:
+                t_stat = 0
+                p_value = 1.0
+                ci_lower = mean_diff
+                ci_upper = mean_diff
+            
+            # Effect size
+            pooled_std = np.sqrt((comparison_data['std']**2 + baseline_data['std']**2) / 2)
+            cohens_d = mean_diff / pooled_std if pooled_std > 0 else 0
+            
+            # Create label based on mode
+            if mode == 'pki':
+                config_label = f"{network} ({cert})"
+            elif mode == 'psk':
+                config_label = f"{network} (PSK)"
+            else:
+                config_label = f"{network} ({mode})"
+            
+            # Store difference data
+            all_differences.append({
+                'config_key': config_key,
+                'network': network,
+                'mode': mode,
+                'cert': cert,
+                'config_label': config_label,
+                'comparison_algorithm': comp_alg,
+                'baseline_algorithm': baseline_algorithm,
+                'mean_diff': mean_diff,
+                'std_diff': std_diff,
+                'se_diff': se_diff,
+                'ci_lower': ci_lower,
+                'ci_upper': ci_upper,
+                't_statistic': t_stat,
+                'p_value': p_value,
+                'degrees_freedom': df,
+                'cohens_d': cohens_d,
+                'mean_comparison': comparison_data['mean'],
+                'mean_baseline': baseline_data['mean'],
+                'std_comparison': comparison_data['std'],
+                'std_baseline': baseline_data['std']
+            })
+    
+    if not all_differences:
+        print("No valid differences found for plotting")
+        return None
+    
+    print(f"Calculated {len(all_differences)} differences")
+    
+    # Debug: Show first few differences
+    for i, diff in enumerate(all_differences[:3]):
+        print(f"Difference {i}: {diff['config_label']} {diff['comparison_algorithm']} vs {diff['baseline_algorithm']}")
+        print(f"  Mean diff: {diff['mean_diff']:.6f}, p-value: {diff['p_value']:.4f}")
+    
+    # Step 3: Create the plot
+    fig, ax = plt.subplots(figsize=(16, 10))
+    
+    # Sort by network, then mode, then cert, then comparison algorithm
+    all_differences.sort(key=lambda x: (x['network'], x['mode'], x['cert'] or 'zzz', x['comparison_algorithm']))
+    
+    # Prepare plot data
+    positions = np.arange(len(all_differences))
+    differences = [d['mean_diff'] for d in all_differences]
+    ci_lower = [d['ci_lower'] for d in all_differences]
+    ci_upper = [d['ci_upper'] for d in all_differences]
+    p_values = [d['p_value'] for d in all_differences]
+    labels = [f"{d['config_label']} ({d['comparison_algorithm']})" for d in all_differences]
+    
+    # Color based on statistical significance
+    colors = []
+    for diff, p_val in zip(differences, p_values):
+        if p_val < alpha:
+            colors.append('#d32f2f' if diff > 0 else '#1976d2')
+        else:
+            colors.append('#757575')
+    
+    # Create bar plot
+    bars = ax.bar(positions, differences, color=colors, alpha=0.7, edgecolor='black', linewidth=0.5)
+    
+    # Add confidence intervals
+    err_lower = np.array(differences) - np.array(ci_lower)
+    err_upper = np.array(ci_upper) - np.array(differences)
+    ax.errorbar(positions, differences, yerr=[err_lower, err_upper],
+                fmt='none', color='black', capsize=3, capthick=1)
+    
+    # Add horizontal line at zero
+    ax.axhline(y=0, color='black', linestyle='-', linewidth=1, alpha=0.8)
+    
+    # Add significance indicators
+    if differences:
+        max_diff = max(ci_upper) if ci_upper else max(differences)
+        min_diff = min(ci_lower) if ci_lower else min(differences)
+        y_range = max_diff - min_diff if max_diff != min_diff else abs(max_diff) * 0.1
+        
+        for i, (pos, diff, p_val, ci_u) in enumerate(zip(positions, differences, p_values, ci_upper)):
+            if p_val < alpha:
+                significance = '***' if p_val < 0.001 else '**' if p_val < 0.01 else '*'
+                y_pos = ci_u + y_range * 0.02
+                ax.text(pos, y_pos, significance, ha='center', va='bottom', 
+                       fontweight='bold', color='red', fontsize=8)
+    
+    # Customize plot
+    ax.set_xticks(positions)
+    ax.set_xticklabels(labels, rotation=45, ha='right', fontsize=9)
+    ax.set_ylabel(f'Algorithm Impact on {format_labels(metric)} (Comparison - Baseline)')
+    ax.set_xlabel('Network + Security Configuration + Algorithm')
+    
+    # Title
+    comp_algorithms_str = ' vs '.join(comparison_algorithms)
+    title = f'Algorithm Scaling: {comp_algorithms_str} vs {baseline_algorithm}\n'
+    title += f'{format_labels(metric)} (Scenario {scenario})'
+    ax.set_title(title, fontsize=14, pad=20)
+    
+    # Legend
+    legend_elements = [
+        plt.Rectangle((0,0),1,1, color='#d32f2f', alpha=0.7, label=f'Significant increase (p $<$ {alpha})'),
+        plt.Rectangle((0,0),1,1, color='#1976d2', alpha=0.7, label=f'Significant decrease (p $<$ {alpha})'),
+        plt.Rectangle((0,0),1,1, color='#757575', alpha=0.7, label=f'No significant difference (p $\\geq$ {alpha})')
+    ]
+    ax.legend(handles=legend_elements, loc='upper right')
+    
+    # Grid
+    ax.grid(True, axis='y', alpha=0.3)
+    ax.set_axisbelow(True)
+    
+    plt.tight_layout()
+    
+    # Save
+    os.makedirs(output_dir, exist_ok=True)
+    clean_metric = metric.replace(' ', '_').replace('(', '').replace(')', '')
+    comp_str = '_'.join(comparison_algorithms)
+    networks_str = '_'.join(networks)
+    filename = f"{output_dir}/algorithm_difference_corrected_{clean_metric}_{scenario}_{comp_str}_vs_{baseline_algorithm}_{networks_str}.pdf"
+    
+    plt.savefig(filename, bbox_inches='tight')
+    print(f"Corrected algorithm difference plot saved to: {filename}")
+    
+    # Generate statistical report
+    report = generate_algorithm_difference_report(all_differences, metric, scenario, 
+                                                baseline_algorithm, comparison_algorithms, sample_size, alpha)
+    
+    # Save report
+    report_file = filename.replace('.pdf', '_report.txt')
+    with open(report_file, 'w') as f:
+        f.write(report)
+    print(f"Statistical report saved to: {report_file}")
+    
+    plt.show()
+    
+    # Return results
+    return {
+        'differences': all_differences,
+        'plot_file': filename,
+        'report_file': report_file,
+        'significant_differences': [d for d in all_differences if d['p_value'] < alpha],
+        'total_comparisons': len(all_differences),
+        'alpha': alpha
+    }
+
+
+def calculate_algorithm_difference_statistics(comparison_data, baseline_data, sample_size, config_key, comp_algorithm, baseline_algorithm):
+    """
+    Calculate statistical difference between algorithms with proper error propagation.
+    Similar to network version but adapted for algorithm comparisons.
+    
+    Parameters:
+    -----------
+    comparison_data : dict
+        Data from comparison algorithm {'mean': float, 'std': float}
+    baseline_data : dict
+        Data from baseline algorithm {'mean': float, 'std': float}
+    config_key : tuple
+        (network, certificate, mode) configuration identifier
+    comp_algorithm : str
+        Name of comparison algorithm
+    baseline_algorithm : str
+        Name of baseline algorithm
+    
+    Returns:
+    --------
+    dict : Statistical difference analysis
+    """
+    
+    try:
+        network, cert, mode = config_key
+        
+        # Extract values
+        mean_comp = float(comparison_data['mean'])
+        std_comp = float(comparison_data['std'])
+        mean_base = float(baseline_data['mean'])
+        std_base = float(baseline_data['std'])
+        
+        # Calculate difference
+        mean_diff = mean_comp - mean_base
+        
+        # Error propagation for difference (assuming independent measurements)
+        std_diff = np.sqrt(std_comp**2 + std_base**2)
+        
+        # Assume sample size (make this configurable if needed)
+        n = sample_size  # Based on your experimental setup
+        
+        # Standard error of the difference
+        se_diff = std_diff / np.sqrt(n)
+        
+        # t-statistic for testing if difference is significantly different from zero
+        t_stat = mean_diff / se_diff if se_diff > 0 else 0
+        
+        # Degrees of freedom (conservative estimate)
+        df = n - 1
+        
+        # p-value (two-tailed test)
+        p_value = 2 * (1 - stats.t.cdf(abs(t_stat), df)) if se_diff > 0 else 1.0
+        
+        # 95% confidence interval
+        t_critical = stats.t.ppf(0.975, df)
+        margin_error = t_critical * se_diff
+        ci_lower = mean_diff - margin_error
+        ci_upper = mean_diff + margin_error
+        
+        # Effect size (Cohen's d - standardized difference)
+        pooled_std = np.sqrt((std_comp**2 + std_base**2) / 2)
+        cohens_d = mean_diff / pooled_std if pooled_std > 0 else 0
+        
+        # Create readable configuration label
+        if mode == 'nosec':
+            config_label = f'{network} (NoSec)'
+        elif mode == 'psk':
+            config_label = f'{network} (PSK)'
+        elif mode == 'pki':
+            if cert:
+                # Shorten labels for readability
+                cert_short = cert.replace('DILITHIUM_LEVEL', 'D').replace('FALCON_LEVEL', 'F').replace('_', '')
+                config_label = f'{network} ({cert_short})'
+            else:
+                config_label = f'{network} (PKI)'
+        else:
+            config_label = f'{network} ({mode})'
+        
+        return {
+            'config_key': config_key,
+            'network': network,
+            'cert': cert,
+            'mode': mode,
+            'config_label': config_label,
+            'comparison_algorithm': comp_algorithm,
+            'baseline_algorithm': baseline_algorithm,
+            'mean_diff': mean_diff,
+            'std_diff': std_diff,
+            'se_diff': se_diff,
+            'ci_lower': ci_lower,
+            'ci_upper': ci_upper,
+            't_statistic': t_stat,
+            'p_value': p_value,
+            'degrees_freedom': df,
+            'cohens_d': cohens_d,
+            'mean_comparison': mean_comp,
+            'mean_baseline': mean_base,
+            'std_comparison': std_comp,
+            'std_baseline': std_base
+        }
+        
+    except (ValueError, TypeError, KeyError) as e:
+        print(f"Error calculating algorithm difference statistics for {config_key}: {e}")
+        return None
+
+
+def generate_algorithm_difference_report(differences, metric, scenario, baseline_algorithm, comparison_algorithms, sample_size, alpha):
+    """Generate comprehensive text report for algorithm difference analysis."""
+    
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    report = f"""ALGORITHM DIFFERENCE ANALYSIS REPORT
+{'=' * 70}
+Metric: {format_labels(metric)}
+Scenario: {scenario}
+Baseline Algorithm: {baseline_algorithm}
+Comparison Algorithms: {', '.join(comparison_algorithms)}
+Sample size: {sample_size}
+Significance Level: α = {alpha}
+Generated: {timestamp}
+
+SUMMARY STATISTICS
+{'-' * 40}
+"""
+    
+    significant_diffs = [d for d in differences if d['p_value'] < alpha]
+    positive_diffs = [d for d in significant_diffs if d['mean_diff'] > 0]
+    negative_diffs = [d for d in significant_diffs if d['mean_diff'] < 0]
+    
+    report += f"""Total comparisons: {len(differences)}
+Significant differences: {len(significant_diffs)} ({len(significant_diffs)/len(differences)*100:.1f}%)
+  - Algorithm penalties (positive): {len(positive_diffs)}
+  - Algorithm benefits (negative): {len(negative_diffs)}
+Non-significant differences: {len(differences) - len(significant_diffs)}
+
+"""
+    
+    if positive_diffs:
+        report += f"""SIGNIFICANT ALGORITHM PENALTIES (p < {alpha})
+{'-' * 60}
+These configurations show significantly higher resource consumption
+with larger algorithms compared to {baseline_algorithm}.
+
+"""
+        
+        for diff in sorted(positive_diffs, key=lambda x: x['mean_diff'], reverse=True):
+            effect_size = interpret_cohens_d(diff['cohens_d'])
+            report += f"""
+{diff['config_label']} ({diff['comparison_algorithm']} vs {diff['baseline_algorithm']}):
+  Algorithm penalty: {diff['mean_diff']:.4f} ± {diff['se_diff']:.4f}
+  95% CI: [{diff['ci_lower']:.4f}, {diff['ci_upper']:.4f}]
+  t-statistic: {diff['t_statistic']:.3f} (df = {diff['degrees_freedom']})
+  p-value: {diff['p_value']:.6f}
+  Effect size (Cohen's d): {diff['cohens_d']:.3f} ({effect_size})
+  {baseline_algorithm}: {diff['mean_baseline']:.4f}, {diff['comparison_algorithm']}: {diff['mean_comparison']:.4f}
+"""
+    
+    if negative_diffs:
+        report += f"""
+SIGNIFICANT ALGORITHM BENEFITS (p < {alpha})
+{'-' * 60}
+These configurations show significantly lower resource consumption
+with larger algorithms (unexpected but possible due to optimization effects).
+
+"""
+        
+        for diff in sorted(negative_diffs, key=lambda x: x['mean_diff']):
+            effect_size = interpret_cohens_d(diff['cohens_d'])
+            report += f"""
+{diff['config_label']} ({diff['comparison_algorithm']} vs {diff['baseline_algorithm']}):
+  Algorithm benefit: {diff['mean_diff']:.4f} ± {diff['se_diff']:.4f}
+  95% CI: [{diff['ci_lower']:.4f}, {diff['ci_upper']:.4f}]
+  t-statistic: {diff['t_statistic']:.3f} (df = {diff['degrees_freedom']})
+  p-value: {diff['p_value']:.6f}
+  Effect size (Cohen's d): {diff['cohens_d']:.3f} ({effect_size})
+  {baseline_algorithm}: {diff['mean_baseline']:.4f}, {diff['comparison_algorithm']}: {diff['mean_comparison']:.4f}
+"""
+    
+    if not significant_diffs:
+        report += f"""NO SIGNIFICANT ALGORITHM SCALING EFFECTS FOUND
+{'-' * 60}
+All configurations show no statistically significant difference
+between {baseline_algorithm} and larger algorithms. This could indicate:
+1. Algorithm scaling has minimal impact on the measured metric
+2. Measurement variability is too high to detect differences
+3. Optimizations in larger algorithms compensate for increased complexity
+"""
+    
+    report += f"""
+INTERPRETATION GUIDELINES
+{'-' * 40}
+Algorithm Scaling Analysis:
+  Positive differences: Larger algorithms consume more resources
+  Negative differences: Larger algorithms consume fewer resources (optimization effects)
+  Zero differences: No measurable scaling impact
+
+This analysis helps identify:
+• Which security configurations are sensitive to algorithm scaling
+• Whether the complexity increase in KYBER_LEVEL3/5 translates to proportional resource usage
+• Optimal algorithm choices for resource-constrained deployments
+
+RECOMMENDATIONS
+{'-' * 40}
+"""
+    
+    if len(positive_diffs) > len(differences) * 0.7:
+        report += "• HIGH SCALING SENSITIVITY: Most configurations show significant penalties with larger algorithms\n"
+        report += "• Consider using KYBER_LEVEL1 for resource-constrained environments\n"
+        report += "• Evaluate if the security benefits of higher levels justify the resource costs\n"
+    elif len(positive_diffs) > len(differences) * 0.3:
+        report += "• MODERATE SCALING SENSITIVITY: Some configurations affected by algorithm size\n"
+        report += "• Consider configuration-specific algorithm selection\n"
+    else:
+        report += "• LOW SCALING SENSITIVITY: Algorithm size has minimal resource impact\n"
+        report += "• Higher security levels can be used without significant resource penalty\n"
+    
+    if len(negative_diffs) > 0:
+        report += f"• OPTIMIZATION EFFECTS: {len(negative_diffs)} configurations show benefits with larger algorithms\n"
+        report += "• This may indicate implementation optimizations or measurement artifacts\n"
+    
+    return report
+
+def analyze_data_structure(all_data, metric='Energy (Wh)', scenario='A'):
+    """
+    Analyze how the data is structured to understand the grouping needed.
+    """
+    print("=== DATA STRUCTURE ANALYSIS ===")
+    
+    # Sample a few records to understand structure
+    sample_records = [item for item in all_data[:10] if item['metric'] == metric and item['scenario'] == scenario]
+    
+    print("Sample records:")
+    for i, record in enumerate(sample_records):
+        print(f"Record {i}:")
+        for key, value in record.items():
+            print(f"  {key}: {value}")
+        print()
+    
+    # Analyze unique combinations
+    combinations = set()
+    algorithms = set()
+    networks = set()
+    modes = set()
+    certs = set()
+    
+    for item in all_data:
+        if item['metric'] == metric and item['scenario'] == scenario:
+            combinations.add((item['network'], item['mode'], item['cert'], item['alg']))
+            if item['alg'] is not None:
+                algorithms.add(item['alg'])
+            if item['network'] is not None:
+                networks.add(item['network'])
+            if item['mode'] is not None:
+                modes.add(item['mode'])
+            if item['cert'] is not None:
+                certs.add(item['cert'])
+    
+    print(f"Total combinations found: {len(combinations)}")
+    print(f"Networks: {sorted(networks)}")
+    print(f"Algorithms: {sorted(algorithms)}")
+    print(f"Modes: {sorted(modes)}")
+    print(f"Certificates: {sorted([c for c in certs if c])}")
+    print()
+    
+    # Show structure by mode
+    print("=== STRUCTURE BY MODE ===")
+    for mode in sorted(modes):
+        print(f"\n{mode.upper()} mode:")
+        mode_combinations = [(net, cert, alg) for net, m, cert, alg in combinations if m == mode]
+        mode_combinations.sort()
+        
+        for net, cert, alg in mode_combinations[:25]:  # Show first 25
+            print(f"  {net} + {cert or 'N/A'} + {alg}")
+        if len(mode_combinations) > 25:
+            print(f"  ... and {len(mode_combinations) - 25} more")
 
 # MAIN
 if __name__ == '__main__':
@@ -2155,17 +3238,45 @@ if __name__ == '__main__':
         pass
             
     # Spider plots
+    #for scen in SCENARIOS:
+    #    for norm in ['log']:
+    #        create_spider_plot(
+    #        all_data,
+    #            metrics=['cpu_cycles', 'Energy (Wh)', 'Power (W)', 'Max Power (W)', 'bytes_sent', 'bytes_received'],
+    #            scenario=scen,
+    #            security_modes=['psk'],
+    #            algorithms=['KYBER_LEVEL1'],  # Specify algorithm(s)
+    #            certificates=['RSA_2048', 'DILITHIUM_LEVEL2', 'FALCON_LEVEL1'],    # Specify certificate(s)
+    #            normalization=norm,
+    #            output_dir=OUT_DIR
+    #        )
+            
     for scen in SCENARIOS:
-        for norm in ['min_max', 'max_percent', 'z_score', 'baseline_relative']:
-            create_spider_plot(
-            all_data,
-                metrics=['duration', 'cpu_cycles', 'Energy (Wh)', 'Power (W)', 'Max Power (W)', 'bytes_sent', 'bytes_received' ,'frames_sent', 'frames_received'],
-                scenario=scen,
-                security_modes=['psk'],
-                algorithms=['KYBER_LEVEL1'],  # Specify algorithm(s)
-                certificates=['RSA_2048', 'DILITHIUM_LEVEL2', 'FALCON_LEVEL1'],    # Specify certificate(s)
-                normalization=norm,
-                output_dir=OUT_DIR
-            )
+    #    create_network_difference_plot(
+    #        all_data=all_data,
+    #        metric='Energy (Wh)',
+    #        scenario=scen,
+    #        sample_size=15,
+    #        comparison_networks=['smarthome'],
+    #        security_modes=['pki','psk','nosec'],
+    #        #algorithms=['KYBER_LEVEL1'],
+    #        alpha=0.05,
+    #        output_dir=OUT_DIR
+    #    )
+        
+        create_algorithm_difference_plot(
+            all_data=all_data,
+            metric='Energy (Wh)',
+            scenario=scen,
+            baseline_algorithm='KYBER_LEVEL1',
+            comparison_algorithms=['KYBER_LEVEL3'],
+            sample_size=15,
+            networks=['smarthome'],
+            security_modes=['pki', 'psk'],
+            #certificates=['RSA_2048', 'DILITHIUM_LEVEL2'],  # Subset for clarity
+            output_dir=OUT_DIR
+        )
+    
+    #analyze_data_structure(all_data=all_data, metric='Energy (Wh)', scenario='A')
     
     print("All plots generated successfully!")
