@@ -206,14 +206,41 @@ class BenchmarkData:
         self.min_values = {}
         self.max_values = {}
     
-    def load_time_data(self, time_file: str) -> bool:
-        """Load timing data from time_output.txt file"""
+    def load_time_data(self, time_file: str, config_filename: str = "") -> bool:
+        """
+        Load timing data from time_output.txt file.
+        Enhanced with observer mode filtering support.
+        """
         try:
             with open(time_file, 'r') as file:
                 times = [float(line.strip()) for line in file if line.strip()]
+                
+                # Check if this is an observer mode experiment (pattern _s#_)
+                import re
+                observer_match = re.search(r'_s(\d+)_', config_filename)
+                
+                if observer_match:
+                    # Observer mode detected - filter durations
+                    observer_time = int(observer_match.group(1))
+                    min_duration = observer_time * 0.9  # 90% threshold
+                    
+                    original_count = len(times)
+                    times = [t for t in times if t >= min_duration]
+                    
+                    # Log filtering results
+                    if len(times) != original_count:
+                        removed_count = original_count - len(times)
+                        print(f"Observer mode filtering: {original_count} -> {len(times)} durations "
+                              f"(removed {removed_count} update noise < {min_duration:.1f}s)")
+                    
+                    if not times:
+                        print(f"Warning: No observer durations found after filtering")
+                        return False
+                
                 self.raw_data['times'] = times
                 self.metrics['duration'] = np.mean(times)
                 return True
+                
         except Exception as e:
             print(f"Error reading time file {time_file}: {e}")
             return False
@@ -534,10 +561,12 @@ class BenchmarkDataManager:
         """Process a single benchmark run from various input files"""
         benchmark = BenchmarkData(config)
         
+        config_filename = os.path.basename(stats_file) if stats_file else ""
+        
         # Load data from available sources
         success = True
         if time_file and os.path.exists(time_file):
-            success = success and benchmark.load_time_data(time_file)
+            success = success and benchmark.load_time_data(time_file, config_filename)
         
         if cycles_file and os.path.exists(cycles_file):
             success = success and benchmark.load_cycles_data(cycles_file)
