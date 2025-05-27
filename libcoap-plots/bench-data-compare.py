@@ -1420,44 +1420,78 @@ def create_spider_plot(all_data, metrics, scenario, security_modes=['pki', 'psk'
        plt.close()
        return None
    
+def is_discrete_metric(metric):
+    """Check if a metric is discrete (count data)"""
+    return metric in METRIC_DSC
 
+def is_continuous_metric(metric):
+    """Check if a metric is continuous"""
+    return metric in METRIC_CTS
     
-def calculate_network_difference_statistics(comparison_data, baseline_data, config_key, comp_network, baseline_network):
+def calculate_network_difference_statistics(comparison_data, baseline_data, config_key, comp_network, baseline_network, metric_type='continuous'):
     """
-    Calculate statistical difference between networks with enhanced sample size handling.
+    Calculate statistical difference between networks with proper handling for metric types.
     
     Args:
-        comparison_data (dict): Data from comparison network 
-        baseline_data (dict): Data from baseline network
+        comparison_data (dict): Data from comparison network
+        baseline_data (dict): Data from baseline network  
         config_key (tuple): Configuration identifier
         comp_network (str): Name of comparison network
         baseline_network (str): Name of baseline network
+        metric_type (str): 'continuous' or 'discrete'
         
     Returns:
-        dict: Statistical difference analysis with sample size handling
+        dict: Statistical difference analysis appropriate for metric type
     """
     
     try:
         alg, cert, mode = config_key
         
-        # Extract values with sample size information (backward compatible)
+        if metric_type == 'discrete':
+            return calculate_discrete_difference_statistics(
+                comparison_data, baseline_data, config_key, comp_network, baseline_network
+            )
+        else:
+            return calculate_continuous_difference_statistics(
+                comparison_data, baseline_data, config_key, comp_network, baseline_network
+            )
+        
+    except (ValueError, TypeError, KeyError) as e:
+        print(f"Error calculating difference statistics for {config_key}: {e}")
+        return None
+
+def calculate_continuous_difference_statistics(comparison_data, baseline_data, config_key, comp_network, baseline_network):
+    """
+    Calculate statistical difference for continuous metrics using t-tests.
+    """
+    
+    try:
+        alg, cert, mode = config_key
+        
+        # Extract values with sample size information
         mean_comp = float(comparison_data['mean'])
         std_comp = float(comparison_data['std'])
-        n_comp = comparison_data.get('actual_sample_size', 15)  # Default to 15 for backward compatibility
-        
         mean_base = float(baseline_data['mean'])
         std_base = float(baseline_data['std'])
-        n_base = baseline_data.get('actual_sample_size', 15)  # Default to 15 for backward compatibility
+        
+        # Sample sizes (number of iterations)
+        iterations_comp = comparison_data.get('actual_sample_size', 15)
+        iterations_base = baseline_data.get('actual_sample_size', 15)
+        
+        # For system-wide metrics (Energy, Power, cpu_cycles): n = iterations
+        # For per-client metrics (duration): n = iterations (using aggregated iteration means)
+        n_comp = iterations_comp
+        n_base = iterations_base
         
         # Calculate difference
         mean_diff = mean_comp - mean_base
         
-        # Enhanced error propagation considering different sample sizes
+        # Standard error of the difference between means
         se_comp = std_comp / np.sqrt(n_comp) if n_comp > 0 else 0
         se_base = std_base / np.sqrt(n_base) if n_base > 0 else 0
         se_diff = np.sqrt(se_comp**2 + se_base**2)
         
-        # Use Welch's t-test for unequal sample sizes (backward compatible)
+        # Welch's t-test for unequal sample sizes/variances
         if se_diff > 0:
             t_stat = mean_diff / se_diff
             
@@ -1499,19 +1533,7 @@ def calculate_network_difference_statistics(comparison_data, baseline_data, conf
             cohens_d = mean_diff / pooled_std if pooled_std > 0 else 0
         
         # Create readable configuration label
-        if mode == 'nosec':
-            config_label = 'NoSec'
-        elif mode == 'psk':
-            config_label = f'{alg} (PSK)' if alg else 'PSK'
-        elif mode == 'pki':
-            if alg and cert:
-                alg_short = alg.replace('KYBER_LEVEL', 'K').replace('_', '')
-                cert_short = cert.replace('DILITHIUM_LEVEL', 'D').replace('FALCON_LEVEL', 'F').replace('_', '')
-                config_label = f'{alg_short}+{cert_short}'
-            else:
-                config_label = 'PKI'
-        else:
-            config_label = f'{alg or ""}+{cert or ""}'
+        config_label = create_config_label(alg, cert, mode)
         
         return {
             'config_key': config_key,
@@ -1535,12 +1557,134 @@ def calculate_network_difference_statistics(comparison_data, baseline_data, conf
             'std_baseline': std_base,
             'n_comparison': n_comp,
             'n_baseline': n_base,
-            'sample_size_warning': n_comp != n_base  # NEW: Flag for different sample sizes
+            'sample_size_warning': n_comp != n_base,
+            'test_type': 'welch_t_test',
+            'metric_type': 'continuous'
         }
         
-    except (ValueError, TypeError, KeyError) as e:
-        print(f"Error calculating difference statistics for {config_key}: {e}")
+    except Exception as e:
+        print(f"Error in continuous difference calculation for {config_key}: {e}")
         return None
+
+def calculate_discrete_difference_statistics(comparison_data, baseline_data, config_key, comp_network, baseline_network):
+    """
+    Calculate statistical difference for discrete count metrics using non-parametric tests.
+    """
+    
+    try:
+        alg, cert, mode = config_key
+        
+        # For discrete metrics, use mode as central tendency and range as variability
+        mode_comp = comparison_data.get('mode_val', comparison_data['mean'])  # Fallback to mean if mode not available
+        mode_base = baseline_data.get('mode_val', baseline_data['mean'])
+        
+        range_comp = comparison_data.get('range', comparison_data.get('std', 0))
+        range_base = baseline_data.get('range', baseline_data.get('std', 0))
+        
+        min_comp = comparison_data.get('min', mode_comp)
+        max_comp = comparison_data.get('max', mode_comp)
+        min_base = baseline_data.get('min', mode_base)
+        max_base = baseline_data.get('max', mode_base)
+        
+        # Sample sizes (number of iterations)
+        n_comp = comparison_data.get('actual_sample_size', 15)
+        n_base = baseline_data.get('actual_sample_size', 15)
+        
+        # Calculate difference in modes
+        mode_diff = mode_comp - mode_base
+        
+        # For discrete data, we'll use a simplified approach
+        # Ideally, you'd have the raw iteration values to do proper non-parametric tests
+        # Here we'll estimate based on available summary statistics
+        
+        # Estimate standard error using range (rough approximation)
+        # For discrete uniform distribution: std ≈ range/√12
+        # SE ≈ std/√n
+        est_std_comp = range_comp / np.sqrt(12) if range_comp > 0 else 1
+        est_std_base = range_base / np.sqrt(12) if range_base > 0 else 1
+        
+        se_comp_est = est_std_comp / np.sqrt(n_comp) if n_comp > 0 else 0
+        se_base_est = est_std_base / np.sqrt(n_base) if n_base > 0 else 0
+        se_diff_est = np.sqrt(se_comp_est**2 + se_base_est**2)
+        
+        # Approximate z-test (since we don't have the raw data for proper non-parametric tests)
+        if se_diff_est > 0:
+            z_stat = mode_diff / se_diff_est
+            p_value = 2 * (1 - stats.norm.cdf(abs(z_stat)))  # Normal approximation
+        else:
+            z_stat = 0
+            p_value = 1.0
+        
+        # Confidence interval (approximate)
+        if se_diff_est > 0:
+            z_critical = 1.96  # 95% CI
+            margin_error = z_critical * se_diff_est
+            ci_lower = mode_diff - margin_error
+            ci_upper = mode_diff + margin_error
+        else:
+            ci_lower = mode_diff
+            ci_upper = mode_diff
+        
+        # Effect size for discrete data: relative difference
+        relative_effect = (mode_diff / mode_base) if mode_base != 0 else 0
+        
+        # Create readable configuration label
+        config_label = create_config_label(alg, cert, mode)
+        
+        return {
+            'config_key': config_key,
+            'alg': alg,
+            'cert': cert,
+            'mode': mode,
+            'config_label': config_label,
+            'comparison_network': comp_network,
+            'baseline_network': baseline_network,
+            'mean_diff': mode_diff,  # Using mode difference as "mean_diff" for interface consistency
+            'se_diff': se_diff_est,
+            'ci_lower': ci_lower,
+            'ci_upper': ci_upper,
+            't_statistic': z_stat,  # Actually z-statistic but keeping interface consistent
+            'p_value': p_value,
+            'degrees_freedom': float('inf'),  # Normal approximation
+            'cohens_d': relative_effect,  # Actually relative effect, not Cohen's d
+            'mean_comparison': mode_comp,
+            'mean_baseline': mode_base,
+            'std_comparison': range_comp,
+            'std_baseline': range_base,
+            'range_comparison': range_comp,
+            'range_baseline': range_base,
+            'min_comparison': min_comp,
+            'max_comparison': max_comp,
+            'min_baseline': min_base,
+            'max_baseline': max_base,
+            'n_comparison': n_comp,
+            'n_baseline': n_base,
+            'sample_size_warning': n_comp != n_base,
+            'test_type': 'approximate_z_test',
+            'metric_type': 'discrete',
+            'note': 'Approximate test - ideally needs raw iteration data for proper non-parametric analysis'
+        }
+        
+    except Exception as e:
+        print(f"Error in discrete difference calculation for {config_key}: {e}")
+        return None
+    
+def create_config_label(alg, cert, mode):
+    """Create readable configuration label"""
+    if mode == 'nosec':
+        return 'NoSec'
+    elif mode == 'psk':
+        return f'{alg} (PSK)' if alg else 'PSK'
+    elif mode == 'pki':
+        if alg and cert:
+            alg_short = alg.replace('KYBER_LEVEL', 'K').replace('_', '')
+            cert_short = cert.replace('DILITHIUM_LEVEL', 'D').replace('FALCON_LEVEL', 'F').replace('_', '')
+            return f'{alg_short}+{cert_short}'
+        else:
+            return 'PKI'
+    else:
+        return f'{alg or ""}+{cert or ""}'
+
     
 def create_network_difference_plot(all_data, metric, scenario, 
                                 baseline_network='fiducial',
@@ -1549,22 +1693,7 @@ def create_network_difference_plot(all_data, metric, scenario,
                                 algorithms=None, certificates=None,
                                 alpha=0.05, output_dir='./bench-plots-compare'):
     """
-    Create network difference plot that handles both original and filtered data.
-    
-    Args:
-        all_data (list): The benchmark data loaded from load_all()
-        metric (str): Metric to analyze
-        scenario (str): Scenario identifier 
-        baseline_network (str): Network to use as baseline
-        comparison_networks (list): Networks to compare against baseline
-        security_modes (list): Security modes to include
-        algorithms (list): Algorithms to include
-        certificates (list): Certificate types to include
-        alpha (float): Significance level
-        output_dir (str): Directory to save plots
-        
-    Returns:
-        dict: Results including difference statistics and file paths
+    UPDATED: Create network difference plot with proper metric type handling.
     """
     
     # Set defaults
@@ -1576,6 +1705,17 @@ def create_network_difference_plot(all_data, metric, scenario,
         certificates = ['RSA_2048', 'EC_P256', 'EC_ED25519', 
                        'DILITHIUM_LEVEL2', 'DILITHIUM_LEVEL3', 'DILITHIUM_LEVEL5',
                        'FALCON_LEVEL1', 'FALCON_LEVEL5']
+    
+    # Detect metric type
+    if is_discrete_metric(metric):
+        metric_type = 'discrete'
+        print(f"Analyzing discrete metric: {metric} (using mode-based statistics)")
+    elif is_continuous_metric(metric):
+        metric_type = 'continuous'
+        print(f"Analyzing continuous metric: {metric} (using mean-based statistics)")
+    else:
+        print(f"Warning: Unknown metric type for {metric}, assuming continuous")
+        metric_type = 'continuous'
     
     # Detect if filtered data is being used
     use_filtered = any(item.get('is_filtered', False) for item in all_data)
@@ -1602,12 +1742,16 @@ def create_network_difference_plot(all_data, metric, scenario,
         if config_key not in data_by_config:
             data_by_config[config_key] = {}
         
-        # Store data by network with sample size info
+        # Store data by network with all relevant fields
         data_by_config[config_key][item['network']] = {
             'mean': item['mean'],
             'std': item['std'],
-            'actual_sample_size': item.get('actual_sample_size', 15),  # Backward compatible
-            'is_filtered': item.get('is_filtered', False)              # Backward compatible
+            'mode_val': item.get('mode_val'),
+            'range': item.get('range'),
+            'min': item.get('min'),
+            'max': item.get('max'),
+            'actual_sample_size': item.get('actual_sample_size', 15),
+            'is_filtered': item.get('is_filtered', False)
         }
     
     # Calculate differences for each comparison network
@@ -1639,15 +1783,12 @@ def create_network_difference_plot(all_data, metric, scenario,
             baseline_data = network_data[baseline_network]
             comparison_data = network_data[comp_network]
             
-            # Calculate difference with enhanced error propagation
+            # Calculate difference with appropriate method for metric type
             diff_stats = calculate_network_difference_statistics(
-                comparison_data, baseline_data, config_key, comp_network, baseline_network
+                comparison_data, baseline_data, config_key, comp_network, baseline_network, metric_type
             )
             
             if diff_stats:
-                # Add the missing fields for sorting
-                diff_stats['alg'] = alg
-                diff_stats['cert'] = cert
                 all_differences.append(diff_stats)
                 if diff_stats.get('sample_size_warning', False):
                     sample_size_warnings.append({
@@ -1682,25 +1823,33 @@ def create_network_difference_plot(all_data, metric, scenario,
     p_values = [d['p_value'] for d in all_differences]
     labels = [d['config_label'] for d in all_differences]
     sample_warnings = [d.get('sample_size_warning', False) for d in all_differences]
+    test_types = [d.get('test_type', 'unknown') for d in all_differences]
     
-    # Color based on statistical significance and sample size warnings
+    # Color based on statistical significance and metric type
     colors = []
-    for diff, p_val, has_warning in zip(differences, p_values, sample_warnings):
+    for diff, p_val, test_type in zip(differences, p_values, test_types):
         if p_val < alpha:
-            base_color = '#d32f2f' if diff > 0 else '#1976d2'
+            if test_type == 'approximate_z_test':
+                # Different colors for discrete metrics
+                base_color = '#ff6b35' if diff > 0 else '#1e88e5'  # Orange/blue for discrete
+            else:
+                base_color = '#d32f2f' if diff > 0 else '#1976d2'  # Red/blue for continuous
             colors.append(base_color)
         else:
-            colors.append('#757575')
+            colors.append('#757575')  # Gray for non-significant
     
     # Create bar plot
     bars = ax.bar(positions, differences, color=colors, alpha=0.8, edgecolor='black', linewidth=0.5)
     
-    # Add different edge styles for sample size warnings
-    for i, (bar, has_warning) in enumerate(zip(bars, sample_warnings)):
+    # Add different edge styles for sample size warnings and metric types
+    for i, (bar, has_warning, test_type) in enumerate(zip(bars, sample_warnings, test_types)):
         if has_warning:
             bar.set_linestyle('--')
             bar.set_linewidth(2)
             bar.set_alpha(0.6)
+        if test_type == 'approximate_z_test':
+            # Add pattern for discrete metrics
+            bar.set_hatch('//')
     
     # Add confidence intervals
     err_lower = np.array(differences) - np.array(ci_lower)
@@ -1735,14 +1884,28 @@ def create_network_difference_plot(all_data, metric, scenario,
     title += f'{format_labels(metric)} (Scenario {scenario})'
     if use_filtered:
         title += ' - Using Filtered Data'
+    if metric_type == 'discrete':
+        title += ' - Mode-based Analysis'
     ax.set_title(title, fontsize=14, pad=20)
     
     # Enhanced legend
-    legend_elements = [
-        plt.Rectangle((0,0),1,1, color='#d32f2f', alpha=0.8, label=f'Significant increase (p $<$ {alpha})'),
-        plt.Rectangle((0,0),1,1, color='#1976d2', alpha=0.8, label=f'Significant decrease (p $<$ {alpha})'),
-        plt.Rectangle((0,0),1,1, color='#757575', alpha=0.8, label=f'No significant difference (p $\\geq$ {alpha})'),
-    ]
+    legend_elements = []
+    
+    if metric_type == 'continuous':
+        legend_elements.extend([
+            plt.Rectangle((0,0),1,1, color='#d32f2f', alpha=0.8, label=f'Significant increase (p $<$ {alpha})'),
+            plt.Rectangle((0,0),1,1, color='#1976d2', alpha=0.8, label=f'Significant decrease (p $<$ {alpha})'),
+            plt.Rectangle((0,0),1,1, color='#757575', alpha=0.8, label=f'No significant difference (p $\\geq$ {alpha})'),
+        ])
+    else:
+        legend_elements.extend([
+            plt.Rectangle((0,0),1,1, color='#ff6b35', alpha=0.8, hatch='//', 
+                         label=f'Significant increase - discrete (p $<$ {alpha})'),
+            plt.Rectangle((0,0),1,1, color='#1e88e5', alpha=0.8, hatch='//', 
+                         label=f'Significant decrease - discrete (p $<$ {alpha})'),
+            plt.Rectangle((0,0),1,1, color='#757575', alpha=0.8, hatch='//', 
+                         label=f'No significant difference - discrete (p $\\geq$ {alpha})'),
+        ])
     
     if sample_size_warnings:
         legend_elements.append(
@@ -1764,7 +1927,8 @@ def create_network_difference_plot(all_data, metric, scenario,
     clean_metric = metric.replace(' ', '_').replace('(', '').replace(')', '')
     comp_str = '_'.join(comparison_networks)
     filtered_suffix = '_filtered' if use_filtered else ''
-    filename = f"{output_dir}/network_difference_{clean_metric}_{scenario}_{comp_str}_vs_{baseline_network}{filtered_suffix}.pdf"
+    metric_suffix = '_discrete' if metric_type == 'discrete' else '_continuous'
+    filename = f"{output_dir}/network_difference_{clean_metric}_{scenario}_{comp_str}_vs_{baseline_network}{filtered_suffix}{metric_suffix}.pdf"
     
     # Save plot
     plt.savefig(filename, bbox_inches='tight')
@@ -1772,7 +1936,7 @@ def create_network_difference_plot(all_data, metric, scenario,
     
     # Generate statistical report
     report = generate_network_difference_report(
-        all_differences, metric, scenario, baseline_network, comparison_networks, alpha, use_filtered
+        all_differences, metric, scenario, baseline_network, comparison_networks, alpha, use_filtered, metric_type
     )
     
     # Save report
@@ -1793,22 +1957,24 @@ def create_network_difference_plot(all_data, metric, scenario,
         'total_comparisons': len(all_differences),
         'sample_size_warnings': sample_size_warnings,
         'using_filtered_data': use_filtered,
+        'metric_type': metric_type,
         'alpha': alpha
     }
 
 def generate_network_difference_report(differences, metric, scenario, baseline_network, 
-                                     comparison_networks, alpha, use_filtered):
-    """Generate comprehensive text report for network difference analysis."""
+                                     comparison_networks, alpha, use_filtered, metric_type='continuous'):
+    """Generate comprehensive text report for network difference analysis with metric type awareness."""
     
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
     report = f"""NETWORK DIFFERENCE ANALYSIS REPORT
 {'=' * 70}
-Metric: {format_labels(metric)}
+Metric: {format_labels(metric)} ({metric_type.upper()} DATA)
 Scenario: {scenario}
 Baseline Network: {baseline_network}
 Comparison Networks: {', '.join(comparison_networks)}
 Data Type: {'Filtered (outliers removed)' if use_filtered else 'Original'}
+Statistical Method: {'Mode-based approximate tests' if metric_type == 'discrete' else 'T-tests on means'}
 Significance Level: α = {alpha}
 Generated: {timestamp}
 
@@ -1827,6 +1993,18 @@ Significant differences: {len(significant_diffs)} ({len(significant_diffs)/len(d
   - Network benefits (negative): {len(negative_diffs)}
 Non-significant differences: {len(differences) - len(significant_diffs)}
 Configurations with different sample sizes: {len(sample_warnings)}
+
+"""
+    
+    # Metric-specific interpretation
+    if metric_type == 'discrete':
+        report += f"""DISCRETE METRIC ANALYSIS NOTES
+{'-' * 40}
+• This analysis uses MODE as the central tendency measure
+• Variability is measured using RANGE rather than standard deviation
+• Statistical tests are approximate due to discrete nature of count data
+• Effect sizes represent relative differences in typical values (modes)
+• For definitive results, consider collecting raw iteration data for proper non-parametric tests
 
 """
     
@@ -1853,58 +2031,92 @@ This typically occurs when filtered data is used and different networks had diff
         report += "\n"
     
     if positive_diffs:
-        report += f"""SIGNIFICANT NETWORK PENALTIES (p < {alpha})
+        if metric_type == 'discrete':
+            report += f"""SIGNIFICANT NETWORK PENALTIES (p < {alpha})
 {'-' * 60}
-These configurations show significantly higher resource consumption
+These configurations show significantly higher MODE values
+under network stress compared to baseline conditions.
+
+"""
+        else:
+            report += f"""SIGNIFICANT NETWORK PENALTIES (p < {alpha})
+{'-' * 60}
+These configurations show significantly higher mean values
 under network stress compared to baseline conditions.
 
 """
         
         for diff in sorted(positive_diffs, key=lambda x: x['mean_diff'], reverse=True):
-            effect_size = interpret_cohens_d(diff['cohens_d'])
+            if metric_type == 'discrete':
+                effect_desc = f"Relative effect: {diff['cohens_d']:.3f}"
+            else:
+                effect_size = interpret_cohens_d(diff['cohens_d'])
+                effect_desc = f"Effect size (Cohen's d): {diff['cohens_d']:.3f} ({effect_size})"
+            
             sample_info = ""
             if diff.get('sample_size_warning', False):
                 n_base = diff.get('n_baseline', 15)
                 n_comp = diff.get('n_comparison', 15)
                 sample_info = f" (n_base={n_base}, n_comp={n_comp})"
+            
+            central_measure = "Mode" if metric_type == 'discrete' else "Mean"
+            variability_measure = "Range" if metric_type == 'discrete' else "Std"
+            test_stat_name = "z-statistic" if metric_type == 'discrete' else "t-statistic"
             
             report += f"""
 {diff['config_label']} ({diff['comparison_network']} vs {diff['baseline_network']}){sample_info}:
   Network penalty: {diff['mean_diff']:.4f} ± {diff.get('se_diff', 0):.4f}
   95% CI: [{diff['ci_lower']:.4f}, {diff['ci_upper']:.4f}]
-  t-statistic: {diff['t_statistic']:.3f} (df = {diff.get('degrees_freedom', 0):.1f})
+  {test_stat_name}: {diff['t_statistic']:.3f} (df = {diff.get('degrees_freedom', 0):.1f})
   p-value: {diff['p_value']:.6f}
-  Effect size (Cohen's d): {diff['cohens_d']:.3f} ({effect_size})
-  Baseline: {diff['mean_baseline']:.4f} ± {diff.get('std_baseline', 0):.4f}
-  Comparison: {diff['mean_comparison']:.4f} ± {diff.get('std_comparison', 0):.4f}
+  {effect_desc}
+  Baseline {central_measure}: {diff['mean_baseline']:.4f} ± {diff.get('std_baseline', 0):.4f}
+  Comparison {central_measure}: {diff['mean_comparison']:.4f} ± {diff.get('std_comparison', 0):.4f}
 """
     
     if negative_diffs:
-        report += f"""
+        if metric_type == 'discrete':
+            report += f"""
 SIGNIFICANT NETWORK BENEFITS (p < {alpha})
 {'-' * 60}
-These configurations show significantly lower resource consumption
+These configurations show significantly lower MODE values
+under network stress (unexpected but possible).
+
+"""
+        else:
+            report += f"""
+SIGNIFICANT NETWORK BENEFITS (p < {alpha})
+{'-' * 60}
+These configurations show significantly lower mean values
 under network stress (unexpected but possible).
 
 """
         
         for diff in sorted(negative_diffs, key=lambda x: x['mean_diff']):
-            effect_size = interpret_cohens_d(diff['cohens_d'])
+            if metric_type == 'discrete':
+                effect_desc = f"Relative effect: {diff['cohens_d']:.3f}"
+            else:
+                effect_size = interpret_cohens_d(diff['cohens_d'])
+                effect_desc = f"Effect size (Cohen's d): {diff['cohens_d']:.3f} ({effect_size})"
+                
             sample_info = ""
             if diff.get('sample_size_warning', False):
                 n_base = diff.get('n_baseline', 15)
                 n_comp = diff.get('n_comparison', 15)
                 sample_info = f" (n_base={n_base}, n_comp={n_comp})"
             
+            central_measure = "Mode" if metric_type == 'discrete' else "Mean"
+            test_stat_name = "z-statistic" if metric_type == 'discrete' else "t-statistic"
+            
             report += f"""
 {diff['config_label']} ({diff['comparison_network']} vs {diff['baseline_network']}){sample_info}:
   Network benefit: {diff['mean_diff']:.4f} ± {diff.get('se_diff', 0):.4f}
   95% CI: [{diff['ci_lower']:.4f}, {diff['ci_upper']:.4f}]
-  t-statistic: {diff['t_statistic']:.3f} (df = {diff.get('degrees_freedom', 0):.1f})
+  {test_stat_name}: {diff['t_statistic']:.3f} (df = {diff.get('degrees_freedom', 0):.1f})
   p-value: {diff['p_value']:.6f}
-  Effect size (Cohen's d): {diff['cohens_d']:.3f} ({effect_size})
-  Baseline: {diff['mean_baseline']:.4f} ± {diff.get('std_baseline', 0):.4f}
-  Comparison: {diff['mean_comparison']:.4f} ± {diff.get('std_comparison', 0):.4f}
+  {effect_desc}
+  Baseline {central_measure}: {diff['mean_baseline']:.4f} ± {diff.get('std_baseline', 0):.4f}
+  Comparison {central_measure}: {diff['mean_comparison']:.4f} ± {diff.get('std_comparison', 0):.4f}
 """
     
     if not significant_diffs:
@@ -1916,12 +2128,30 @@ between baseline and network conditions.
     
     report += f"""
 METHODOLOGICAL NOTES
-{'-' * 40}
+{'-' * 40}"""
+    
+    if metric_type == 'discrete':
+        report += f"""
+• DISCRETE DATA ANALYSIS: Count/discrete metrics analyzed using mode-based statistics
+• Statistical Test: Approximate z-test based on estimated standard errors from range
+• Central Tendency: Mode (most frequent value) rather than arithmetic mean
+• Variability: Range and min/max values rather than standard deviation
+• Effect Size: Relative difference in modes rather than Cohen's d
+• LIMITATION: Ideal analysis would use raw iteration data for proper non-parametric tests
+• Current approach provides reasonable approximation for exploratory analysis
+"""
+    else:
+        report += f"""
+• CONTINUOUS DATA ANALYSIS: Standard parametric statistical approach
 • Statistical Test: Welch's t-test (handles unequal sample sizes and variances)
 • Error Propagation: SE_diff = √(SE_baseline² + SE_comparison²)
 • Degrees of Freedom: Welch's approximation for unequal samples
 • Effect Size: Cohen's d using pooled standard deviation
+"""
+    
+    report += f"""
 • Data Type: {'Filtered dataset (outliers removed)' if use_filtered else 'Original dataset'}
+• Sample Size: Number of iterations (15 originally, may be reduced after filtering)
 
 RECOMMENDATIONS
 {'-' * 40}
@@ -1930,7 +2160,7 @@ RECOMMENDATIONS
     if use_filtered and sample_warnings:
         report += f"""• UNEQUAL SAMPLE SIZES: {len(sample_warnings)} configurations have different sample sizes
   - This is expected when using filtered data
-  - Welch's t-test properly accounts for unequal sample sizes
+  - Statistical tests properly account for unequal sample sizes
   - Results remain statistically valid
 
 """
@@ -1941,6 +2171,20 @@ RECOMMENDATIONS
         report += "• MODERATE NETWORK SENSITIVITY: Some configurations affected by network conditions\n"
     else:
         report += "• LOW NETWORK SENSITIVITY: Configurations appear network-resilient\n"
+        if metric_type == 'discrete':
+            report += "• For discrete metrics: Consider if count differences are practically meaningful\n"
+        report += "• Consider: Are effect sizes meaningful even if not statistically significant?\n"
+    
+    if metric_type == 'discrete':
+        report += f"""
+DISCRETE METRICS CONSIDERATIONS
+{'-' * 40}
+• Count data often has lower variability than continuous measurements
+• Small absolute differences in counts may still be practically significant
+• Consider the context: Is a difference of 2-3 frames/bytes meaningful for your application?
+• Mode-based analysis focuses on typical behavior rather than average behavior
+• Outlier iterations have less influence on mode than on mean
+"""
     
     if use_filtered:
         report += f"""
@@ -1948,8 +2192,9 @@ FILTERED DATA CONSIDERATIONS
 {'-' * 40}
 • Outlier removal may have affected sample sizes differently across networks
 • Baseline network (fiducial) typically has fewer outliers than stressed networks
-• Statistical tests account for unequal sample sizes using Welch's method
+• Statistical tests account for unequal sample sizes using appropriate methods
 • Results represent typical behavior after removing extreme outliers
+• Consider reporting both filtered and unfiltered results for transparency
 """
     
     return report
@@ -1974,7 +2219,7 @@ def create_algorithm_difference_plot(all_data, metric, scenario,
                                     certificates=None,
                                     alpha=0.05, output_dir='./bench-plots-compare'):
     """
-    Create algorithm difference plot that handles both original and filtered data.
+    UPDATED: Create algorithm difference plot with proper metric type handling.
     """
     
     # Set defaults
@@ -1986,6 +2231,17 @@ def create_algorithm_difference_plot(all_data, metric, scenario,
         certificates = ['RSA_2048', 'EC_P256', 'EC_ED25519', 
                        'DILITHIUM_LEVEL2', 'DILITHIUM_LEVEL3', 'DILITHIUM_LEVEL5',
                        'FALCON_LEVEL1', 'FALCON_LEVEL5']
+    
+    # Detect metric type
+    if is_discrete_metric(metric):
+        metric_type = 'discrete'
+        print(f"Analyzing discrete metric: {metric} (using mode-based statistics)")
+    elif is_continuous_metric(metric):
+        metric_type = 'continuous' 
+        print(f"Analyzing continuous metric: {metric} (using mean-based statistics)")
+    else:
+        print(f"Warning: Unknown metric type for {metric}, assuming continuous")
+        metric_type = 'continuous'
     
     # Detect if filtered data is being used
     use_filtered = any(item.get('is_filtered', False) for item in all_data)
@@ -2019,6 +2275,10 @@ def create_algorithm_difference_plot(all_data, metric, scenario,
         configurations[config_key][item['alg']] = {
             'mean': item['mean'],
             'std': item['std'],
+            'mode_val': item.get('mode_val'),
+            'range': item.get('range'),
+            'min': item.get('min'),
+            'max': item.get('max'),
             'actual_sample_size': item.get('actual_sample_size', 15),
             'is_filtered': item.get('is_filtered', False)
         }
@@ -2039,16 +2299,16 @@ def create_algorithm_difference_plot(all_data, metric, scenario,
                 
             comparison_data = algorithm_data[comp_alg]
             
-            diff_stats = calculate_network_difference_statistics(
-                comparison_data, baseline_data, config_key, comp_alg, baseline_algorithm
+            # Use the updated difference calculation with metric type
+            diff_stats = calculate_algorithm_difference_statistics(
+                comparison_data, baseline_data, config_key, comp_alg, baseline_algorithm, metric_type
             )
             
             if diff_stats:
-                # Add the missing fields for sorting
-                diff_stats['network'] = config_key[0]     # network
-                diff_stats['alg'] = comp_alg              # comparison algorithm 
-                diff_stats['cert'] = config_key[2]       # cert
+                # Add the missing fields for sorting and display
+                diff_stats['network'] = config_key[0]
                 diff_stats['comparison_algorithm'] = comp_alg
+                diff_stats['baseline_algorithm'] = baseline_algorithm
                 all_differences.append(diff_stats)
                 if diff_stats.get('sample_size_warning', False):
                     sample_size_warnings.append({
@@ -2061,7 +2321,7 @@ def create_algorithm_difference_plot(all_data, metric, scenario,
         print("No valid differences found for plotting")
         return None
     
-    # Create plot
+    # Create plot (rest of the function remains similar but with metric type awareness)
     fig, ax = plt.subplots(figsize=(16, 10))
     
     # Sort by network, then mode, then cert, then comparison algorithm
@@ -2077,25 +2337,31 @@ def create_algorithm_difference_plot(all_data, metric, scenario,
     ci_lower = [d['ci_lower'] for d in all_differences]
     ci_upper = [d['ci_upper'] for d in all_differences]
     p_values = [d['p_value'] for d in all_differences]
-    labels = [f"{d['config_label']} ({d['comparison_network']})" for d in all_differences]
+    labels = [f"{d['config_label']} ({d['comparison_algorithm']})" for d in all_differences]
     sample_warnings = [d.get('sample_size_warning', False) for d in all_differences]
+    test_types = [d.get('test_type', 'unknown') for d in all_differences]
     
-    # Color and styling
+    # Color and styling with metric type awareness
     colors = []
-    for diff, p_val in zip(differences, p_values):
+    for diff, p_val, test_type in zip(differences, p_values, test_types):
         if p_val < alpha:
-            colors.append('#d32f2f' if diff > 0 else '#1976d2')
+            if test_type == 'approximate_z_test':
+                colors.append('#ff6b35' if diff > 0 else '#1e88e5')  # Orange/blue for discrete
+            else:
+                colors.append('#d32f2f' if diff > 0 else '#1976d2')  # Red/blue for continuous
         else:
             colors.append('#757575')
     
     bars = ax.bar(positions, differences, color=colors, alpha=0.8, edgecolor='black', linewidth=0.5)
     
-    # Different styling for sample size warnings
-    for i, (bar, has_warning) in enumerate(zip(bars, sample_warnings)):
+    # Different styling for discrete metrics and sample size warnings
+    for i, (bar, has_warning, test_type) in enumerate(zip(bars, sample_warnings, test_types)):
         if has_warning:
             bar.set_linestyle('--')
             bar.set_linewidth(2)
             bar.set_alpha(0.6)
+        if test_type == 'approximate_z_test':
+            bar.set_hatch('//')
     
     # Add confidence intervals and formatting
     err_lower = np.array(differences) - np.array(ci_lower)
@@ -2129,14 +2395,28 @@ def create_algorithm_difference_plot(all_data, metric, scenario,
     title += f'{format_labels(metric)} (Scenario {scenario})'
     if use_filtered:
         title += ' - Using Filtered Data'
+    if metric_type == 'discrete':
+        title += ' - Mode-based Analysis'
     ax.set_title(title, fontsize=14, pad=20)
     
-    # Legend
-    legend_elements = [
-        plt.Rectangle((0,0),1,1, color='#d32f2f', alpha=0.8, label=f'Significant increase (p $<$ {alpha})'),
-        plt.Rectangle((0,0),1,1, color='#1976d2', alpha=0.8, label=f'Significant decrease (p $<$ {alpha})'),
-        plt.Rectangle((0,0),1,1, color='#757575', alpha=0.8, label=f'No significant difference (p $\\geq$ {alpha})'),
-    ]
+    # Legend with metric type awareness
+    legend_elements = []
+    
+    if metric_type == 'continuous':
+        legend_elements.extend([
+            plt.Rectangle((0,0),1,1, color='#d32f2f', alpha=0.8, label=f'Significant increase (p $<$ {alpha})'),
+            plt.Rectangle((0,0),1,1, color='#1976d2', alpha=0.8, label=f'Significant decrease (p $<$ {alpha})'),
+            plt.Rectangle((0,0),1,1, color='#757575', alpha=0.8, label=f'No significant difference (p $\\geq$ {alpha})'),
+        ])
+    else:
+        legend_elements.extend([
+            plt.Rectangle((0,0),1,1, color='#ff6b35', alpha=0.8, hatch='//', 
+                         label=f'Significant increase - discrete (p $<$ {alpha})'),
+            plt.Rectangle((0,0),1,1, color='#1e88e5', alpha=0.8, hatch='//', 
+                         label=f'Significant decrease - discrete (p $<$ {alpha})'),
+            plt.Rectangle((0,0),1,1, color='#757575', alpha=0.8, hatch='//', 
+                         label=f'No significant difference - discrete (p $\\geq$ {alpha})'),
+        ])
     
     if sample_size_warnings:
         legend_elements.append(
@@ -2156,10 +2436,21 @@ def create_algorithm_difference_plot(all_data, metric, scenario,
     comp_str = '_'.join(comparison_algorithms)
     networks_str = '_'.join(networks)
     filtered_suffix = '_filtered' if use_filtered else ''
-    filename = f"{output_dir}/algorithm_difference_{clean_metric}_{scenario}_{comp_str}_vs_{baseline_algorithm}_{networks_str}{filtered_suffix}.pdf"
+    metric_suffix = '_discrete' if metric_type == 'discrete' else '_continuous'
+    filename = f"{output_dir}/algorithm_difference_{clean_metric}_{scenario}_{comp_str}_vs_{baseline_algorithm}_{networks_str}{filtered_suffix}{metric_suffix}.pdf"
     
     plt.savefig(filename, bbox_inches='tight')
     print(f"Algorithm difference plot saved to: {filename}")
+    
+    # Generate statistical report
+    report = generate_algorithm_difference_report(
+        all_differences, metric, scenario, baseline_algorithm, comparison_algorithms, alpha, use_filtered, metric_type
+    )
+    # Save report
+    report_file = filename.replace('.pdf', '_report.txt')
+    with open(report_file, 'w') as f:
+        f.write(report)
+    print(f"Statistical report saved to: {report_file}")
     
     plt.show()
     
@@ -2170,343 +2461,514 @@ def create_algorithm_difference_plot(all_data, metric, scenario,
         'total_comparisons': len(all_differences),
         'sample_size_warnings': sample_size_warnings,
         'using_filtered_data': use_filtered,
+        'metric_type': metric_type,
         'alpha': alpha
     }
 
 
-def calculate_algorithm_difference_statistics(comparison_data, baseline_data, config_key, comp_algorithm, baseline_algorithm):
-   """
-   Calculate statistical difference between algorithms with enhanced sample size handling.
-   
-   Parameters:
-   -----------
-   comparison_data : dict
-       Data from comparison algorithm {'mean': float, 'std': float, 'actual_sample_size': int, ...}
-   baseline_data : dict
-       Data from baseline algorithm {'mean': float, 'std': float, 'actual_sample_size': int, ...}
-   config_key : tuple
-       (network, mode, certificate) configuration identifier
-   comp_algorithm : str
-       Name of comparison algorithm
-   baseline_algorithm : str
-       Name of baseline algorithm
-   
-   Returns:
-   --------
-   dict : Statistical difference analysis with sample size handling
-   """
-   
-   try:
-       network, mode, cert = config_key
-       
-       # Extract values with sample size information (backward compatible)
-       mean_comp = float(comparison_data['mean'])
-       std_comp = float(comparison_data['std'])
-       n_comp = comparison_data.get('actual_sample_size', 15)  # Default to 15 for backward compatibility
-       
-       mean_base = float(baseline_data['mean'])
-       std_base = float(baseline_data['std'])
-       n_base = baseline_data.get('actual_sample_size', 15)  # Default to 15 for backward compatibility
-       
-       # Calculate difference
-       mean_diff = mean_comp - mean_base
-       
-       # Enhanced error propagation considering different sample sizes
-       se_comp = std_comp / np.sqrt(n_comp) if n_comp > 0 else 0
-       se_base = std_base / np.sqrt(n_base) if n_base > 0 else 0
-       se_diff = np.sqrt(se_comp**2 + se_base**2)
-       
-       # Use Welch's t-test for unequal sample sizes
-       if se_diff > 0:
-           t_stat = mean_diff / se_diff
-           
-           # Welch's degrees of freedom approximation
-           if n_comp > 1 and n_base > 1:
-               var_comp = std_comp**2
-               var_base = std_base**2
-               
-               numerator = (var_comp/n_comp + var_base/n_base)**2
-               denominator = (var_comp/n_comp)**2/(n_comp-1) + (var_base/n_base)**2/(n_base-1)
-               df = numerator / denominator if denominator > 0 else min(n_comp, n_base) - 1
-           else:
-               df = min(n_comp, n_base) - 1
-               
-           df = max(1, df)
-           p_value = 2 * (1 - stats.t.cdf(abs(t_stat), df))
-       else:
-           t_stat = 0
-           df = min(n_comp, n_base) - 1
-           p_value = 1.0
-       
-       # 95% confidence interval
-       if df > 0:
-           t_critical = stats.t.ppf(0.975, df)
-           margin_error = t_critical * se_diff
-           ci_lower = mean_diff - margin_error
-           ci_upper = mean_diff + margin_error
-       else:
-           ci_lower = mean_diff
-           ci_upper = mean_diff
-       
-       # Effect size (Cohen's d)
-       if n_comp > 1 and n_base > 1:
-           pooled_var = ((n_comp-1)*std_comp**2 + (n_base-1)*std_base**2) / (n_comp + n_base - 2)
-           pooled_std = np.sqrt(pooled_var)
-           cohens_d = mean_diff / pooled_std if pooled_std > 0 else 0
-       else:
-           pooled_std = np.sqrt((std_comp**2 + std_base**2) / 2)
-           cohens_d = mean_diff / pooled_std if pooled_std > 0 else 0
-       
-       # Create readable configuration label
-       if mode == 'nosec':
-           config_label = f'{network} (NoSec)'
-       elif mode == 'psk':
-           config_label = f'{network} (PSK)'
-       elif mode == 'pki':
-           if cert:
-               # Shorten labels for readability
-               cert_short = cert.replace('DILITHIUM_LEVEL', 'D').replace('FALCON_LEVEL', 'F').replace('_', '')
-               config_label = f'{network} ({cert_short})'
-           else:
-               config_label = f'{network} (PKI)'
-       else:
-           config_label = f'{network} ({mode})'
-       
-       return {
-           'config_key': config_key,
-           'network': network,
-           'cert': cert,
-           'mode': mode,
-           'config_label': config_label,
-           'comparison_network': comp_algorithm,  # Using same field name for compatibility
-           'baseline_network': baseline_algorithm,  # Using same field name for compatibility
-           'comparison_algorithm': comp_algorithm,
-           'baseline_algorithm': baseline_algorithm,
-           'mean_diff': mean_diff,
-           'se_diff': se_diff,
-           'ci_lower': ci_lower,
-           'ci_upper': ci_upper,
-           't_statistic': t_stat,
-           'p_value': p_value,
-           'degrees_freedom': df,
-           'cohens_d': cohens_d,
-           'mean_comparison': mean_comp,
-           'mean_baseline': mean_base,
-           'std_comparison': std_comp,
-           'std_baseline': std_base,
-           'n_comparison': n_comp,
-           'n_baseline': n_base,
-           'sample_size_warning': n_comp != n_base  # Flag for different sample sizes
-       }
-       
-   except (ValueError, TypeError, KeyError) as e:
-       print(f"Error calculating algorithm difference statistics for {config_key}: {e}")
-       return None
+def calculate_algorithm_difference_statistics(comparison_data, baseline_data, config_key, comp_algorithm, baseline_algorithm, metric_type='continuous'):
+    """
+    UPDATED: Calculate statistical difference between algorithms with proper handling for metric types.
+    
+    Parameters:
+    -----------
+    comparison_data : dict
+        Data from comparison algorithm
+    baseline_data : dict
+        Data from baseline algorithm  
+    config_key : tuple
+        (network, mode, certificate) configuration identifier
+    comp_algorithm : str
+        Name of comparison algorithm
+    baseline_algorithm : str
+        Name of baseline algorithm
+    metric_type : str
+        'continuous' or 'discrete'
+        
+    Returns:
+    --------
+    dict : Statistical difference analysis appropriate for metric type
+    """
+    
+    try:
+        network, mode, cert = config_key
+        
+        if metric_type == 'discrete':
+            return calculate_discrete_algorithm_difference_statistics(
+                comparison_data, baseline_data, config_key, comp_algorithm, baseline_algorithm
+            )
+        else:
+            return calculate_continuous_algorithm_difference_statistics(
+                comparison_data, baseline_data, config_key, comp_algorithm, baseline_algorithm
+            )
+        
+    except (ValueError, TypeError, KeyError) as e:
+        print(f"Error calculating algorithm difference statistics for {config_key}: {e}")
+        return None
 
+def calculate_continuous_algorithm_difference_statistics(comparison_data, baseline_data, config_key, comp_algorithm, baseline_algorithm):
+    """
+    Calculate statistical difference between algorithms for continuous metrics using t-tests.
+    """
+    
+    try:
+        network, mode, cert = config_key
+        
+        # Extract values with sample size information (backward compatible)
+        mean_comp = float(comparison_data['mean'])
+        std_comp = float(comparison_data['std'])
+        mean_base = float(baseline_data['mean'])
+        std_base = float(baseline_data['std'])
+        
+        # Sample sizes (number of iterations)
+        iterations_comp = comparison_data.get('actual_sample_size', 15)
+        iterations_base = baseline_data.get('actual_sample_size', 15)
+        
+        # For system-wide metrics: n = iterations
+        # For per-client metrics: n = iterations (using aggregated iteration means)
+        n_comp = iterations_comp
+        n_base = iterations_base
+        
+        # Calculate difference
+        mean_diff = mean_comp - mean_base
+        
+        # Enhanced error propagation considering different sample sizes
+        se_comp = std_comp / np.sqrt(n_comp) if n_comp > 0 else 0
+        se_base = std_base / np.sqrt(n_base) if n_base > 0 else 0
+        se_diff = np.sqrt(se_comp**2 + se_base**2)
+        
+        # Use Welch's t-test for unequal sample sizes
+        if se_diff > 0:
+            t_stat = mean_diff / se_diff
+            
+            # Welch's degrees of freedom approximation
+            if n_comp > 1 and n_base > 1:
+                var_comp = std_comp**2
+                var_base = std_base**2
+                
+                numerator = (var_comp/n_comp + var_base/n_base)**2
+                denominator = (var_comp/n_comp)**2/(n_comp-1) + (var_base/n_base)**2/(n_base-1)
+                df = numerator / denominator if denominator > 0 else min(n_comp, n_base) - 1
+            else:
+                df = min(n_comp, n_base) - 1
+                
+            df = max(1, df)
+            p_value = 2 * (1 - stats.t.cdf(abs(t_stat), df))
+        else:
+            t_stat = 0
+            df = min(n_comp, n_base) - 1
+            p_value = 1.0
+        
+        # 95% confidence interval
+        if df > 0:
+            t_critical = stats.t.ppf(0.975, df)
+            margin_error = t_critical * se_diff
+            ci_lower = mean_diff - margin_error
+            ci_upper = mean_diff + margin_error
+        else:
+            ci_lower = mean_diff
+            ci_upper = mean_diff
+        
+        # Effect size (Cohen's d)
+        if n_comp > 1 and n_base > 1:
+            pooled_var = ((n_comp-1)*std_comp**2 + (n_base-1)*std_base**2) / (n_comp + n_base - 2)
+            pooled_std = np.sqrt(pooled_var)
+            cohens_d = mean_diff / pooled_std if pooled_std > 0 else 0
+        else:
+            pooled_std = np.sqrt((std_comp**2 + std_base**2) / 2)
+            cohens_d = mean_diff / pooled_std if pooled_std > 0 else 0
+        
+        # Create readable configuration label
+        config_label = create_algorithm_config_label(network, mode, cert)
+        
+        return {
+            'config_key': config_key,
+            'network': network,
+            'cert': cert,
+            'mode': mode,
+            'config_label': config_label,
+            'comparison_network': comp_algorithm,  # Keep interface consistent
+            'baseline_network': baseline_algorithm,  # Keep interface consistent
+            'comparison_algorithm': comp_algorithm,
+            'baseline_algorithm': baseline_algorithm,
+            'mean_diff': mean_diff,
+            'se_diff': se_diff,
+            'ci_lower': ci_lower,
+            'ci_upper': ci_upper,
+            't_statistic': t_stat,
+            'p_value': p_value,
+            'degrees_freedom': df,
+            'cohens_d': cohens_d,
+            'mean_comparison': mean_comp,
+            'mean_baseline': mean_base,
+            'std_comparison': std_comp,
+            'std_baseline': std_base,
+            'n_comparison': n_comp,
+            'n_baseline': n_base,
+            'sample_size_warning': n_comp != n_base,
+            'test_type': 'welch_t_test',
+            'metric_type': 'continuous'
+        }
+        
+    except Exception as e:
+        print(f"Error in continuous algorithm difference calculation for {config_key}: {e}")
+        return None
 
-def generate_algorithm_difference_report(differences, metric, scenario, baseline_algorithm, comparison_algorithms, alpha, use_filtered):
-   """Generate comprehensive text report for algorithm difference analysis."""
-   
-   timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-   
-   report = f"""ALGORITHM DIFFERENCE ANALYSIS REPORT
-{'=' * 60}
-Metric: {format_labels(metric)}
+def calculate_discrete_algorithm_difference_statistics(comparison_data, baseline_data, config_key, comp_algorithm, baseline_algorithm):
+    """
+    Calculate statistical difference between algorithms for discrete count metrics.
+    """
+    
+    try:
+        network, mode, cert = config_key
+        
+        # For discrete metrics, use mode as central tendency and range as variability
+        mode_comp = comparison_data.get('mode_val', comparison_data['mean'])
+        mode_base = baseline_data.get('mode_val', baseline_data['mean'])
+        
+        range_comp = comparison_data.get('range', comparison_data.get('std', 0))
+        range_base = baseline_data.get('range', baseline_data.get('std', 0))
+        
+        min_comp = comparison_data.get('min', mode_comp)
+        max_comp = comparison_data.get('max', mode_comp)
+        min_base = baseline_data.get('min', mode_base)
+        max_base = baseline_data.get('max', mode_base)
+        
+        # Sample sizes (number of iterations)
+        n_comp = comparison_data.get('actual_sample_size', 15)
+        n_base = baseline_data.get('actual_sample_size', 15)
+        
+        # Calculate difference in modes
+        mode_diff = mode_comp - mode_base
+        
+        # Estimate standard error using range (rough approximation)
+        est_std_comp = range_comp / np.sqrt(12) if range_comp > 0 else 1
+        est_std_base = range_base / np.sqrt(12) if range_base > 0 else 1
+        
+        se_comp_est = est_std_comp / np.sqrt(n_comp) if n_comp > 0 else 0
+        se_base_est = est_std_base / np.sqrt(n_base) if n_base > 0 else 0
+        se_diff_est = np.sqrt(se_comp_est**2 + se_base_est**2)
+        
+        # Approximate z-test
+        if se_diff_est > 0:
+            z_stat = mode_diff / se_diff_est
+            p_value = 2 * (1 - stats.norm.cdf(abs(z_stat)))
+        else:
+            z_stat = 0
+            p_value = 1.0
+        
+        # Confidence interval (approximate)
+        if se_diff_est > 0:
+            z_critical = 1.96
+            margin_error = z_critical * se_diff_est
+            ci_lower = mode_diff - margin_error
+            ci_upper = mode_diff + margin_error
+        else:
+            ci_lower = mode_diff
+            ci_upper = mode_diff
+        
+        # Effect size for discrete data: relative difference
+        relative_effect = (mode_diff / mode_base) if mode_base != 0 else 0
+        
+        # Create readable configuration label
+        config_label = create_algorithm_config_label(network, mode, cert)
+        
+        return {
+            'config_key': config_key,
+            'network': network,
+            'cert': cert,
+            'mode': mode,
+            'config_label': config_label,
+            'comparison_network': comp_algorithm,  # Keep interface consistent
+            'baseline_network': baseline_algorithm,  # Keep interface consistent
+            'comparison_algorithm': comp_algorithm,
+            'baseline_algorithm': baseline_algorithm,
+            'mean_diff': mode_diff,  # Using mode difference as "mean_diff" for interface consistency
+            'se_diff': se_diff_est,
+            'ci_lower': ci_lower,
+            'ci_upper': ci_upper,
+            't_statistic': z_stat,  # Actually z-statistic but keeping interface consistent
+            'p_value': p_value,
+            'degrees_freedom': float('inf'),  # Normal approximation
+            'cohens_d': relative_effect,  # Actually relative effect, not Cohen's d
+            'mean_comparison': mode_comp,
+            'mean_baseline': mode_base,
+            'std_comparison': range_comp,
+            'std_baseline': range_base,
+            'range_comparison': range_comp,
+            'range_baseline': range_base,
+            'min_comparison': min_comp,
+            'max_comparison': max_comp,
+            'min_baseline': min_base,
+            'max_baseline': max_base,
+            'n_comparison': n_comp,
+            'n_baseline': n_base,
+            'sample_size_warning': n_comp != n_base,
+            'test_type': 'approximate_z_test',
+            'metric_type': 'discrete',
+            'note': 'Approximate test - ideally needs raw iteration data for proper non-parametric analysis'
+        }
+        
+    except Exception as e:
+        print(f"Error in discrete algorithm difference calculation for {config_key}: {e}")
+        return None
+
+def create_algorithm_config_label(network, mode, cert):
+    """Create readable configuration label for algorithm analysis"""
+    if mode == 'nosec':
+        return f'{network} (NoSec)'
+    elif mode == 'psk':
+        return f'{network} (PSK)'
+    elif mode == 'pki':
+        if cert:
+            # Shorten labels for readability
+            cert_short = cert.replace('DILITHIUM_LEVEL', 'D').replace('FALCON_LEVEL', 'F').replace('_', '')
+            return f'{network} ({cert_short})'
+        else:
+            return f'{network} (PKI)'
+    else:
+        return f'{network} ({mode})'
+
+def generate_algorithm_difference_report(differences, metric, scenario, baseline_algorithm, comparison_algorithms, alpha, use_filtered, metric_type='continuous'):
+    """
+    UPDATED: Generate comprehensive text report for algorithm difference analysis with metric type awareness.
+    """
+    
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    report = f"""ALGORITHM DIFFERENCE ANALYSIS REPORT
+{'=' * 70}
+Metric: {format_labels(metric)} ({metric_type.upper()} DATA)
 Scenario: {scenario}
 Baseline Algorithm: {baseline_algorithm}
 Comparison Algorithms: {', '.join(comparison_algorithms)}
 Data Type: {'Filtered (outliers removed)' if use_filtered else 'Original'}
+Statistical Method: {'Mode-based approximate tests' if metric_type == 'discrete' else 'T-tests on means'}
 Significance Level: α = {alpha}
 Generated: {timestamp}
 
 SUMMARY STATISTICS
-{'-' * 30}
+{'-' * 40}
 """
-   
-   significant_diffs = [d for d in differences if d['p_value'] < alpha]
-   positive_diffs = [d for d in significant_diffs if d['mean_diff'] > 0]
-   negative_diffs = [d for d in significant_diffs if d['mean_diff'] < 0]
-   sample_warnings = [d for d in differences if d.get('sample_size_warning', False)]
-   
-   report += f"""Total comparisons: {len(differences)}
+    
+    significant_diffs = [d for d in differences if d['p_value'] < alpha]
+    positive_diffs = [d for d in significant_diffs if d['mean_diff'] > 0]
+    negative_diffs = [d for d in significant_diffs if d['mean_diff'] < 0]
+    sample_warnings = [d for d in differences if d.get('sample_size_warning', False)]
+    
+    report += f"""Total comparisons: {len(differences)}
 Significant differences: {len(significant_diffs)} ({len(significant_diffs)/len(differences)*100:.1f}%)
- - Algorithm penalties (positive): {len(positive_diffs)}
- - Algorithm benefits (negative): {len(negative_diffs)}
+  - Algorithm penalties (positive): {len(positive_diffs)}
+  - Algorithm benefits (negative): {len(negative_diffs)}
 Non-significant differences: {len(differences) - len(significant_diffs)}
 Configurations with different sample sizes: {len(sample_warnings)}
 
 """
-   
-   # Sample size analysis
-   if sample_warnings:
-       report += f"""SAMPLE SIZE ANALYSIS
-{'-' * 30}
+    
+    # Metric-specific interpretation
+    if metric_type == 'discrete':
+        report += f"""DISCRETE METRIC ANALYSIS NOTES
+{'-' * 40}
+• This analysis uses MODE as the central tendency measure
+• Variability is measured using RANGE rather than standard deviation
+• Statistical tests are approximate due to discrete nature of count data
+• Effect sizes represent relative differences in typical values (modes)
+• For definitive results, consider collecting raw iteration data for proper non-parametric tests
+
+"""
+    
+    # Sample size analysis
+    if sample_warnings:
+        report += f"""SAMPLE SIZE ANALYSIS
+{'-' * 40}
 Configurations with different sample sizes between baseline and comparison algorithms.
 
 """
-       sample_size_summary = {}
-       for diff in differences:
-           n_base = diff.get('n_baseline', 15)
-           n_comp = diff.get('n_comparison', 15)
-           key = f"{n_base}-{n_comp}"
-           if key not in sample_size_summary:
-               sample_size_summary[key] = 0
-           sample_size_summary[key] += 1
-       
-       report += "Sample size combinations (baseline-comparison): count\n"
-       for combo, count in sorted(sample_size_summary.items()):
-           report += f"  {combo}: {count} configurations\n"
-       report += "\n"
-   
-   if positive_diffs:
-       report += f"""SIGNIFICANT ALGORITHM PENALTIES (p < {alpha})
-{'-' * 50}
-These configurations show significantly higher resource consumption
+        sample_size_summary = {}
+        for diff in differences:
+            n_base = diff.get('n_baseline', 15)
+            n_comp = diff.get('n_comparison', 15)
+            key = f"{n_base}-{n_comp}"
+            if key not in sample_size_summary:
+                sample_size_summary[key] = 0
+            sample_size_summary[key] += 1
+        
+        report += "Sample size combinations (baseline-comparison): count\n"
+        for combo, count in sorted(sample_size_summary.items()):
+            report += f"  {combo}: {count} configurations\n"
+        report += "\n"
+    
+    if positive_diffs:
+        if metric_type == 'discrete':
+            report += f"""SIGNIFICANT ALGORITHM PENALTIES (p < {alpha})
+{'-' * 60}
+These configurations show significantly higher MODE values
 with larger algorithms compared to {baseline_algorithm}.
 
 """
-       
-       for diff in sorted(positive_diffs, key=lambda x: x['mean_diff'], reverse=True):
-           effect_size = interpret_cohens_d(diff['cohens_d'])
-           sample_info = ""
-           if diff.get('sample_size_warning', False):
-               n_base = diff.get('n_baseline', 15)
-               n_comp = diff.get('n_comparison', 15)
-               sample_info = f" (n_base={n_base}, n_comp={n_comp})"
-           
-           report += f"""
-{diff['config_label']} ({diff['comparison_algorithm']} vs {diff['baseline_algorithm']}){sample_info}:
- Algorithm penalty: {diff['mean_diff']:.4f} ± {diff.get('se_diff', 0):.4f}
- 95% CI: [{diff['ci_lower']:.4f}, {diff['ci_upper']:.4f}]
- t-statistic: {diff['t_statistic']:.3f} (df = {diff.get('degrees_freedom', 0):.1f})
- p-value: {diff['p_value']:.6f}
- Effect size (Cohen's d): {diff['cohens_d']:.3f} ({effect_size})
- {diff['baseline_algorithm']}: {diff['mean_baseline']:.4f} ± {diff.get('std_baseline', 0):.4f}
- {diff['comparison_algorithm']}: {diff['mean_comparison']:.4f} ± {diff.get('std_comparison', 0):.4f}
+        else:
+            report += f"""SIGNIFICANT ALGORITHM PENALTIES (p < {alpha})
+{'-' * 60}
+These configurations show significantly higher mean values
+with larger algorithms compared to {baseline_algorithm}.
+
 """
-   
-   if negative_diffs:
-       report += f"""
+        
+        for diff in sorted(positive_diffs, key=lambda x: x['mean_diff'], reverse=True):
+            if metric_type == 'discrete':
+                effect_desc = f"Relative effect: {diff['cohens_d']:.3f}"
+            else:
+                effect_size = interpret_cohens_d(diff['cohens_d'])
+                effect_desc = f"Effect size (Cohen's d): {diff['cohens_d']:.3f} ({effect_size})"
+                
+            sample_info = ""
+            if diff.get('sample_size_warning', False):
+                n_base = diff.get('n_baseline', 15)
+                n_comp = diff.get('n_comparison', 15)
+                sample_info = f" (n_base={n_base}, n_comp={n_comp})"
+            
+            central_measure = "Mode" if metric_type == 'discrete' else "Mean"
+            variability_measure = "Range" if metric_type == 'discrete' else "Std"
+            test_stat_name = "z-statistic" if metric_type == 'discrete' else "t-statistic"
+            
+            report += f"""
+{diff['config_label']} ({diff['comparison_algorithm']} vs {diff['baseline_algorithm']}){sample_info}:
+  Algorithm penalty: {diff['mean_diff']:.4f} ± {diff.get('se_diff', 0):.4f}
+  95% CI: [{diff['ci_lower']:.4f}, {diff['ci_upper']:.4f}]
+  {test_stat_name}: {diff['t_statistic']:.3f} (df = {diff.get('degrees_freedom', 0):.1f})
+  p-value: {diff['p_value']:.6f}
+  {effect_desc}
+  {diff['baseline_algorithm']} {central_measure}: {diff['mean_baseline']:.4f} ± {diff.get('std_baseline', 0):.4f}
+  {diff['comparison_algorithm']} {central_measure}: {diff['mean_comparison']:.4f} ± {diff.get('std_comparison', 0):.4f}
+"""
+    
+    if negative_diffs:
+        if metric_type == 'discrete':
+            report += f"""
 SIGNIFICANT ALGORITHM BENEFITS (p < {alpha})
-{'-' * 50}
-These configurations show significantly lower resource consumption
+{'-' * 60}
+These configurations show significantly lower MODE values
 with larger algorithms (unexpected but possible due to optimization effects).
 
 """
-       
-       for diff in sorted(negative_diffs, key=lambda x: x['mean_diff']):
-           effect_size = interpret_cohens_d(diff['cohens_d'])
-           sample_info = ""
-           if diff.get('sample_size_warning', False):
-               n_base = diff.get('n_baseline', 15)  
-               n_comp = diff.get('n_comparison', 15)
-               sample_info = f" (n_base={n_base}, n_comp={n_comp})"
-           
-           report += f"""
-{diff['config_label']} ({diff['comparison_algorithm']} vs {diff['baseline_algorithm']}){sample_info}:
- Algorithm benefit: {diff['mean_diff']:.4f} ± {diff.get('se_diff', 0):.4f}
- 95% CI: [{diff['ci_lower']:.4f}, {diff['ci_upper']:.4f}]
- t-statistic: {diff['t_statistic']:.3f} (df = {diff.get('degrees_freedom', 0):.1f})
- p-value: {diff['p_value']:.6f}
- Effect size (Cohen's d): {diff['cohens_d']:.3f} ({effect_size})
- {diff['baseline_algorithm']}: {diff['mean_baseline']:.4f} ± {diff.get('std_baseline', 0):.4f}
- {diff['comparison_algorithm']}: {diff['mean_comparison']:.4f} ± {diff.get('std_comparison', 0):.4f}
+        else:
+            report += f"""
+SIGNIFICANT ALGORITHM BENEFITS (p < {alpha})
+{'-' * 60}
+These configurations show significantly lower mean values
+with larger algorithms (unexpected but possible due to optimization effects).
+
 """
-   
-   if not significant_diffs:
-       report += f"""NO SIGNIFICANT ALGORITHM SCALING EFFECTS FOUND
-{'-' * 50}
+        
+        for diff in sorted(negative_diffs, key=lambda x: x['mean_diff']):
+            if metric_type == 'discrete':
+                effect_desc = f"Relative effect: {diff['cohens_d']:.3f}"
+            else:
+                effect_size = interpret_cohens_d(diff['cohens_d'])
+                effect_desc = f"Effect size (Cohen's d): {diff['cohens_d']:.3f} ({effect_size})"
+                
+            sample_info = ""
+            if diff.get('sample_size_warning', False):
+                n_base = diff.get('n_baseline', 15)  
+                n_comp = diff.get('n_comparison', 15)
+                sample_info = f" (n_base={n_base}, n_comp={n_comp})"
+            
+            central_measure = "Mode" if metric_type == 'discrete' else "Mean"
+            test_stat_name = "z-statistic" if metric_type == 'discrete' else "t-statistic"
+            
+            report += f"""
+{diff['config_label']} ({diff['comparison_algorithm']} vs {diff['baseline_algorithm']}){sample_info}:
+  Algorithm benefit: {diff['mean_diff']:.4f} ± {diff.get('se_diff', 0):.4f}
+  95% CI: [{diff['ci_lower']:.4f}, {diff['ci_upper']:.4f}]
+  {test_stat_name}: {diff['t_statistic']:.3f} (df = {diff.get('degrees_freedom', 0):.1f})
+  p-value: {diff['p_value']:.6f}
+  {effect_desc}
+  {diff['baseline_algorithm']} {central_measure}: {diff['mean_baseline']:.4f} ± {diff.get('std_baseline', 0):.4f}
+  {diff['comparison_algorithm']} {central_measure}: {diff['mean_comparison']:.4f} ± {diff.get('std_comparison', 0):.4f}
+"""
+    
+    if not significant_diffs:
+        report += f"""NO SIGNIFICANT ALGORITHM SCALING EFFECTS FOUND
+{'-' * 60}
 All configurations show no statistically significant difference
 between {baseline_algorithm} and larger algorithms.
 """
-   
-   report += f"""
+    
+    report += f"""
 METHODOLOGICAL NOTES
-{'-' * 30}
-- Statistical Test: Welch's t-test (handles unequal sample sizes and variances)
-- Error Propagation: SE_diff = √(SE_baseline² + SE_comparison²)
-- Effect Size: Cohen's d using pooled standard deviation
-- Data Type: {'Filtered dataset (outliers removed)' if use_filtered else 'Original dataset'}
-
-RECOMMENDATIONS
-{'-' * 30}
+{'-' * 40}"""
+    
+    if metric_type == 'discrete':
+        report += f"""
+• DISCRETE DATA ANALYSIS: Count/discrete metrics analyzed using mode-based statistics
+• Statistical Test: Approximate z-test based on estimated standard errors from range
+• Central Tendency: Mode (most frequent value) rather than arithmetic mean
+• Variability: Range and min/max values rather than standard deviation
+• Effect Size: Relative difference in modes rather than Cohen's d
+• LIMITATION: Ideal analysis would use raw iteration data for proper non-parametric tests
+• Current approach provides reasonable approximation for exploratory analysis
 """
-   
-   if len(positive_diffs) > len(differences) * 0.7:
-       report += "• HIGH SCALING SENSITIVITY: Most configurations show significant penalties with larger algorithms\n"
-       report += f"• Consider using {baseline_algorithm} for resource-constrained environments\n"
-   elif len(positive_diffs) > len(differences) * 0.3:
-       report += "• MODERATE SCALING SENSITIVITY: Some configurations affected by algorithm size\n"
-   else:
-       report += "• LOW SCALING SENSITIVITY: Algorithm size has minimal resource impact\n"
-   
-   if len(negative_diffs) > 0:
-       report += f"• OPTIMIZATION EFFECTS: {len(negative_diffs)} configurations show benefits with larger algorithms\n"
-   
-   if use_filtered and sample_warnings:
-       report += f"""
+    else:
+        report += f"""
+• CONTINUOUS DATA ANALYSIS: Standard parametric statistical approach
+• Statistical Test: Welch's t-test (handles unequal sample sizes and variances)
+• Error Propagation: SE_diff = √(SE_baseline² + SE_comparison²)
+• Degrees of Freedom: Welch's approximation for unequal samples
+• Effect Size: Cohen's d using pooled standard deviation
+"""
+    
+    report += f"""
+• Data Type: {'Filtered dataset (outliers removed)' if use_filtered else 'Original dataset'}
+• Sample Size: Number of iterations (15 originally, may be reduced after filtering)
+
+ALGORITHM SCALING INTERPRETATION
+{'-' * 40}
+Algorithm Scaling Analysis helps identify:
+• Which security configurations are sensitive to algorithm complexity
+• Whether increased security levels (KYBER_LEVEL3/5) have proportional resource costs
+• Optimal algorithm choices for resource-constrained deployments
+• Network-specific algorithm performance characteristics
+
+RECOMMENDATIONS  
+{'-' * 40}
+"""
+    
+    if len(positive_diffs) > len(differences) * 0.7:
+        report += f"• HIGH SCALING SENSITIVITY: Most configurations show significant penalties with larger algorithms\n"
+        report += f"• Consider using {baseline_algorithm} for resource-constrained environments\n"
+        report += "• Evaluate if the security benefits of higher levels justify the resource costs\n"
+    elif len(positive_diffs) > len(differences) * 0.3:
+        report += "• MODERATE SCALING SENSITIVITY: Some configurations affected by algorithm size\n"
+        report += "• Consider configuration-specific algorithm selection\n"
+    else:
+        report += "• LOW SCALING SENSITIVITY: Algorithm size has minimal resource impact\n"
+        report += "• Higher security levels can be used without significant resource penalty\n"
+    
+    if len(negative_diffs) > 0:
+        report += f"• OPTIMIZATION EFFECTS: {len(negative_diffs)} configurations show benefits with larger algorithms\n"
+        report += "• This may indicate implementation optimizations or measurement artifacts\n"
+    
+    if metric_type == 'discrete':
+        report += f"""
+DISCRETE METRICS CONSIDERATIONS
+{'-' * 40}
+• Count differences may have practical significance even if statistically marginal
+• Consider application context: Are differences of 1-2 frames/bytes meaningful?
+• Mode-based analysis shows typical behavior rather than average behavior
+• Discrete metrics often show lower variability than continuous measurements
+"""
+    
+    if use_filtered and sample_warnings:
+        report += f"""
 FILTERED DATA CONSIDERATIONS
-{'-' * 30}
-- {len(sample_warnings)} configurations have different sample sizes
-- Statistical tests account for unequal sample sizes using Welch's method
-- Results represent typical behavior after removing extreme outliers
+{'-' * 40}
+• {len(sample_warnings)} configurations have different sample sizes
+• This is expected when using filtered data (different outlier rates)
+• Statistical tests account for unequal sample sizes using appropriate methods
+• Results represent typical behavior after removing extreme outliers
 """
-   
-   return report
-
-def analyze_data_structure(all_data, metric='Energy (Wh)', scenario='A'):
-    """
-    Analyze how the data is structured to understand the grouping needed.
-    """
-    print("=== DATA STRUCTURE ANALYSIS ===")
     
-    # Sample a few records to understand structure
-    sample_records = [item for item in all_data[:10] if item['metric'] == metric and item['scenario'] == scenario]
-    
-    print("Sample records:")
-    for i, record in enumerate(sample_records):
-        print(f"Record {i}:")
-        for key, value in record.items():
-            print(f"  {key}: {value}")
-        print()
-    
-    # Analyze unique combinations
-    combinations = set()
-    algorithms = set()
-    networks = set()
-    modes = set()
-    certs = set()
-    
-    for item in all_data:
-        if item['metric'] == metric and item['scenario'] == scenario:
-            combinations.add((item['network'], item['mode'], item['cert'], item['alg']))
-            if item['alg'] is not None:
-                algorithms.add(item['alg'])
-            if item['network'] is not None:
-                networks.add(item['network'])
-            if item['mode'] is not None:
-                modes.add(item['mode'])
-            if item['cert'] is not None:
-                certs.add(item['cert'])
-    
-    print(f"Total combinations found: {len(combinations)}")
-    print(f"Networks: {sorted(networks)}")
-    print(f"Algorithms: {sorted(algorithms)}")
-    print(f"Modes: {sorted(modes)}")
-    print(f"Certificates: {sorted([c for c in certs if c])}")
-    print()
-    
-    # Show structure by mode
-    print("=== STRUCTURE BY MODE ===")
-    for mode in sorted(modes):
-        print(f"\n{mode.upper()} mode:")
-        mode_combinations = [(net, cert, alg) for net, m, cert, alg in combinations if m == mode]
-        mode_combinations.sort()
-        
-        for net, cert, alg in mode_combinations[:25]:  # Show first 25
-            print(f"  {net} + {cert or 'N/A'} + {alg}")
-        if len(mode_combinations) > 25:
-            print(f"  ... and {len(mode_combinations) - 25} more")
+    return report
 
 # MAIN
 if __name__ == '__main__':
@@ -2619,7 +3081,5 @@ if __name__ == '__main__':
             alpha = 0.05,
             output_dir=OUT_DIR
         )
-    
-    #analyze_data_structure(all_data=all_data, metric='Energy (Wh)', scenario='A')
     
     print("All plots generated successfully!")
