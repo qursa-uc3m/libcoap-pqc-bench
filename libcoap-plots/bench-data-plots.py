@@ -449,7 +449,7 @@ def get_certificate_colors(cert_types_list):
     
     return cert_colors
 
-def get_file_patterns(algorithm, cert_type, n, s, p, scenario, rasp=False):
+def get_file_patterns(algorithm, cert_type, n, s, p, scenario, rasp=False, filtering=False):
     """
     Generate file patterns for various security modes.
     
@@ -469,13 +469,14 @@ def get_file_patterns(algorithm, cert_type, n, s, p, scenario, rasp=False):
     p_suffix = f"_{p}" if p else ""
     scenario_suffix = f"_scenario{scenario}"
     rasp_prefix = "_rasp" if rasp else ""
+    filtered = "_filtered" if filtering else ""
     
     patterns = {
-        'pki': f"udp{rasp_prefix}_conv_stats_{algorithm}_{cert_type}_n{n}{s_suffix}{p_suffix}_pki{scenario_suffix}.csv",
-        'pki_client_auth': f"udp{rasp_prefix}_conv_stats_{algorithm}_{cert_type}_n{n}{s_suffix}{p_suffix}_pki_client-auth{scenario_suffix}.csv",
-        'psk': f"udp{rasp_prefix}_conv_stats_{algorithm}_n{n}{s_suffix}{p_suffix}_psk{scenario_suffix}.csv",
-        'nosec': f"udp{rasp_prefix}_conv_stats_n{n}{s_suffix}{p_suffix}_nosec{scenario_suffix}.csv",
-        'nosec_flexible': f"udp{rasp_prefix}_conv_stats*n{n}*_nosec*{scenario_suffix}.csv"
+        'pki': f"udp{rasp_prefix}_conv_stats_{algorithm}_{cert_type}_n{n}{s_suffix}{p_suffix}_pki{scenario_suffix}{filtered}.csv",
+        'pki_client_auth': f"udp{rasp_prefix}_conv_stats_{algorithm}_{cert_type}_n{n}{s_suffix}{p_suffix}_pki_client-auth{scenario_suffix}{filtered}.csv",
+        'psk': f"udp{rasp_prefix}_conv_stats_{algorithm}_n{n}{s_suffix}{p_suffix}_psk{scenario_suffix}{filtered}.csv",
+        'nosec': f"udp{rasp_prefix}_conv_stats_n{n}{s_suffix}{p_suffix}_nosec{scenario_suffix}{filtered}.csv",
+        'nosec_flexible': f"udp{rasp_prefix}_conv_stats*n{n}*_nosec*{scenario_suffix}{filtered}.csv"
     }
     
     return patterns
@@ -499,7 +500,7 @@ def setup_output_dirs(data_dir, custom_suffix=None):
     
     return data_dir_, plots_dir
 
-def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None, target_unit=None):
+def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None, target_unit=None, filtering=False):
     """
     Create scatter plots for the specified metric and algorithms under different security modes.
     
@@ -542,6 +543,7 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
     p_suffix = f"_{p}" if p else ""
     scenario_suffix = f"_scenario{scenario}"
     rasp_prefix = "rasp" if rasp else ""
+    filtered = "_filtered" if filtering else ""
 
     # Data structures to hold values for each algorithm and certificate type
     data = {
@@ -567,7 +569,7 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
     # Get PSK data for each algorithm
     for algorithm in algorithms_list:
         # Get file patterns
-        patterns = get_file_patterns(algorithm, "", n, s, p, scenario, rasp)
+        patterns = get_file_patterns(algorithm, "", n, s, p, scenario, rasp, filtering)
         
         # PSK file pattern
         psk_pattern = patterns['psk']
@@ -588,7 +590,7 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
     for cert_type in cert_types_list:
         for algorithm in algorithms_list:
             # Get file patterns
-            patterns = get_file_patterns(algorithm, cert_type, n, s, p, scenario, rasp)
+            patterns = get_file_patterns(algorithm, cert_type, n, s, p, scenario, rasp, filtering)
             
             # PKI file pattern
             pki_pattern = patterns['pki']
@@ -611,7 +613,7 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
                 print(f"Warning: Could not find PKI file for algorithm {algorithm} with {cert_type}")
     
     # Get nosec data
-    patterns = get_file_patterns("", "", n, s, p, scenario, rasp)
+    patterns = get_file_patterns("", "", n, s, p, scenario, rasp, filtering)
     nosec_pattern = patterns['nosec']
     nosec_files = find_files(data_dir_path, nosec_pattern)
     
@@ -737,13 +739,13 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
     # Create the directory if it doesn't exist
     os.makedirs(f'./{plots_dir}', exist_ok=True)
     
-    output_file = f'./{plots_dir}/scatter_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}.pdf'
+    output_file = f'./{plots_dir}/scatter_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}{filtered}.pdf'
     
     plt.savefig(output_file)
     print(f"Plot saved to {output_file}")
     plt.show()
 
-def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None, target_unit=None):
+def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None, target_unit=None, filtering=False):
     """
     Create bar plot for the specified metric and algorithms under different security modes and scenarios.
 
@@ -798,6 +800,7 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
     s_suffix = f"_s{s}" if s else ""
     p_suffix = f"_{p}" if p else ""
     rasp_prefix = "rasp" if rasp else ""
+    filtered = "_filtered" if filtering else ""
     
     # Data collection with proper tracking
     bar_data = []  # List to store all bar data
@@ -813,7 +816,7 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
             
             # Process each certificate type (PKI)
             for cert_idx, cert_type in enumerate(cert_types_list):
-                patterns = get_file_patterns(algorithm, cert_type, n, s, p, scenario, rasp)
+                patterns = get_file_patterns(algorithm, cert_type, n, s, p, scenario, rasp, filtering)
                 
                 # Try PKI patterns
                 pki_pattern = patterns['pki']
@@ -841,7 +844,7 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
                         print(f"Found data for {algorithm} {cert_type} {scenario}: {metric_value}")
             
             # Process PSK
-            patterns = get_file_patterns(algorithm, "", n, s, p, scenario, rasp)
+            patterns = get_file_patterns(algorithm, "", n, s, p, scenario, rasp, filtering)
             psk_pattern = patterns['psk']
             psk_files = find_files(data_dir_path, psk_pattern)
             
@@ -875,7 +878,7 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
     for scen_idx, scenario in enumerate(scenarios):
         scenario_suffix = f"_scenario{scenario}"
         
-        patterns = get_file_patterns("", "", n, s, p, scenario, rasp)
+        patterns = get_file_patterns("", "", n, s, p, scenario, rasp, filtering)
         nosec_pattern = patterns['nosec']
         nosec_files = find_files(data_dir_path, nosec_pattern)
         
@@ -1011,13 +1014,13 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
     # Create the plots directory if it doesn't exist
     os.makedirs(f'./{plots_dir}', exist_ok=True)
     
-    output_file = f'./{plots_dir}/barplot_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}_{scenarios_str}.pdf'
+    output_file = f'./{plots_dir}/barplot_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}_{scenarios_str}{filtered}.pdf'
 
     plt.savefig(output_file)
     print(f"Plot saved to {output_file}")
     plt.show()
     
-def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None, target_unit=None):
+def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None, target_unit=None, filtering=False):
     """
     Create a heat map visualization of a metric across algorithms and certificate types.
     
@@ -1055,6 +1058,7 @@ def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     p_suffix = f"_{p}" if p else ""
     scenario_suffix = f"_scenario{scenario}"
     rasp_prefix = "rasp" if rasp else ""
+    filtered = "_filtered" if filtering else ""
     
     # Variables to track min and max values for color scaling
     valid_data_found = False
@@ -1065,7 +1069,7 @@ def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     for alg_idx, algorithm in enumerate(algorithms_list):
         for cert_idx, cert_type in enumerate(cert_types_list):
             # Get file patterns
-            patterns = get_file_patterns(algorithm, cert_type, n, s, p, scenario, rasp)
+            patterns = get_file_patterns(algorithm, cert_type, n, s, p, scenario, rasp, filtering)
             
             # PKI file pattern
             pki_pattern = patterns['pki']
@@ -1157,7 +1161,7 @@ def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     print(f"Plot saved to {output_file}")
     plt.show()
     
-def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None, target_unit=None, log_scale=True):
+def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None, target_unit=None, log_scale=True, filtering=False):
     """
     Create box plots to visualize variability in metrics across configurations.
     
@@ -1199,12 +1203,13 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     p_suffix = f"_{p}" if p else ""
     scenario_suffix = f"_scenario{scenario}"
     rasp_prefix = "rasp" if rasp else ""
+    filtered = "_filtered" if filtering else ""
     
     # Collect raw data for each configuration
     for algorithm in algorithms_list:
         for cert_type in cert_types_list:
             # Get file patterns
-            patterns = get_file_patterns(algorithm, cert_type, n, s, p, scenario, rasp)
+            patterns = get_file_patterns(algorithm, cert_type, n, s, p, scenario, rasp, filtering)
             
             # PKI file pattern
             pki_pattern = patterns['pki']
@@ -1267,7 +1272,7 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     # Also get data for PSK and NoSec
     for algorithm in algorithms_list:
         # PSK data
-        patterns = get_file_patterns(algorithm, "", n, s, p, scenario, rasp)
+        patterns = get_file_patterns(algorithm, "", n, s, p, scenario, rasp, filtering)
         psk_pattern = patterns['psk']
         psk_files = find_files(data_dir_path, psk_pattern)
         
@@ -1311,7 +1316,7 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
                 print(f"Error reading file {file_path}: {e}")
     
     # NoSec data
-    patterns = get_file_patterns("", "", n, s, p, scenario, rasp)
+    patterns = get_file_patterns("", "", n, s, p, scenario, rasp, filtering)
     nosec_pattern = patterns['nosec']
     nosec_files = find_files(data_dir_path, nosec_pattern)
     
@@ -1531,7 +1536,7 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     # Create the directory if it doesn't exist
     os.makedirs(f'./{plots_dir}', exist_ok=True)
     
-    output_file = f'./{plots_dir}/boxplot_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}.pdf'
+    output_file = f'./{plots_dir}/boxplot_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}{filtered}.pdf'
     
     plt.savefig(output_file)
     print(f"Plot saved to {output_file}")
@@ -1711,7 +1716,7 @@ def analyze_and_save_outliers(box_data, metric_name, scenario, plots_dir, n=None
     
     return outlier_summary
     
-def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None, target_unit=None):
+def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None, target_unit=None, filtering=False):
     """
     Create candlestick-style plots for discrete metrics showing min-max range with mode.
     Improved version with:
@@ -1772,6 +1777,7 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
     p_suffix = f"_{p}" if p else ""
     scenario_suffix = f"_scenario{scenario}"
     rasp_prefix = "rasp" if rasp else ""
+    filtered = "_filtering" if filtering else ""
     
     # Calculate positions for candlesticks with consistent ordering
     num_algorithms = len(algorithms_list)
@@ -1794,7 +1800,7 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
         
         # First: PKI certificates in the order they were specified
         for cert_idx, cert_type in enumerate(cert_types_list):
-            patterns = get_file_patterns(algorithm, cert_type, n, s, p, scenario, rasp)
+            patterns = get_file_patterns(algorithm, cert_type, n, s, p, scenario, rasp, filtering)
             pki_pattern = patterns['pki']
             pki_files = find_files(data_dir_path, pki_pattern)
             
@@ -1821,7 +1827,7 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
                     all_values.extend([data.get('min', 0), data.get('max', 0), data.get('mode', 0)])
         
         # Then: PSK for this algorithm
-        patterns = get_file_patterns(algorithm, "", n, s, p, scenario, rasp)
+        patterns = get_file_patterns(algorithm, "", n, s, p, scenario, rasp, filtering)
         psk_pattern = patterns['psk']
         psk_files = find_files(data_dir_path, psk_pattern)
         
@@ -1844,7 +1850,7 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
                 all_values.extend([data.get('min', 0), data.get('max', 0), data.get('mode', 0)])
     
     # Finally: NoSec (positioned after all algorithm groups)
-    patterns = get_file_patterns("", "", n, s, p, scenario, rasp)
+    patterns = get_file_patterns("", "", n, s, p, scenario, rasp, filtering)
     nosec_pattern = patterns['nosec']
     nosec_files = find_files(data_dir_path, nosec_pattern)
     
@@ -2022,7 +2028,7 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
     display_metric = get_display_metric_label(metric, target_unit)
     clean_metric = display_metric.replace(' ', '_').replace('(', '').replace(')', '')
     os.makedirs(f'./{plots_dir}', exist_ok=True)
-    output_file = f'./{plots_dir}/candlestick_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}.pdf'
+    output_file = f'./{plots_dir}/candlestick_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}{filtered}.pdf'
     
     plt.tight_layout(rect=[0, 0.02, 0.95, 0.98])
     plt.savefig(output_file, bbox_inches='tight')
@@ -2064,6 +2070,7 @@ def parse_args():
     parser.add_argument('--rasp', action='store_true', help='Use Raspberry Pi dataset')
     parser.add_argument('--s', type=int, help='Optional s parameter')
     parser.add_argument('--p', help='Optional p parameter (parallelization mode)')
+    parser.add_argument('--filtered', action='store_true', help='Use filtered dataset (reduced outliers)')
     parser.add_argument('--data-dir', default='bench-data', help='Directory containing the data files')
     parser.add_argument('--custom-suffix', help='Suffix for data and plot directories')
     
@@ -2102,28 +2109,28 @@ def main():
         create_scatter_plot(
             base_metric, algorithms, cert_types, args.n, scenario,
             args.rasp, args.s, args.p, args.data_dir, args.custom_suffix,
-            target_unit=target_unit
+            target_unit=target_unit, filtering=args.filtered
         )
     elif args.heatmap:
         print(f"Generating heat map for scenario {scenario}...")
         create_heat_map(
             base_metric, algorithms, cert_types, args.n, scenario,
             args.rasp, args.s, args.p, args.data_dir, args.custom_suffix,
-            target_unit=target_unit
+            target_unit=target_unit, filtering=args.filtered
         )
     elif args.boxplot:
         print(f"Generating box plot for scenario {scenario}...")
         create_box_plot(
             base_metric, algorithms, cert_types, args.n, scenario,
             args.rasp, args.s, args.p, args.data_dir, args.custom_suffix,
-            target_unit=target_unit, log_scale=True
+            target_unit=target_unit, log_scale=True, filtering=args.filtered
         )
     elif args.candlestick:
         print(f"Generating candlestick plot for scenario {scenario}...")
         create_discrete_candlestick_plot(
             base_metric, algorithms, cert_types, args.n, scenario,
             args.rasp, args.s, args.p, args.data_dir, args.custom_suffix,
-            target_unit=target_unit
+            target_unit=target_unit, filtering=args.filtered
         )
     else:
         # Bar plot supports multiple scenarios
@@ -2131,7 +2138,7 @@ def main():
         create_bar_plot(
             base_metric, algorithms, cert_types, args.n, scenarios,
             args.rasp, args.s, args.p, args.data_dir, args.custom_suffix,
-            target_unit=target_unit
+            target_unit=target_unit, filtering=args.filtered
         )
 
 if __name__ == "__main__":
