@@ -1474,9 +1474,19 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
                     widths=box_width*0.9, # Make boxes slightly narrower
     )
     # Set colors for each box
-    for patch, color in zip(bp['boxes'], box_colors):
-        patch.set_facecolor(color)
-        patch.set_alpha(0.7)
+    #for patch, color in zip(bp['boxes'], box_colors):
+    #    patch.set_facecolor(color)
+    #    patch.set_alpha(0.7)
+    
+    # Make boxes transparent
+    for patch in bp['boxes']:
+        patch.set_facecolor('none')
+        patch.set_edgecolor('black')
+        
+    # Plot raw data points with jitter
+    for pos, data, color in zip(positions, box_data, box_colors):
+        jitter = np.random.normal(0, box_width * 0.1, size=len(data))
+        ax.scatter(pos + jitter, data, color=color, alpha=0.6, edgecolors='k', linewidths=0.5, s=40)
         
     # Add vertical dashed lines between algorithm groups
     for boundary in group_boundaries:
