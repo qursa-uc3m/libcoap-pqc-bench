@@ -2,6 +2,7 @@
 """
 Complete CV-based outlier filtering with proper statistics recalculation.
 Removes timeout iterations and recalculates all aggregated statistics properly.
+FIXED: Proper iteration extraction and bounds checking.
 """
 
 import pandas as pd
@@ -61,118 +62,112 @@ class CompleteOutlierFilter:
             
             if pd.notna(mean_energy) and pd.notna(std_energy) and mean_energy > 0:
                 cv_analysis['energy_cv'] = std_energy / mean_energy
+                cv_analysis['energy_mwh'] = mean_energy * 1000  # Convert to mWh
             else:
                 cv_analysis['energy_cv'] = 0.0
+                cv_analysis['energy_mwh'] = 0.0
         
         return cv_analysis
     
     def classify_iteration(self, cv_analysis: Dict[str, float]) -> str:
-        """Classify iteration based on CV patterns."""
+        """Classify iteration based on CV patterns and absolute bounds."""
         duration_cv = cv_analysis.get('duration_cv', 0.0)
+        energy_mwh = cv_analysis.get('energy_mwh', 0.0)
         
+        # ABSOLUTE BOUNDS CHECK - CRITICAL FIX
+        if energy_mwh > 15.0:  # Energy above 15 mWh is clearly an outlier
+            return 'timeout'
+        
+        # ORIGINAL CV LOGIC
         if duration_cv >= self.cv_timeout_threshold:
             return 'timeout'
         elif duration_cv >= self.cv_retransmission_threshold:
             return 'retransmission'
         else:
             return 'normal'
-    
+
     def extract_iteration_data(self, df: pd.DataFrame) -> Tuple[List[Dict], Optional[int]]:
         """
-        Extract iteration blocks and find the main aggregated section.
-        
-        The actual structure is:
-        - Multiple iteration blocks: 5 data rows + 1 separator row (semicolons)
-        - Main separator: dashes (------------)
-        - Aggregated statistics
-        
-        Returns:
-            Tuple of (iteration_list, main_separator_index)
+        FIXED: Extract iteration blocks with proper header handling.
         """
         iterations = []
         
-        # Debug: Print structure to understand the pattern
-        #print("DEBUG: Analyzing data structure...")
+        # Find semicolon separators (iteration block separators)
         semicolon_separators = []
         dash_separators = []
         
         for i, row in df.iterrows():
-            first_col = str(row.iloc[0]) if not pd.isna(row.iloc[0]) else ""
+            # Convert entire row to string for analysis
+            row_str = ';'.join([str(x) if not pd.isna(x) else '' for x in row])
             
-            # Look for semicolon separators (iteration block separators)
-            if first_col == '' and len(row.dropna()) == 0:
-                # Check if this is a row of semicolons by looking at the pattern
-                row_str = ';'.join([str(x) if not pd.isna(x) else '' for x in row])
-                if row_str.count(';') >= 8 and row_str.replace(';', '').strip() == '':
-                    semicolon_separators.append(i)
-                    
+            # Look for semicolon separators (at least 8 consecutive semicolons)
+            if row_str.count(';') >= 8 and len(row_str.replace(';', '').strip()) == 0:
+                semicolon_separators.append(i)
+                
             # Look for dash separators (main separator)  
-            elif '------------' in first_col or ('---' in first_col and len(first_col) > 5):
+            first_col = str(row.iloc[0]) if not pd.isna(row.iloc[0]) else ""
+            if '---' in first_col and len(first_col) > 10:  # More strict dash detection
                 dash_separators.append(i)
         
-        #print(f"DEBUG: Found {len(semicolon_separators)} semicolon separators at: {semicolon_separators}")
-        #print(f"DEBUG: Found {len(dash_separators)} dash separators at: {dash_separators}")
+        print(f"DEBUG: Found {len(semicolon_separators)} semicolon separators at: {semicolon_separators}")
+        print(f"DEBUG: Found {len(dash_separators)} dash separators at: {dash_separators}")
         
         # The main separator should be the dash separator
         if not dash_separators:
             print("ERROR: No main separator (dashes) found")
             return [], None
             
-        main_separator_idx = dash_separators[0]  # Should be only one
+        main_separator_idx = dash_separators[0]
         
         # Extract iteration blocks based on semicolon separators
         if not semicolon_separators:
             print("WARNING: No semicolon separators found - treating as single iteration")
-            # Single iteration case (everything before main separator)
             iteration_data = df.iloc[:main_separator_idx]
             iterations.append({
                 'data': iteration_data,
-                'separator_idx': len(iteration_data) - 1,  # Last row before main separator
+                'separator_idx': len(iteration_data) - 1,
                 'iteration_number': 1,
-                'start_idx': 0
+                'start_idx': 0,
+                'has_header': False  # First iteration always has header
             })
         else:
-            #print(f"DEBUG: Processing {len(semicolon_separators)} iteration blocks")
-            
-            # Process each iteration block
+            # FIXED: Process each iteration block correctly with header detection
             current_start = 0
             for i, sep_idx in enumerate(semicolon_separators):
-                # Each iteration block: rows from current_start to sep_idx (inclusive)
-                iteration_data = df.iloc[current_start:sep_idx + 1]
+                # Stop if we've reached the main separator
+                if sep_idx >= main_separator_idx:
+                    break
+                    
+                # Each iteration block: rows from current_start to sep_idx (exclusive)
+                iteration_data = df.iloc[current_start:sep_idx]
                 
-                # The separator within this block is at the end
-                local_sep_idx = len(iteration_data) - 1
+                # First iteration has header, others don't
+                #has_header = (i == 0)
+                has_header = False
                 
-                #print(f"DEBUG: Iteration {i+1}: rows {current_start}:{sep_idx+1} (separator at local row {local_sep_idx})")
+                # FIXED: More flexible validation - just need mean, std, mode rows
+                min_rows_needed = 6 if has_header else 5  # header + 5 data rows OR just 5 data rows
                 
-                iterations.append({
-                    'data': iteration_data,
-                    'separator_idx': local_sep_idx,
-                    'iteration_number': i + 1,
-                    'start_idx': current_start
-                })
+                if len(iteration_data) >= min_rows_needed:
+                    iterations.append({
+                        'data': iteration_data,
+                        'separator_idx': len(iteration_data) - 1,
+                        'iteration_number': i + 1,
+                        'start_idx': current_start,
+                        'has_header': has_header
+                    })
+                    print(f"DEBUG: Added iteration {i+1}: rows {current_start} to {sep_idx-1} ({len(iteration_data)} rows, header={has_header})")
+                else:
+                    print(f"WARNING: Iteration {i+1} has only {len(iteration_data)} rows (need {min_rows_needed}), skipping")
                 
                 current_start = sep_idx + 1
-                
-                # Stop if we've reached the main separator
-                if current_start >= main_separator_idx:
-                    break
         
-        #print(f"DEBUG: Successfully extracted {len(iterations)} iteration blocks")
-        #print(f"DEBUG: Main separator at row {main_separator_idx}")
-        
+        print(f"DEBUG: Successfully extracted {len(iterations)} valid iteration blocks")
         return iterations, main_separator_idx
     
     def recalculate_aggregated_statistics(self, kept_iterations: List[Dict], original_columns: List[str]) -> pd.DataFrame:
         """
-        Recalculate aggregated statistics from filtered iterations using proper statistical methods.
-        
-        Args:
-            kept_iterations: List of iteration dictionaries that were kept after filtering
-            original_columns: Column names from original dataset
-            
-        Returns:
-            DataFrame with recalculated aggregated statistics in correct format
+        FIXED: Recalculate aggregated statistics with proper header handling.
         """
         if not kept_iterations:
             return pd.DataFrame()
@@ -190,28 +185,47 @@ class CompleteOutlierFilter:
         for iteration in kept_iterations:
             iter_data = iteration['data']
             iter_num = iteration['iteration_number']
+            has_header = iteration.get('has_header', iter_num == 1)
             
-            # Handle header for first iteration
-            if iter_num == 1:
-                # Skip header row
-                mean_row = iter_data.iloc[1]
+            print(f"DEBUG: Processing iteration {iter_num}, has_header={has_header}, rows={len(iter_data)}")
+            
+            # FIXED: Proper row indexing based on header presence
+            if has_header:
+                # First iteration with header: skip header row
+                if len(iter_data) < 6:  # Need header + 5 data rows
+                    print(f"Warning: Header iteration {iter_num} has only {len(iter_data)} rows, expected at least 6")
+                    continue
+                    
+                mean_row = iter_data.iloc[1]   # Row after header
                 std_row = iter_data.iloc[2]
                 mode_row = iter_data.iloc[3]
                 below_row = iter_data.iloc[4]
                 above_row = iter_data.iloc[5]
             else:
-                # No header
+                # Subsequent iterations without header
+                if len(iter_data) < 5:  # Need 5 data rows
+                    print(f"Warning: Non-header iteration {iter_num} has only {len(iter_data)} rows, expected at least 5")
+                    continue
+                    
                 mean_row = iter_data.iloc[0]
                 std_row = iter_data.iloc[1]
                 mode_row = iter_data.iloc[2]
                 below_row = iter_data.iloc[3]
                 above_row = iter_data.iloc[4]
             
+            # Add to lists
             all_means.append(mean_row)
             all_stds.append(std_row)
             all_modes.append(mode_row)
             all_belows.append(below_row)
             all_aboves.append(above_row)
+            
+            print(f"DEBUG: Successfully extracted statistics from iteration {iter_num}")
+            
+        # If no valid iterations after bounds checking, return empty
+        if not all_means:
+            print("Error: No valid iterations found after bounds checking")
+            return pd.DataFrame()
         
         # Convert to DataFrames for easier calculation
         means_df = pd.DataFrame(all_means)
@@ -220,7 +234,9 @@ class CompleteOutlierFilter:
         belows_df = pd.DataFrame(all_belows)
         aboves_df = pd.DataFrame(all_aboves)
         
-        print(f"  Processing {k} iterations for aggregated statistics")
+        # Update k to reflect actual number of valid iterations
+        k = len(all_means)
+        print(f"  Processing {k} valid iterations for aggregated statistics")
         
         # Create aggregated statistics rows
         aggregated_rows = []
@@ -245,9 +261,7 @@ class CompleteOutlierFilter:
         aggregated_rows.append(mean_data)
         
         # 3. AGGREGATED STANDARD DEVIATION
-        # Use the same formula from bench-data-manager.py adapted for filtered data
         n = 25  # samples per iteration (constant)
-        # k = number of kept iterations (variable based on filtering)
         N = n * k  # total samples after filtering
         
         std_data = {}
@@ -258,8 +272,7 @@ class CompleteOutlierFilter:
                 
                 if len(col_means) > 0:
                     if col == 'cpu_cycles':
-                        # CPU cycles: single measurement per iteration, no within-iteration std
-                        # Aggregated std = std of the iteration means (between-iteration variance)
+                        # CPU cycles: single measurement per iteration
                         if len(col_means) > 1:
                             std_data[col] = np.std(col_means, ddof=1)
                         else:
@@ -268,25 +281,20 @@ class CompleteOutlierFilter:
                         # For other metrics, use correct pooled variance formula
                         if N > 1:
                             if n > 1:
-                                # within_variance = average of variances from kept iterations
                                 within_variance = np.mean(col_stds ** 2)
-                                # between_variance = variance of means from kept iterations
                                 if len(col_means) > 1:
                                     between_variance = np.var(col_means, ddof=1)
                                 else:
                                     between_variance = 0
                                 
-                                # Correct pooled variance formula: ((n-1) * within_var + n * between_var) / (N-1)
                                 total_variance = ((n-1) * within_variance + n * between_variance) / (N-1)
                                 std_data[col] = np.sqrt(max(0, total_variance))
                             else:
-                                # n = 1 case, use variance of means
                                 if len(col_means) > 1:
                                     std_data[col] = np.std(col_means, ddof=1)
                                 else:
                                     std_data[col] = 0
                         else:
-                            # N = 1 case
                             std_data[col] = np.mean(col_stds)
                 else:
                     std_data[col] = 0
@@ -340,46 +348,27 @@ class CompleteOutlierFilter:
             equals_data[col] = '======'
         aggregated_rows.append(equals_data)
         
-        # 8. MIN VALUES (for discrete metrics only)
-        min_data = {}
+        # 8-10. MIN/MAX/RANGE VALUES (for discrete metrics only)
         discrete_metrics = ['frames_sent', 'bytes_sent', 'frames_received', 
                           'bytes_received', 'total_frames', 'total_bytes']
-        for col in original_columns:
-            if col in discrete_metrics and col in modes_df.columns:
-                col_modes = pd.to_numeric(modes_df[col], errors='coerce').dropna()
-                if len(col_modes) > 0:
-                    min_data[col] = np.min(col_modes)
-                else:
-                    min_data[col] = '--'
-            else:
-                min_data[col] = '--'
-        aggregated_rows.append(min_data)
         
-        # 9. MAX VALUES (for discrete metrics only)
-        max_data = {}
-        for col in original_columns:
-            if col in discrete_metrics and col in modes_df.columns:
-                col_modes = pd.to_numeric(modes_df[col], errors='coerce').dropna()
-                if len(col_modes) > 0:
-                    max_data[col] = np.max(col_modes)
+        for stat_name in ['min', 'max', 'range']:
+            stat_data = {}
+            for col in original_columns:
+                if col in discrete_metrics and col in modes_df.columns:
+                    col_modes = pd.to_numeric(modes_df[col], errors='coerce').dropna()
+                    if len(col_modes) > 0:
+                        if stat_name == 'min':
+                            stat_data[col] = np.min(col_modes)
+                        elif stat_name == 'max':
+                            stat_data[col] = np.max(col_modes)
+                        else:  # range
+                            stat_data[col] = np.max(col_modes) - np.min(col_modes)
+                    else:
+                        stat_data[col] = '--'
                 else:
-                    max_data[col] = '--'
-            else:
-                max_data[col] = '--'
-        aggregated_rows.append(max_data)
-        
-        # 10. RANGE VALUES (for discrete metrics only)
-        range_data = {}
-        for col in original_columns:
-            if col in discrete_metrics and col in modes_df.columns:
-                col_modes = pd.to_numeric(modes_df[col], errors='coerce').dropna()
-                if len(col_modes) > 0:
-                    range_data[col] = np.max(col_modes) - np.min(col_modes)
-                else:
-                    range_data[col] = '--'
-            else:
-                range_data[col] = '--'
-        aggregated_rows.append(range_data)
+                    stat_data[col] = '--'
+            aggregated_rows.append(stat_data)
         
         # Create DataFrame from the data dictionaries
         result_df = pd.DataFrame(aggregated_rows)
@@ -392,14 +381,7 @@ class CompleteOutlierFilter:
     
     def filter_aggregated_csv(self, csv_file_path: str, output_path: str = None) -> bool:
         """
-        Complete filtering with proper statistics recalculation.
-        
-        Args:
-            csv_file_path: Input CSV file path
-            output_path: Output CSV file path
-            
-        Returns:
-            Success boolean
+        FIXED: Complete filtering with proper statistics recalculation.
         """
         try:
             # Read original data
@@ -425,47 +407,26 @@ class CompleteOutlierFilter:
             
             for iteration in iterations:
                 iter_data = iteration['data']
-                sep_idx = iteration['separator_idx']
                 iter_num = iteration['iteration_number']
+                has_header = iteration.get('has_header', iter_num == 1)
                 
-                if len(iter_data) >= 3:
-                    # Handle header row for first iteration only
-                    if iter_num == 1:
-                        # First iteration has header row
-                        # Row 0: Header  
-                        # Row 1: Mean values
-                        # Row 2: Std values
-                        # Row 3: Mode values
-                        # Row 4: Above mode counts
-                        # Row 5: Below mode counts
-                        # Row 6: Separator (on its own row)
-                        mean_row = iter_data.iloc[1]  # Mean values (skip header)
-                        std_row = iter_data.iloc[2]   # Std values
+                # FIXED: Proper row access based on header presence
+                try:
+                    if has_header:
+                        if len(iter_data) < 3:  # Need at least header + mean + std
+                            print(f"Warning: Iteration {iter_num} too short for analysis")
+                            continue
+                        mean_row = iter_data.iloc[1]  # Skip header
+                        std_row = iter_data.iloc[2]
                     else:
-                        # Subsequent iterations don't have header
-                        # Row 0: Mean values
-                        # Row 1: Std values  
-                        # Row 2: Mode values
-                        # Row 3: Above mode counts
-                        # Row 4: Below mode counts
-                        # Row 5: Separator (on its own row)
-                        mean_row = iter_data.iloc[0]  # Mean values
-                        std_row = iter_data.iloc[1]   # Std values
+                        if len(iter_data) < 2:  # Need at least mean + std
+                            print(f"Warning: Iteration {iter_num} too short for analysis")
+                            continue
+                        mean_row = iter_data.iloc[0]
+                        std_row = iter_data.iloc[1]
                     
                     cv_analysis = self.analyze_iteration_cv(mean_row, std_row)
                     classification = self.classify_iteration(cv_analysis)
-                    
-                    # Extract raw values for detailed debugging
-                    duration_mean = pd.to_numeric(mean_row.get('duration', 0), errors='coerce')
-                    duration_std = pd.to_numeric(std_row.get('duration', 0), errors='coerce')
-                    energy_mean = pd.to_numeric(mean_row.get('Energy (Wh)', 0), errors='coerce')
-                    energy_std = pd.to_numeric(std_row.get('Energy (Wh)', 0), errors='coerce')
-                    
-                    #print(f"  DEBUG: Iteration {iter_num} raw values:")
-                    #print(f"    Mean row duration: {duration_mean}")
-                    #print(f"    Std row duration: {duration_std}")
-                    #print(f"    Mean row energy: {energy_mean}")
-                    #print(f"    Std row energy: {energy_std}")
                     
                     iteration_classifications.append({
                         'iteration': iter_num,
@@ -473,25 +434,31 @@ class CompleteOutlierFilter:
                         'cv_analysis': cv_analysis,
                         'data': iteration
                     })
-                    
-                    # Print detailed analysis
-                    duration_cv = cv_analysis.get('duration_cv', 0)
-                    energy_cv = cv_analysis.get('energy_cv', 0)
-                    
-                    #print(f"  Iteration {iter_num}: {classification.upper()}")
-                    #print(f"    Duration: {duration_mean:.3f}s (mean), {duration_std:.3f}s (std)")
-                    #print(f"    Duration CV: {duration_cv:.3f}")
-                    #if energy_cv > 0:
-                        #print(f"    Energy: {energy_mean:.6f} Wh (mean)")
-                        #print(f"    Energy CV: {energy_cv:.3f}")
-                                                                            
-                    # Show why it was classified this way
-                    #if duration_cv >= self.cv_timeout_threshold:
-                    #    print(f"    -> TIMEOUT (CV {duration_cv:.3f} >= {self.cv_timeout_threshold})")
-                    #elif duration_cv >= self.cv_retransmission_threshold:
-                    #    print(f"    -> RETRANSMISSION (CV {duration_cv:.3f} >= {self.cv_retransmission_threshold})")
-                    #else:
-                    #    print(f"    -> NORMAL (CV {duration_cv:.3f} < {self.cv_retransmission_threshold})")
+                except Exception as e:
+                    print(f"Error analyzing iteration {iter_num}: {e}")
+                    continue
+            
+            # Add the detailed iteration analysis output
+            print(f"\nDETAILED ITERATION ANALYSIS:")
+            for item in iteration_classifications:
+                iter_num = item['iteration']
+                classification = item['classification']
+                cv_analysis = item['cv_analysis']
+                
+                duration_cv = cv_analysis.get('duration_cv', 0)
+                energy_mwh = cv_analysis.get('energy_mwh', 0)
+                
+                status = "KEEP" if classification != 'timeout' else "REMOVE"
+                print(f"  Iteration {iter_num}: {classification.upper()} ({status})")
+                print(f"    Duration CV: {duration_cv:.3f}")
+                print(f"    Energy: {energy_mwh:.1f} mWh")
+                
+                if classification == 'timeout':
+                    if energy_mwh > 15.0:
+                        print(f"    -> TIMEOUT due to energy bounds ({energy_mwh:.1f} > 15.0 mWh)")
+                    elif duration_cv >= self.cv_timeout_threshold:
+                        print(f"    -> TIMEOUT due to duration CV ({duration_cv:.3f} >= {self.cv_timeout_threshold})")
+                print()
             
             # Determine which iterations to keep
             timeout_iterations = [item for item in iteration_classifications if item['classification'] == 'timeout']
@@ -500,9 +467,8 @@ class CompleteOutlierFilter:
             # Safety check
             if len(kept_iterations) < self.min_iterations and len(iteration_classifications) >= self.min_iterations:
                 print(f"Warning: Would keep only {len(kept_iterations)} iterations. Keeping best {self.min_iterations}.")
-                # Sort by duration CV and keep the best ones
                 sorted_iterations = sorted(iteration_classifications, 
-                                         key=lambda x: x['cv_analysis'].get('duration_cv', 0))
+                                        key=lambda x: x['cv_analysis'].get('duration_cv', 0))
                 kept_iterations = sorted_iterations[:self.min_iterations]
                 timeout_iterations = sorted_iterations[self.min_iterations:]
             
@@ -524,28 +490,7 @@ class CompleteOutlierFilter:
                 filtered_df = df
             else:
                 print(f"Filtering {timeout_count} timeout iterations and recalculating statistics...")
-                
-                # Combine kept iteration data
-                filtered_sections = []
-                
-                # Add kept iterations
-                for item in kept_iterations:
-                    filtered_sections.append(item['data']['data'])
-                
-                # Recalculate aggregated statistics
-                aggregated_stats = self.recalculate_aggregated_statistics(
-                    [item['data'] for item in kept_iterations], 
-                    original_columns
-                )
-                
-                if not aggregated_stats.empty:
-                    filtered_sections.append(aggregated_stats)
-                
-                # Combine all sections
-                if filtered_sections:
-                    filtered_df = pd.concat(filtered_sections, ignore_index=True)
-                else:
-                    filtered_df = df
+                filtered_df = self._build_filtered_dataset(kept_iterations, original_columns)
             
             # Update statistics
             self.filtering_stats['files_processed'] += 1
@@ -570,6 +515,70 @@ class CompleteOutlierFilter:
             import traceback
             traceback.print_exc()
             return False
+
+    def _build_filtered_dataset(self, kept_iterations: List[Dict], original_columns: List[str]) -> pd.DataFrame:
+        """
+        FIXED: Build filtered dataset by combining kept iterations and recalculated stats.
+        """
+        try:
+            result_sections = []
+            
+            max_iter = max(item['iteration'] for item in kept_iterations)
+            # Add all kept iterations
+            for item in kept_iterations:
+                iter_data = item['data']['data']
+                result_sections.append(iter_data)
+                print(f"DEBUG: Added kept iteration {item['iteration']} ({len(iter_data)} rows)")
+                
+                if item['iteration'] < max_iter:
+                    sep_row = pd.DataFrame([{col: np.nan for col in original_columns}])
+                    result_sections.append(sep_row)
+                    print(f"DEBUG: Inserted semicolon separator after iteration {item['iteration']}")
+            
+            # Add recalculated aggregated statistics
+            aggregated_stats = self.recalculate_aggregated_statistics(
+                [item['data'] for item in kept_iterations], 
+                original_columns
+            )
+            
+            if not aggregated_stats.empty:
+                result_sections.append(aggregated_stats)
+                print(f"DEBUG: Added recalculated aggregated statistics ({len(aggregated_stats)} rows)")
+            else:
+                print("ERROR: Failed to recalculate aggregated statistics")
+                return pd.DataFrame()
+            
+            # Combine all sections
+            if result_sections:
+                final_df = pd.concat(result_sections, ignore_index=True)
+                print(f"DEBUG: Final DataFrame has {len(final_df)} rows")
+                
+                # VALIDATION: Check filtering results
+                energy_col = 'Energy (Wh)'
+                if energy_col in final_df.columns:
+                    energy_values = pd.to_numeric(final_df[energy_col], errors='coerce').dropna()
+                    if len(energy_values) > 0:
+                        max_energy_mwh = energy_values.max() * 1000
+                        outlier_count = (energy_values * 1000 > 15.0).sum()
+                        
+                        print(f"DEBUG: Maximum energy in filtered file: {max_energy_mwh:.1f} mWh")
+                        print(f"DEBUG: Energy values > 15.0 mWh: {outlier_count}")
+                        
+                        if outlier_count > 0:
+                            print(f"WARNING: {outlier_count} energy outliers still remain")
+                        else:
+                            print("SUCCESS: All energy outliers filtered out")
+                
+                return final_df
+            else:
+                print("ERROR: No sections to combine")
+                return pd.DataFrame()
+                
+        except Exception as e:
+            print(f"ERROR in _build_filtered_dataset: {e}")
+            import traceback
+            traceback.print_exc()
+            return pd.DataFrame()
     
     def print_summary_statistics(self):
         """Print comprehensive filtering summary."""
@@ -587,11 +596,6 @@ class CompleteOutlierFilter:
             filter_rate = (self.filtering_stats['iterations_filtered'] / 
                           self.filtering_stats['iterations_analyzed']) * 100
             print(f"Filtering rate: {filter_rate:.1f}%")
-        
-        print(f"\nRecalculated aggregated statistics using:")
-        print(f"  - Proper variance pooling across iterations")
-        print(f"  - Within-iteration + between-iteration variance")
-        print(f"  - Updated mode, min/max, range for discrete metrics")
 
 
 if __name__ == "__main__":

@@ -403,6 +403,107 @@ def read_csv_discrete(file_path, metric_column, n, target_unit=None):
     except Exception as e:
         print(f"Error reading {file_path}: {e}")
         return None
+    
+def extract_iteration_summaries(file_path, metric_name, expected_iterations=5, use_mode_for_discrete=True):
+    """
+    Extract iteration summary statistics from CSV file.
+    
+    This function parses CSV files with the structure:
+    - Multiple iteration blocks separated by semicolon rows (;;;;;;)
+    - Each iteration block contains: mean, std, mode, below, above
+    - Main separator with dashes (------------)
+    - Global aggregated statistics
+    
+    Args:
+        file_path (str): Path to the CSV file
+        metric_name (str): Name of the metric column to extract
+        expected_iterations (int): Expected number of iterations (default: 5)
+        use_mode_for_discrete (bool): Whether to use mode for discrete metrics (default: True)
+    
+    Returns:
+        numpy.array: Array of iteration summary values (means for continuous, modes for discrete)
+    """
+    try:
+        df = pd.read_csv(file_path, sep=';')
+        
+        # Find all semicolon separators (iteration boundaries)
+        semicolon_separators = []
+        for i, row in df.iterrows():
+            # Check if this row is mostly empty/semicolons
+            row_str = ';'.join([str(x) if not pd.isna(x) else '' for x in row])
+            if row_str.count(';') >= 8 and row_str.replace(';', '').strip() == '':
+                semicolon_separators.append(i)
+        
+        # Find main separator with dashes
+        main_separator_idx = None
+        for i, row in df.iterrows():
+            first_col = str(row.iloc[0]) if not pd.isna(row.iloc[0]) else ""
+            if '------------' in first_col:
+                main_separator_idx = i
+                break
+        
+        if not semicolon_separators:
+            print(f"  WARNING: No iteration separators found in {os.path.basename(file_path)}")
+            return np.array([])
+        
+        # Determine if this is a discrete metric
+        discrete_metrics = ['frames_sent', 'bytes_sent', 'frames_received', 
+                           'bytes_received', 'total_frames', 'total_bytes']
+        
+        is_discrete = metric_name in discrete_metrics
+        
+        if use_mode_for_discrete and is_discrete:
+            target_row_idx = 2  # Mode row for discrete metrics
+            value_type = "mode"
+        else:
+            target_row_idx = 0  # Mean row for continuous metrics  
+            value_type = "mean"
+        
+        # Extract appropriate values from each iteration block
+        iteration_values = []
+        current_start = 0
+        
+        for i, sep_idx in enumerate(semicolon_separators):
+            # Stop if we've reached the main separator
+            if main_separator_idx and current_start >= main_separator_idx:
+                break
+                
+            # Extract this iteration block
+            iteration_data = df.iloc[current_start:sep_idx]
+            
+            if len(iteration_data) >= 1:  # Need at least mean row
+                # ALL iterations have the same structure: [mean, std, mode, below, above]
+                # There is NO header row in iteration blocks
+                target_row_idx_in_block = target_row_idx  # Use the determined index
+                
+                if target_row_idx_in_block < len(iteration_data):
+                    target_row = iteration_data.iloc[target_row_idx_in_block]
+                    
+                    if metric_name in target_row.index:
+                        target_value = pd.to_numeric(target_row[metric_name], errors='coerce')
+                        if not pd.isna(target_value):
+                            iteration_values.append(target_value)
+            
+            # Move to next iteration start
+            current_start = sep_idx + 1
+        
+        iteration_values = np.array(iteration_values)
+        
+        # Debug output
+        print(f"  File: {os.path.basename(file_path)}")
+        print(f"    Metric type: {'discrete' if is_discrete else 'continuous'} ({value_type})")
+        print(f"    Found {len(semicolon_separators)} iteration separators")
+        print(f"    Extracted {len(iteration_values)} iteration {value_type}s")
+        print(f"    Values: {[f'{v:.6f}' for v in iteration_values]}")  # Better formatting
+        
+        if len(iteration_values) != expected_iterations:
+            print(f"    WARNING: Expected {expected_iterations} iterations, got {len(iteration_values)}")
+        
+        return iteration_values
+        
+    except Exception as e:
+        print(f"Error reading {file_path}: {e}")
+        return np.array([])
 
 def find_files(base_dir, pattern):
     """
@@ -998,7 +1099,7 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
         all_handles.append(Line2D([0], [0], color='none', label=''))  # Separator
         all_handles.extend(pattern_handles)
     
-    ax.legend(handles=all_handles, loc='upper right', bbox_to_anchor=(1.15, 1), ncol=1)
+    ax.legend(handles=all_handles, loc='best', bbox_to_anchor=(1.01, 1), ncol=1)
     
     # Add grid for better readability
     ax.grid(True, axis='y', alpha=0.3)
@@ -1164,6 +1265,8 @@ def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=
 def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='bench-data', custom_suffix=None, target_unit=None, log_scale=True, filtering=False):
     """
     Create box plots to visualize variability in metrics across configurations.
+    MODIFIED: Now correctly extracts iteration summary statistics (5 points per config)
+    instead of individual client measurements.
     
     Args:
         metric (str): The metric to be visualized (e.g., 'duration', 'Energy (Wh)').
@@ -1178,6 +1281,7 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
         custom_suffix (str): Optional suffix for data and plot directories.
         target_unit (str or None): Target unit for conversion, if any.
         log_scale (bool): Whether to use logarithmic scale for y-axis.
+        filtering (bool): Whether using filtered data.
     """
     # Get the absolute path of the script's directory
     script_directory = os.path.dirname(os.path.realpath(__file__))
@@ -1195,7 +1299,7 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     # Generate colors for different certificate types
     cert_colors = get_certificate_colors(cert_types_list)
     
-    # Dictionary to store raw data points for each configuration
+    # Dictionary to store iteration summary data for each configuration
     raw_data_dict = {}
     
     # Construct the common file pattern parts
@@ -1205,7 +1309,9 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     rasp_prefix = "rasp" if rasp else ""
     filtered = "_filtered" if filtering else ""
     
-    # Collect raw data for each configuration
+    # Use the external extract_iteration_summaries function
+    
+    # Collect iteration summary data for each configuration
     for algorithm in algorithms_list:
         for cert_type in cert_types_list:
             # Get file patterns
@@ -1222,52 +1328,24 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
             
             if pki_files:
                 file_path = pki_files[0]
-                try:
-                    # Read the CSV file
-                    df = pd.read_csv(file_path, sep=';')
-                    
-                    # Find the separator row
-                    separator_idx = None
-                    for i, row in df.iterrows():
-                        # Check if this is a separator row
-                        if isinstance(row.iloc[0], str) and '---' in row.iloc[0]:
-                            separator_idx = i
-                            break
-                    
-                    if separator_idx is not None:
-                        # Get all data rows before the separator
-                        data_rows = df.iloc[:separator_idx]
-                        #print(f"DEBUG: data_rows shape: {data_rows.shape}")
-                        #print(f"DEBUG: First 10 rows of data_rows:")
-                        #print(data_rows.head(10))
-                        # Extract the metric column
-                        if metric in data_rows.columns:
-                            # Filter out non-numeric values (if any)
-                            #print(f"DEBUG: Raw {metric} column values:")
-                            metric_column = data_rows[metric]
-                            #print(f"DEBUG: Total values in column: {len(metric_column)}")
-                            #print(f"DEBUG: Non-null values: {metric_column.notna().sum()}")
-                            #print(f"DEBUG: Sample values: {metric_column.dropna().head(10).tolist()}")
-                            
-                            raw_values = pd.to_numeric(data_rows[metric], errors='coerce').dropna().values
-                            #print(f"DEBUG: Final raw_values length: {len(raw_values)}")
-                            #print(f"DEBUG: Final raw_values sample: {raw_values[:10]}")
-                            
-                            # Apply unit conversion if needed
-                            if target_unit:
-                                raw_values = np.array([convert_value_based_on_unit(val, metric, target_unit) 
-                                                       for val in raw_values])
-                            
-                            # Store values in the dictionary
-                            key = f"{algorithm}_{cert_type}"
-                            raw_data_dict[key] = {
-                                'values': raw_values,
-                                'algorithm': algorithm,
-                                'cert_type': cert_type,
-                                'color': cert_colors[cert_type]
-                            }
-                except Exception as e:
-                    print(f"Error reading file {file_path}: {e}")
+                
+                # Extract iteration summary statistics (should be 5 values)
+                iteration_values = extract_iteration_summaries(file_path, metric)
+                
+                # Apply unit conversion if needed
+                if target_unit and len(iteration_values) > 0:
+                    iteration_values = np.array([convert_value_based_on_unit(val, metric, target_unit) 
+                                               for val in iteration_values])
+                
+                if len(iteration_values) > 0:
+                    # Store values in the dictionary
+                    key = f"{algorithm}_{cert_type}"
+                    raw_data_dict[key] = {
+                        'values': iteration_values,
+                        'algorithm': algorithm,
+                        'cert_type': cert_type,
+                        'color': cert_colors[cert_type]
+                    }
     
     # Also get data for PSK and NoSec
     for algorithm in algorithms_list:
@@ -1278,42 +1356,24 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
         
         if psk_files:
             file_path = psk_files[0]
-            try:
-                # Read the CSV file
-                df = pd.read_csv(file_path, sep=';')
-                
-                # Find the separator row
-                separator_idx = None
-                for i, row in df.iterrows():
-                    # Check if this is a separator row
-                    if isinstance(row.iloc[0], str) and '---' in row.iloc[0]:
-                        separator_idx = i
-                        break
-                
-                if separator_idx is not None:
-                    # Get all data rows before the separator
-                    data_rows = df.iloc[:separator_idx]
-                    
-                    # Extract the metric column
-                    if metric in data_rows.columns:
-                        # Filter out non-numeric values (if any)
-                        raw_values = pd.to_numeric(data_rows[metric], errors='coerce').dropna().values
-                        
-                        # Apply unit conversion if needed
-                        if target_unit:
-                            raw_values = np.array([convert_value_based_on_unit(val, metric, target_unit) 
-                                                  for val in raw_values])
-                        
-                        # Store values in the dictionary
-                        key = f"{algorithm}_PSK"
-                        raw_data_dict[key] = {
-                            'values': raw_values,
-                            'algorithm': algorithm,
-                            'cert_type': 'PSK',
-                            'color': security_mode_colors['psk']
-                        }
-            except Exception as e:
-                print(f"Error reading file {file_path}: {e}")
+            
+            # Extract iteration summary statistics
+            iteration_values = extract_iteration_summaries(file_path, metric)
+            
+            # Apply unit conversion if needed
+            if target_unit and len(iteration_values) > 0:
+                iteration_values = np.array([convert_value_based_on_unit(val, metric, target_unit) 
+                                           for val in iteration_values])
+            
+            if len(iteration_values) > 0:
+                # Store values in the dictionary
+                key = f"{algorithm}_PSK"
+                raw_data_dict[key] = {
+                    'values': iteration_values,
+                    'algorithm': algorithm,
+                    'cert_type': 'PSK',
+                    'color': security_mode_colors['psk']
+                }
     
     # NoSec data
     patterns = get_file_patterns("", "", n, s, p, scenario, rasp, filtering)
@@ -1327,42 +1387,24 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     
     if nosec_files:
         file_path = nosec_files[0]
-        try:
-            # Read the CSV file
-            df = pd.read_csv(file_path, sep=';')
-            
-            # Find the separator row
-            separator_idx = None
-            for i, row in df.iterrows():
-                # Check if this is a separator row
-                if isinstance(row.iloc[0], str) and '---' in row.iloc[0]:
-                    separator_idx = i
-                    break
-            
-            if separator_idx is not None:
-                # Get all data rows before the separator
-                data_rows = df.iloc[:separator_idx]
-                
-                # Extract the metric column
-                if metric in data_rows.columns:
-                    # Filter out non-numeric values (if any)
-                    raw_values = pd.to_numeric(data_rows[metric], errors='coerce').dropna().values
-                    
-                    # Apply unit conversion if needed
-                    if target_unit:
-                        raw_values = np.array([convert_value_based_on_unit(val, metric, target_unit) 
-                                              for val in raw_values])
-                    
-                    # Store values in the dictionary
-                    key = f"NoSec"
-                    raw_data_dict[key] = {
-                        'values': raw_values,
-                        'algorithm': 'NoSec',
-                        'cert_type': 'NoSec',
-                        'color': security_mode_colors['nosec']
-                    }
-        except Exception as e:
-            print(f"Error reading file {file_path}: {e}")
+        
+        # Extract iteration summary statistics
+        iteration_values = extract_iteration_summaries(file_path, metric)
+        
+        # Apply unit conversion if needed
+        if target_unit and len(iteration_values) > 0:
+            iteration_values = np.array([convert_value_based_on_unit(val, metric, target_unit) 
+                                       for val in iteration_values])
+        
+        if len(iteration_values) > 0:
+            # Store values in the dictionary
+            key = f"NoSec"
+            raw_data_dict[key] = {
+                'values': iteration_values,
+                'algorithm': 'NoSec',
+                'cert_type': 'NoSec',
+                'color': security_mode_colors['nosec']
+            }
     
     # If no data was found, exit
     if not raw_data_dict:
@@ -1426,9 +1468,6 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
                 positions.append(current_pos)
                 current_pos += box_width + box_gap
             
-            # Remove the extra gap after the last box in the group
-            #current_pos -= box_gap
-            
             # Set the label position at the center of this group
             tick_positions.append((group_start + current_pos) / 2)
             tick_labels.append(algorithm.replace("_", " "))
@@ -1471,7 +1510,7 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
                     patch_artist=True, 
                     showfliers=False,
                     medianprops={'color': 'black'}, 
-                    widths=box_width*0.9, # Make boxes slightly narrower
+                    widths=box_width*0.95, # Make boxes slightly narrower
     )
     # Set colors for each box
     #for patch, color in zip(bp['boxes'], box_colors):
@@ -1485,8 +1524,8 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
         
     # Plot raw data points with jitter
     for pos, data, color in zip(positions, box_data, box_colors):
-        jitter = np.random.normal(0, box_width * 0.1, size=len(data))
-        ax.scatter(pos + jitter, data, color=color, alpha=0.6, edgecolors='k', linewidths=0.5, s=40)
+        jitter = np.random.normal(0, box_width * 0.2, size=len(data))
+        ax.scatter(pos + jitter, data, color=color, alpha=0.75, edgecolors='k', linewidths=0.5, s=30)
         
     # Add vertical dashed lines between algorithm groups
     for boundary in group_boundaries:
@@ -1533,7 +1572,7 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
         legend_labels.append("NoSec")
     
     # Add the legend
-    ax.legend(handles, legend_labels, loc='upper right', bbox_to_anchor=(1.15, 1))
+    ax.legend(handles, legend_labels, loc='best', bbox_to_anchor=(1.01, 1))
     
     # Improve layout
     plt.tight_layout()
@@ -1551,7 +1590,7 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     plt.savefig(output_file)
     print(f"Plot saved to {output_file}")
     
-    # Analyze and save outliers  
+    # Analyze and save outliers with updated function for iteration data
     outlier_results = analyze_and_save_outliers(
         box_data, 
         metric, 
@@ -1564,15 +1603,12 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     
 def analyze_and_save_outliers(box_data, metric_name, scenario, plots_dir, n=None, multiplier=5.0):
     """
-    Simple outlier analysis using magnitude-based detection.
-    
-    Outliers are defined as values that are more than `multiplier` times 
-    larger than the minimum value in the dataset.
+    Outlier analysis for iteration-level data (5 points per configuration).
     
     Parameters:
     -----------
     box_data : list of arrays
-        Data for each configuration 
+        Iteration summary data for each configuration (should be 5 values each)
     metric_name : str  
         Name of the metric (for filename)
     scenario : str
@@ -1580,29 +1616,20 @@ def analyze_and_save_outliers(box_data, metric_name, scenario, plots_dir, n=None
     plots_dir : str
         Directory to save the CSV file
     n : int or None
-        Number of iterations (for documentation)
+        Number of iterations (should be 5)
     multiplier : float
         Multiplier for outlier detection (default: 5.0)
     """
-    
-    # Extract only mean values from box_data (every other value starting from 0)
-    mean_data = []
-    for data in box_data:
-        data_array = np.array(data)
-        # Take every other value starting from index 0 (the means)
-        means_only = data_array[::2]  # This gives you indices 0, 2, 4, 6, ... (the means)
-        mean_data.append(means_only)
     
     # Analyze outliers for each configuration
     outlier_summary = []
     total_measurements = 0
     total_outliers = 0
     
-    for i, data in enumerate(mean_data):
+    for i, data in enumerate(box_data):
         data = np.array(data)
         print(f"\nConfig {i}:")
-        print(f"  Data length: {len(data)}")
-        print(f"  Dataset (means): {data}")
+        print(f"  Iteration values: {data}")
         print(f"  Data range: {np.min(data):.6f} to {np.max(data):.6f}")
         
         # Magnitude-based outlier detection
@@ -1636,31 +1663,27 @@ def analyze_and_save_outliers(box_data, metric_name, scenario, plots_dir, n=None
     
     # Print summary to screen
     print(f"\n{'='*70}")
-    print(f"OUTLIER ANALYSIS - {metric_name} (Scenario {scenario})")
+    print(f"ITERATION-LEVEL OUTLIER ANALYSIS - {metric_name} (Scenario {scenario})")
     print(f"{'='*70}")
-    print(f"Total configurations: {len(mean_data)}")
-    print(f"Total measurements: {total_measurements}")
-    print(f"Total outliers: {total_outliers} ({total_outliers/total_measurements*100:.1f}%)")
-    if n:
-        print(f"Iterations per configuration: {n}")
-    print(f"Detection method: Magnitude-based (values > {multiplier}x minimum)")
+    print(f"Total configurations: {len(box_data)}")
+    print(f"Total iterations: {total_measurements}")
+    print(f"Total outlier iterations: {total_outliers} ({total_outliers/total_measurements*100:.1f}%)")
+    print(f"Expected iterations per configuration: 5")
+    print(f"Detection method: Magnitude-based (values > {multiplier}x minimum per config)")
     print(f"\nConfiguration Details:")
     print("-" * 70)
     
     for info in outlier_summary:
         print(f"{info['config_name']} (index {info['config_index']}):")
-        print(f"  Measurements: {info['n_total']}")
+        print(f"  Iterations: {info['n_total']}")
         print(f"  Range: {info['min_value']:.6f} to {info['max_value']:.6f}")
         print(f"  Threshold: {info['threshold']:.6f} (>{multiplier}x min)")
-        print(f"  Outliers: {info['n_outliers']} ({info['outlier_percentage']}%)")
+        print(f"  Outlier iterations: {info['n_outliers']} ({info['outlier_percentage']}%)")
         print(f"  Central tendency: median={info['median']:.6f}, mean={info['mean']:.6f}")
         
         if info['n_outliers'] > 0:
             outlier_values = info['outlier_values']
-            if len(outlier_values) <= 5:
-                print(f"  Outlier values: {[round(x, 6) for x in outlier_values]}")
-            else:
-                print(f"  Outlier values: {[round(x, 6) for x in outlier_values[:3]]} ... {[round(x, 6) for x in outlier_values[-2:]]}")
+            print(f"  Outlier iteration values: {[round(x, 6) for x in outlier_values]}")
         print()
     
     # Create a flattened version for CSV
@@ -1683,7 +1706,7 @@ def analyze_and_save_outliers(box_data, metric_name, scenario, plots_dir, n=None
         # Add outlier values as separate columns
         outlier_values = info['outlier_values']
         for j, outlier_val in enumerate(outlier_values):
-            row[f'outlier_{j+1}'] = round(outlier_val, 6)
+            row[f'outlier_iteration_{j+1}'] = round(outlier_val, 6)
         
         csv_data.append(row)
     
@@ -1692,7 +1715,7 @@ def analyze_and_save_outliers(box_data, metric_name, scenario, plots_dir, n=None
     
     # Generate filename
     clean_metric = metric_name.replace(' ', '_').replace('(', '').replace(')', '')
-    filename = f"outliers_{clean_metric}_scenario{scenario}_magnitude{multiplier}x.csv"
+    filename = f"outliers_iterations_{clean_metric}_scenario{scenario}_magnitude{multiplier}x.csv"
     filepath = f"./{plots_dir}/{filename}"
     
     # Ensure directory exists
@@ -1700,29 +1723,7 @@ def analyze_and_save_outliers(box_data, metric_name, scenario, plots_dir, n=None
     
     # Save CSV
     df.to_csv(filepath, index=False)
-    print(f"Outlier data saved to: {filepath}")
-    
-    # Summary file
-    summary_filename = f"outliers_summary_{clean_metric}_scenario{scenario}_magnitude{multiplier}x.txt"
-    summary_filepath = f"./{plots_dir}/{summary_filename}"
-    
-    with open(summary_filepath, 'w') as f:
-        f.write(f"OUTLIER ANALYSIS SUMMARY\n")
-        f.write(f"Metric: {metric_name}\n")
-        f.write(f"Scenario: {scenario}\n")
-        f.write(f"Total configurations: {len(mean_data)}\n")
-        f.write(f"Total measurements: {total_measurements}\n")
-        f.write(f"Total outliers: {total_outliers} ({total_outliers/total_measurements*100:.1f}%)\n")
-        if n:
-            f.write(f"Iterations per configuration: {n}\n")
-        f.write(f"Detection method: Magnitude-based (values > {multiplier}x minimum)\n")
-        f.write(f"Multiplier used: {multiplier}\n\n")
-        
-        f.write("Config_Index,Config_Name,Total,Outliers,Percentage,Min_Value,Threshold,Median,Mean\n")
-        for info in outlier_summary:
-            f.write(f"{info['config_index']},{info['config_name']},{info['n_total']},{info['n_outliers']},{info['outlier_percentage']}%,{info['min_value']:.6f},{info['threshold']:.6f},{info['median']:.6f},{info['mean']:.6f}\n")
-    
-    print(f"Summary saved to: {summary_filepath}")
+    print(f"Iteration outlier data saved to: {filepath}")
     
     return outlier_summary
     
@@ -2027,7 +2028,7 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
     all_handles = cert_handles + [Line2D([0], [0], color='none', label='')] + line_style_handles + [mode_handle]
     
     # Create legend
-    ax.legend(handles=all_handles, loc='upper left', bbox_to_anchor=(1.01, 1), ncol=1)
+    ax.legend(handles=all_handles, loc='best', bbox_to_anchor=(1.01, 1), ncol=1)
     
     # Add grid
     ax.grid(True, alpha=0.3, axis='both')
@@ -2133,7 +2134,7 @@ def main():
         create_box_plot(
             base_metric, algorithms, cert_types, args.n, scenario,
             args.rasp, args.s, args.p, args.data_dir, args.custom_suffix,
-            target_unit=target_unit, log_scale=True, filtering=args.filtered
+            target_unit=target_unit, log_scale=False, filtering=args.filtered
         )
     elif args.candlestick:
         print(f"Generating candlestick plot for scenario {scenario}...")

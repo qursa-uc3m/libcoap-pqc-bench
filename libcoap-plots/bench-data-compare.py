@@ -1428,7 +1428,7 @@ def is_continuous_metric(metric):
     """Check if a metric is continuous"""
     return metric in METRIC_CTS
     
-def calculate_network_difference_statistics(comparison_data, baseline_data, config_key, comp_network, baseline_network, metric_type='continuous'):
+def calculate_network_difference_statistics(comparison_data, baseline_data, config_key, comp_network, baseline_network, alpha=0.05, metric_type='continuous'):
     """
     Calculate statistical difference between networks with proper handling for metric types.
     
@@ -1449,18 +1449,18 @@ def calculate_network_difference_statistics(comparison_data, baseline_data, conf
         
         if metric_type == 'discrete':
             return calculate_discrete_difference_statistics(
-                comparison_data, baseline_data, config_key, comp_network, baseline_network
+                comparison_data, baseline_data, config_key, comp_network, baseline_network, alpha
             )
         else:
             return calculate_continuous_difference_statistics(
-                comparison_data, baseline_data, config_key, comp_network, baseline_network
+                comparison_data, baseline_data, config_key, comp_network, baseline_network, alpha
             )
         
     except (ValueError, TypeError, KeyError) as e:
         print(f"Error calculating difference statistics for {config_key}: {e}")
         return None
 
-def calculate_continuous_difference_statistics(comparison_data, baseline_data, config_key, comp_network, baseline_network):
+def calculate_continuous_difference_statistics(comparison_data, baseline_data, config_key, comp_network, baseline_network, alpha=0.05):
     """
     Calculate statistical difference for continuous metrics using t-tests.
     """
@@ -1515,7 +1515,7 @@ def calculate_continuous_difference_statistics(comparison_data, baseline_data, c
         
         # 95% confidence interval
         if df > 0:
-            t_critical = stats.t.ppf(0.975, df)
+            t_critical = stats.t.ppf(1 - alpha/2, df)
             margin_error = t_critical * se_diff
             ci_lower = mean_diff - margin_error
             ci_upper = mean_diff + margin_error
@@ -1566,7 +1566,7 @@ def calculate_continuous_difference_statistics(comparison_data, baseline_data, c
         print(f"Error in continuous difference calculation for {config_key}: {e}")
         return None
 
-def calculate_discrete_difference_statistics(comparison_data, baseline_data, config_key, comp_network, baseline_network):
+def calculate_discrete_difference_statistics(comparison_data, baseline_data, config_key, comp_network, baseline_network, alpha=0.05):
     """
     Calculate statistical difference for discrete count metrics using non-parametric tests.
     """
@@ -1617,7 +1617,7 @@ def calculate_discrete_difference_statistics(comparison_data, baseline_data, con
         
         # Confidence interval (approximate)
         if se_diff_est > 0:
-            z_critical = 1.96  # 95% CI
+            z_critical = stats.norm.ppf(1 - alpha/2)  # 95% CI
             margin_error = z_critical * se_diff_est
             ci_lower = mode_diff - margin_error
             ci_upper = mode_diff + margin_error
@@ -1785,7 +1785,7 @@ def create_network_difference_plot(all_data, metric, scenario,
             
             # Calculate difference with appropriate method for metric type
             diff_stats = calculate_network_difference_statistics(
-                comparison_data, baseline_data, config_key, comp_network, baseline_network, metric_type
+                comparison_data, baseline_data, config_key, comp_network, baseline_network, alpha, metric_type,
             )
             
             if diff_stats:
@@ -2301,7 +2301,7 @@ def create_algorithm_difference_plot(all_data, metric, scenario,
             
             # Use the updated difference calculation with metric type
             diff_stats = calculate_algorithm_difference_statistics(
-                comparison_data, baseline_data, config_key, comp_alg, baseline_algorithm, metric_type
+                comparison_data, baseline_data, config_key, comp_alg, baseline_algorithm, alpha, metric_type
             )
             
             if diff_stats:
@@ -2466,7 +2466,7 @@ def create_algorithm_difference_plot(all_data, metric, scenario,
     }
 
 
-def calculate_algorithm_difference_statistics(comparison_data, baseline_data, config_key, comp_algorithm, baseline_algorithm, metric_type='continuous'):
+def calculate_algorithm_difference_statistics(comparison_data, baseline_data, config_key, comp_algorithm, baseline_algorithm, alpha=0.05, metric_type='continuous'):
     """
     UPDATED: Calculate statistical difference between algorithms with proper handling for metric types.
     
@@ -2495,18 +2495,18 @@ def calculate_algorithm_difference_statistics(comparison_data, baseline_data, co
         
         if metric_type == 'discrete':
             return calculate_discrete_algorithm_difference_statistics(
-                comparison_data, baseline_data, config_key, comp_algorithm, baseline_algorithm
+                comparison_data, baseline_data, config_key, comp_algorithm, alpha, baseline_algorithm
             )
         else:
             return calculate_continuous_algorithm_difference_statistics(
-                comparison_data, baseline_data, config_key, comp_algorithm, baseline_algorithm
+                comparison_data, baseline_data, config_key, comp_algorithm, alpha, baseline_algorithm
             )
         
     except (ValueError, TypeError, KeyError) as e:
         print(f"Error calculating algorithm difference statistics for {config_key}: {e}")
         return None
 
-def calculate_continuous_algorithm_difference_statistics(comparison_data, baseline_data, config_key, comp_algorithm, baseline_algorithm):
+def calculate_continuous_algorithm_difference_statistics(comparison_data, baseline_data, config_key, comp_algorithm, alpha, baseline_algorithm):
     """
     Calculate statistical difference between algorithms for continuous metrics using t-tests.
     """
@@ -2561,7 +2561,7 @@ def calculate_continuous_algorithm_difference_statistics(comparison_data, baseli
         
         # 95% confidence interval
         if df > 0:
-            t_critical = stats.t.ppf(0.975, df)
+            t_critical = stats.t.ppf(1 - alpha/2, df)
             margin_error = t_critical * se_diff
             ci_lower = mean_diff - margin_error
             ci_upper = mean_diff + margin_error
@@ -2614,7 +2614,7 @@ def calculate_continuous_algorithm_difference_statistics(comparison_data, baseli
         print(f"Error in continuous algorithm difference calculation for {config_key}: {e}")
         return None
 
-def calculate_discrete_algorithm_difference_statistics(comparison_data, baseline_data, config_key, comp_algorithm, baseline_algorithm):
+def calculate_discrete_algorithm_difference_statistics(comparison_data, baseline_data, config_key, comp_algorithm, alpha, baseline_algorithm):
     """
     Calculate statistical difference between algorithms for discrete count metrics.
     """
@@ -2659,7 +2659,7 @@ def calculate_discrete_algorithm_difference_statistics(comparison_data, baseline
         
         # Confidence interval (approximate)
         if se_diff_est > 0:
-            z_critical = 1.96
+            z_critical = stats.norm.ppf(1 - alpha/2)
             margin_error = z_critical * se_diff_est
             ci_lower = mode_diff - margin_error
             ci_upper = mode_diff + margin_error
@@ -3063,7 +3063,7 @@ if __name__ == '__main__':
             comparison_networks=['smarthome'],
             security_modes=['pki','psk','nosec'],
             algorithms=['KYBER_LEVEL1', 'KYBER_LEVEL3', 'KYBER_LEVEL5'],
-            alpha=0.05,
+            alpha=0.32,
             output_dir=OUT_DIR
         )
         # Network difference plot (now enhanced but with same interface)
@@ -3075,10 +3075,10 @@ if __name__ == '__main__':
             baseline_algorithm='KYBER_LEVEL1',
             comparison_algorithms=['KYBER_LEVEL5'],
             #sample_size=15,
-            networks=['fiducial'],
+            networks=['smarthome'],
             security_modes=['pki', 'psk'],
             #certificates=['RSA_2048', 'DILITHIUM_LEVEL2'],  # Subset for clarity
-            alpha = 0.05,
+            alpha = 0.32,
             output_dir=OUT_DIR
         )
     
