@@ -8,7 +8,7 @@ install_dir=$build_dir
 libcoap_dir="$(pwd)/libcoap"
 groups_spec=false
 libcoap_version="ce2057b7a91a6934aa7c0eb4fd3d899a476b025f" # Develop branch, last good commit
-algorithm="KYBER_LEVEL5"
+algorithm=""
 
 # Parse command line arguments
 for arg in "$@"
@@ -42,9 +42,9 @@ echo "---------------------------------"
 echo "Install dir: $install_dir"
 echo "---------------------------------"
 # Update package lists
-sudo apt-get update
+# sudo apt-get update
 # Install required dependencies
-sudo apt-get install -y autoconf automake libtool make gcc
+# sudo apt-get install -y autoconf automake libtool make gcc
 
 clean_coap_build() {
     if [ -d "./libcoap" ]; then
@@ -62,11 +62,37 @@ clean_coap_build() {
 # Clean existing libcoap build
 clean_coap_build
 
+patch_coap_wolfssl() {
+  local src_file="$libcoap_dir/src/coap_wolfssl.c"
+  echo "Patching $src_file for runtime GROUP override..."
+  sed -i '892,907c\
+static void\
+coap_set_user_prefs(WOLFSSL_CTX *ctx) {\
+    (void)ctx;\
+\
+#ifdef COAP_WOLFSSL_SIGALGS\
+    wolfSSL_CTX_set1_sigalgs_list(ctx, COAP_WOLFSSL_SIGALGS);\
+#endif\
+#ifdef COAP_WOLFSSL_GROUPS\
+    /* Runtime override of GROUPS: use env var if set, else fallback */\
+    const char *env = getenv("COAP_WOLFSSL_GROUPS");\
+    const char *groups = (env && *env) ? env : COAP_WOLFSSL_GROUPS;\
+    coap_log_debug("Using SSL groups: %s\\n", groups);\
+    int ret = wolfSSL_CTX_set1_groups_list(ctx, (const char *)groups);\
+    if (ret != WOLFSSL_SUCCESS)\
+        coap_log_debug("Failed to set group list\\n");\
+#endif\
+}\
+' "$src_file"
+}
+
+
 if [ "$skip_clone" = false ]; then
     sudo rm -rf ./libcoap
     git clone https://github.com/obgm/libcoap
     cd libcoap
     git checkout $libcoap_version
+    patch_coap_wolfssl
 else
     cd libcoap
 fi
@@ -111,9 +137,11 @@ if [ "$custom_install" == "wolfssl" ]; then
             fi
         else
             if [ "$install_dir" == "default" ]; then
+                CPPFLAGS="-DCOAP_WOLFSSL_GROUPS=\\\"\\\" -DDTLS_V1_3_ONLY=1" \
                 ./configure --enable-dtls --with-wolfssl --disable-manpages --disable-doxygen --enable-tests
             else
                 echo "Installing in custom directory"
+                CPPFLAGS="-DCOAP_WOLFSSL_GROUPS=\\\"\\\" -DDTLS_V1_3_ONLY=1" \
                 ./configure --enable-dtls --with-wolfssl --disable-manpages --disable-doxygen --enable-tests --prefix=$install_dir
             fi
         fi
