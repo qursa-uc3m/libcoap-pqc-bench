@@ -172,7 +172,7 @@ method_t method = 1;                    /* the method we are using in our reques
 coap_block_t block = { .num = 0, .m = 0, .szx = 6 };
 uint16_t last_block1_mid = 0;
 
-#define DEFAULT_WAIT_TIME 30
+#define DEFAULT_WAIT_TIME 90
 
 unsigned int wait_seconds = DEFAULT_WAIT_TIME; /* default timeout in seconds */
 unsigned int wait_ms = 0;
