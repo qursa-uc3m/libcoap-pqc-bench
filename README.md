@@ -642,6 +642,11 @@ xhost +si:localuser:root  # If running as root
 sudo docker run --net=host --privileged --env="DISPLAY" --volume="$HOME/.Xauthority:/root/.Xauthority:rw" openquantumsafe/wireshark
 ```
 
+You can just run our helper script with sudo privileges:
+```bash
+sudo ./oqs_wireshark.sh
+```
+
 Filter by:
 ```
 udp.port==5684 || udp.port==5683
