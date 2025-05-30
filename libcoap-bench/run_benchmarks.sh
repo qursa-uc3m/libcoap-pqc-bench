@@ -36,6 +36,7 @@ RESOURCES="time,async"  # Default resources to test
 ASYNC_DELAY=""          # Optional delay parameter for async resource
 ITERATIONS=1            # Default to 1 iteration (no iteration mode)
 SESSION_ID=""           # Unique identifier for this benchmark session
+ALGORITHM_LIST="KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5"  # Default algorithms
 
 # Benchmark data directories
 BENCH_DATA_DIR="${REPO_ROOT}/libcoap-bench/bench-data"
@@ -67,6 +68,7 @@ show_help() {
     echo "                        For async, you can specify delay with async?N where N is seconds"
     echo "  -async-delay SECONDS  Set delay for async resource (alternative to async?N syntax)"
     echo "  -iterations N         Run each test configuration N times (enables iteration mode)"
+    echo "  -algorithms ALGOS     Comma-separated list of algorithms to test (default: KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5)"
     echo "  -y                    Skip confirmation prompts"
     echo "  -v                    Verbose output"
     echo "  -h, --help            Show this help message"
@@ -78,6 +80,7 @@ show_help() {
     echo "  $0 -n 10 -resources time -v"
     echo "  $0 -n 5 -resources async?3 -pause 30"
     echo "  $0 -n 25 -iterations 10 -security psk -resources async -cert-filter KYBER_LEVEL3"
+    echo "  $0 -n 15 -algorithms KYBER_LEVEL1,P256_KYBER_LEVEL1 -security psk"
     echo
 }
 
@@ -426,6 +429,7 @@ create_summary_report() {
     [ -n "$ASYNC_DELAY" ] && echo "- Async delay: $ASYNC_DELAY seconds" >> "$output_file"
     echo "- Client authentication: $CLIENT_AUTH" >> "$output_file"
     echo "- Energy measurements: $MEASURE_ENERGY" >> "$output_file"
+    echo "- Algorithms tested: $ALGORITHM_LIST" >> "$output_file"
     if [ $ITERATIONS -gt 1 ]; then 
         echo "- Iterations per test: $ITERATIONS" >> "$output_file"
         echo "- Iteration directories:" >> "$output_file"
@@ -562,6 +566,10 @@ while [[ $# -gt 0 ]]; do
             ITERATIONS="$2"
             shift 2
             ;;
+        -algorithms)
+            ALGORITHM_LIST="$2"
+            shift 2
+            ;;
         -y)
             SKIP_CONFIRM="true"
             shift
@@ -648,21 +656,16 @@ if ! check_dependencies; then
     exit 1
 fi
 
-# Generate a unique session ID for this benchmark run
-RANDOM_STR=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 2 | head -n 1)
-SESSION_ID="$(cat ${REPO_ROOT}/algorithm.txt)_$(date +%m%d)_${RANDOM_STR}"
-
-
 # ==============================================
 # Show configuration and confirm execution
 # ==============================================
 
 log "HEADER" "Benchmark Configuration"
-log "INFO" "Session ID: $SESSION_ID"
 log "INFO" "Number of clients: $NUM_CLIENTS"
 log "INFO" "Security modes: $SECURITY_MODES"
 log "INFO" "Resources to test: $RESOURCES"
 log "INFO" "Parallelization mode: $PARALLELIZATION"
+log "INFO" "Algorithms to test: $ALGORITHM_LIST"
 [ -n "$ASYNC_DELAY" ] && log "INFO" "Async delay parameter: $ASYNC_DELAY seconds"
 
 if [ -n "$CERT_CONFIGS_FILTER" ]; then
@@ -682,7 +685,6 @@ log "INFO" "Energy measurements: $MEASURE_ENERGY"
 
 if [ $ITERATIONS -gt 1 ]; then
     log "INFO" "Iteration mode: enabled (${ITERATIONS} iterations per test)"
-    log "INFO" "Results will be stored in: ${BENCH_DATA_DIR}-${SESSION_ID}-[1-${ITERATIONS}]"
 fi
 
 # Get available certificate configurations for PKI mode
@@ -713,22 +715,67 @@ BENCHMARK_START_TIME=$(date +%s)
 # Convert comma-separated resources to array
 IFS=',' read -ra RESOURCE_ARRAY <<< "$RESOURCES"
 
-# Iterate through each iteration
-for ((iteration=1; iteration<=ITERATIONS; iteration++)); do
-    # Setup directory for this iteration
-    if [ $ITERATIONS -gt 1 ]; then
-        log "HEADER" "Starting Iteration $iteration of $ITERATIONS"
-        setup_iteration_directory $iteration
-    fi
+# Convert comma-separated algorithms to array
+IFS=',' read -ra ALGORITHMS_ARRAY <<< "$ALGORITHM_LIST"
+
+# Iterate through each algorithm (NEW OUTERMOST LOOP)
+for algorithm in "${ALGORITHMS_ARRAY[@]}"; do
+    log "HEADER" "Starting benchmarks for algorithm: $algorithm"
     
-    # Iterate through security modes
-    for sec_mode in $SECURITY_MODES; do
-        # Setup for each security mode
-        log "HEADER" "Starting $sec_mode mode benchmarks"
+    # Write algorithm.txt BEFORE any benchmark operations
+    echo "$algorithm" > "${REPO_ROOT}/algorithm.txt"
+    log "INFO" "Set algorithm to: $algorithm"
+    
+    # Generate a unique session ID for this algorithm
+    RANDOM_STR=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 2 | head -n 1)
+    SESSION_ID="${algorithm}_$(date +%m%d)_${RANDOM_STR}"
+    log "INFO" "Session ID for $algorithm: $SESSION_ID"
+    
+    # Iterate through each iteration
+    for ((iteration=1; iteration<=ITERATIONS; iteration++)); do
+        # Setup directory for this iteration
+        if [ $ITERATIONS -gt 1 ]; then
+            log "HEADER" "Starting Iteration $iteration of $ITERATIONS for algorithm $algorithm"
+            setup_iteration_directory $iteration
+        fi
         
-        if [ "$sec_mode" == "pki" ]; then
-            # If PKI mode, iterate through certificate configurations
-            for cert_config in $cert_configs; do
+        # Iterate through security modes
+        for sec_mode in $SECURITY_MODES; do
+            # Setup for each security mode
+            log "HEADER" "Starting $sec_mode mode benchmarks for algorithm $algorithm"
+            
+            if [ "$sec_mode" == "pki" ]; then
+                # If PKI mode, iterate through certificate configurations
+                for cert_config in $cert_configs; do
+                    # Iterate through requested resources
+                    for resource_item in "${RESOURCE_ARRAY[@]}"; do
+                        # Parse resource to extract name and parameters
+                        parsed=$(parse_resource "$resource_item")
+                        resource=$(echo "$parsed" | cut -d';' -f1)
+                        delay=$(echo "$parsed" | cut -d';' -f2)
+                        
+                        # Use ASYNC_DELAY if specified and no specific delay in resource
+                        if [ "$resource" == "async" ] && [ -z "$delay" ] && [ -n "$ASYNC_DELAY" ]; then
+                            delay="$ASYNC_DELAY"
+                        fi
+                        
+                        # Run appropriate tests based on resource type
+                        if [ "$resource" == "time" ]; then
+                            # Run scenarioA 
+                            run_benchmark "$sec_mode" "$resource" "con" "$cert_config" "$delay" "$iteration"
+                            
+                            # Run scenarioC 
+                            run_benchmark "$sec_mode" "$resource" "non" "$cert_config" "$delay" "$iteration"
+                        elif [ "$resource" == "async" ] || [ "$resource" == "example_data" ]; then
+                            # Run scenarioB 
+                            run_benchmark "$sec_mode" "$resource" "" "$cert_config" "$delay" "$iteration"
+                        else
+                            log "WARNING" "Unknown resource type: $resource, skipping"
+                        fi
+                    done
+                done
+            else
+                # For PSK and NOSEC modes, no certificate configs needed
                 # Iterate through requested resources
                 for resource_item in "${RESOURCE_ARRAY[@]}"; do
                     # Parse resource to extract name and parameters
@@ -744,60 +791,34 @@ for ((iteration=1; iteration<=ITERATIONS; iteration++)); do
                     # Run appropriate tests based on resource type
                     if [ "$resource" == "time" ]; then
                         # Run scenarioA 
-                        run_benchmark "$sec_mode" "$resource" "con" "$cert_config" "$delay" "$iteration"
+                        run_benchmark "$sec_mode" "$resource" "con" "" "$delay" "$iteration"
                         
                         # Run scenarioC 
-                        run_benchmark "$sec_mode" "$resource" "non" "$cert_config" "$delay" "$iteration"
+                        run_benchmark "$sec_mode" "$resource" "non" "" "$delay" "$iteration"
                     elif [ "$resource" == "async" ] || [ "$resource" == "example_data" ]; then
                         # Run scenarioB 
-                        run_benchmark "$sec_mode" "$resource" "" "$cert_config" "$delay" "$iteration"
+                        run_benchmark "$sec_mode" "$resource" "" "" "$delay" "$iteration"
                     else
                         log "WARNING" "Unknown resource type: $resource, skipping"
                     fi
                 done
-            done
-        else
-            # For PSK and NOSEC modes, no certificate configs needed
-            # Iterate through requested resources
-            for resource_item in "${RESOURCE_ARRAY[@]}"; do
-                # Parse resource to extract name and parameters
-                parsed=$(parse_resource "$resource_item")
-                resource=$(echo "$parsed" | cut -d';' -f1)
-                delay=$(echo "$parsed" | cut -d';' -f2)
-                
-                # Use ASYNC_DELAY if specified and no specific delay in resource
-                if [ "$resource" == "async" ] && [ -z "$delay" ] && [ -n "$ASYNC_DELAY" ]; then
-                    delay="$ASYNC_DELAY"
-                fi
-                
-                # Run appropriate tests based on resource type
-                if [ "$resource" == "time" ]; then
-                    # Run scenarioA 
-                    run_benchmark "$sec_mode" "$resource" "con" "" "$delay" "$iteration"
-                    
-                    # Run scenarioC 
-                    run_benchmark "$sec_mode" "$resource" "non" "" "$delay" "$iteration"
-                elif [ "$resource" == "async" ] || [ "$resource" == "example_data" ]; then
-                    # Run scenarioB 
-                    run_benchmark "$sec_mode" "$resource" "" "" "$delay" "$iteration"
-                else
-                    log "WARNING" "Unknown resource type: $resource, skipping"
-                fi
-            done
+            fi
+        done
+        
+        # Finalize this iteration's directory immediately after completion
+        if [ $ITERATIONS -gt 1 ]; then
+            log "SUCCESS" "Completed iteration $iteration of $ITERATIONS for algorithm $algorithm"
+            finalize_iteration_directory $iteration
         fi
     done
     
-    # Finalize this iteration's directory immediately after completion
+    # Create a summary file with all iteration directories if we ran multiple iterations
     if [ $ITERATIONS -gt 1 ]; then
-        log "SUCCESS" "Completed iteration $iteration of $ITERATIONS"
-        finalize_iteration_directory $iteration
+        create_iteration_summary
     fi
+    
+    log "SUCCESS" "Completed all benchmarks for algorithm: $algorithm"
 done
-
-# Create a summary file with all iteration directories if we ran multiple iterations
-if [ $ITERATIONS -gt 1 ]; then
-    create_iteration_summary
-fi
 
 # Calculate total benchmark duration
 BENCHMARK_END_TIME=$(date +%s)
@@ -809,15 +830,12 @@ SECONDS=$((BENCHMARK_DURATION % 60))
 log "HEADER" "Benchmark Suite Completed"
 log "SUCCESS" "Total duration: ${HOURS}h ${MINUTES}m ${SECONDS}s"
 
-# Create summary report
+# Create summary report for the last algorithm (or single algorithm run)
 create_summary_report
 
 if [ $ITERATIONS -gt 1 ]; then
-    log "INFO" "Multiple iterations completed. Results stored in:"
-    for ((i=1; i<=ITERATIONS; i++)); do
-        log "INFO" "  - ${BENCH_DATA_DIR}-${SESSION_ID}-${i}"
-    done
-    log "INFO" "Use bench-data-manger.py --aggregate --session <SESSION_ID> to aggregate results across iterations."
+    log "INFO" "Multiple iterations completed. Results stored in algorithm-specific directories."
+    log "INFO" "Use bench-data-manager.py --aggregate --session <SESSION_ID> to aggregate results across iterations."
 fi
 
 log "SUCCESS" "All benchmarks completed successfully!"

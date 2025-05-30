@@ -212,7 +212,7 @@ handle_example_data_updates() {
             echo "Running command: ${full_cmd}"
             
             # Use tee to capture output and also display it
-            (eval "$full_cmd" 2>&1 | tee "$tmp_file")
+            (COAP_WOLFSSL_GROUPS="$varalg" eval "$full_cmd" 2>&1 | tee "$tmp_file")
             local exit_status=${PIPESTATUS[0]}
             
             # Append this command's output to the main log file
@@ -595,7 +595,7 @@ if [ -n "$custom_param" ]; then
         # Run clients in background
         background_pids=()
         for ((i = 1; i <= $n; i++)); do
-            eval "$client_cmd" &
+            COAP_WOLFSSL_GROUPS="$varalg" eval "$client_cmd" &
             background_pids+=($!)
         done
 
@@ -619,7 +619,7 @@ if [ -n "$custom_param" ]; then
         # Run clients in parallel across cores
         dynamic_commands=()
         for ((i = 1; i <= $n; i++)); do
-            dynamic_commands+=("$client_cmd")
+            dynamic_commands+=("COAP_WOLFSSL_GROUPS=\"$varalg\" $client_cmd")
         done
         
         parallel -j$n ::: "${dynamic_commands[@]}" &
@@ -663,7 +663,7 @@ else
         # Create an array of identical commands to run in parallel
         dynamic_commands=()
         for ((i = 1; i <= $n; i++)); do
-            dynamic_commands+=("$client_cmd")
+            dynamic_commands+=("COAP_WOLFSSL_GROUPS=\"$varalg\" $client_cmd")
         done
         
         # Run all commands in parallel
@@ -676,7 +676,7 @@ else
         # Run clients in background
         background_pids=()
         for ((i = 1; i <= $n; i++)); do
-            eval "$client_cmd" &
+            COAP_WOLFSSL_GROUPS="$varalg" eval "$client_cmd" &
             background_pids+=($!)
         done
         wait "${background_pids[@]}"
@@ -684,11 +684,11 @@ else
         # Sequential execution (default mode)
         echo "Executing $n clients sequentially..."
         for ((i = 1; i < $n; i++)); do
-            eval "$client_cmd"
+            COAP_WOLFSSL_GROUPS="$varalg" eval "$client_cmd"
             sleep 0.2
         done
         # Final execution (avoid sleep after last one)
-        eval "$client_cmd"
+        COAP_WOLFSSL_GROUPS="$varalg" eval "$client_cmd"
     fi
 fi
 
