@@ -1,116 +1,145 @@
 # Network Emulation for libcoap PQC Benchmarking
 
-This guide provides instructions for setting up and using network emulation capabilities to test CoAP with PQC under various network conditions.
+This guide provides instructions for setting up and using network emulation capabilities to test CoAP with Post-Quantum Cryptography (PQC) under various network conditions.
 
 ## Table of Contents
 - [Overview](#overview)
-- [Setup Options](#setup-options)
-- [VM Setup with KVM](#vm-setup-with-kvm)
+- [Quick Start](#quick-start)
+- [VM Setup](#vm-setup)
   - [Automated VM Setup](#automated-vm-setup)
   - [Manual VM Setup](#manual-vm-setup)
-    - [Debian 11](#on-debian-11)
-    - [Ubuntu 20.04](#on-ubuntu-2004)
 - [Network Configuration](#network-configuration)
-  - [Using the Automated Script](#using-the-automated-script)
-  - [Manual Configuration](#manual-configuration)
-- [Applying Network Conditions](#applying-network-conditions)
-  - [Delay](#adding-delay)
-  - [Packet Loss](#adding-packet-loss)
-  - [Other Network Conditions](#other-network-conditions)
+- [Network Scenarios](#network-scenarios)
+- [Usage Examples](#usage-examples)
 - [Troubleshooting](#troubleshooting)
 
 ## Overview
 
 Network emulation allows testing applications under various network conditions such as latency, packet loss, and bandwidth limitations. This is essential for understanding how PQC algorithms behave in real-world networking scenarios.
 
-### NetEm vs. Other Tools
+The framework uses:
+- **KVM/QEMU** for virtualization
+- **NetEm** (Network Emulator) for comprehensive network condition simulation
+- **Bridge networking** with TAP devices for traffic interception
+- **Automated scripts** for easy setup and configuration
 
-NetEm (Network Emulator) is a Linux kernel component that allows for precise control over network characteristics:
+### Architecture
 
-- **NetEm**: Provides comprehensive network emulation including:
-  - Delay
-  - Packet loss
-  - Packet duplication
-  - Packet corruption
-  - Packet reordering
-  - Bandwidth rate limitations
+```
+Client Host ──┐
+              ├─── Bridge (br0) ───── VM (NetEm) ───── Server (RPi)
+SSH Traffic ──┘                      │
+                                   Network
+                                 Emulation
+```
 
-- **Pumba**: An alternative that offers:
-  - Delay
-  - Packet loss
+The VM sits between your client and server, intercepting and modifying network traffic according to configured scenarios. SSH traffic bypasses the VM for direct access.
 
-NetEm is the recommended approach for our benchmarking framework due to its comprehensive features.
+## Quick Start
 
-## Setup Options
+For users who want to get started immediately:
 
-There are two main approaches to set up network emulation:
+1. **First-time setup** (installs new VM):
+   ```bash
+   sudo ./setup_vm.sh --install --name netem-vm
+   ```
 
-1. **Automated Setup**: Using the provided scripts (recommended)
-2. **Manual Setup**: Following step-by-step instructions
+2. **Configure network routing**:
+   ```bash
+   sudo ./udp_config.sh
+   ```
 
-For most users, the automated setup should be sufficient. Manual setup instructions are provided for advanced customization.
+3. **Apply a network scenario**:
+   ```bash
+   sudo ./net_config.sh set smart-factory
+   ```
 
-## VM Setup with KVM
+4. **Check current configuration**:
+   ```bash
+   sudo ./net_config.sh show
+   ```
 
-Network emulation is performed through a virtual machine (VM) running between your client and server. This allows for traffic interception and modification.
+5. **Reset when done**:
+   ```bash
+   sudo ./net_config.sh reset
+   ```
+
+## VM Setup
 
 ### Automated VM Setup
 
-The repository includes a script for automated VM setup:
+The `setup_vm.sh` script handles VM creation and management:
 
+#### First-time Installation
 ```bash
-# First-time installation of a new VM
+# Create and install a new VM
 sudo ./setup_vm.sh --install --name <vm_name>
 
-# For starting an existing VM
-sudo ./setup_vm.sh --name <vm_name>
+# You'll be prompted for:
+# - OS ISO file path (full path required)
+# - Installation confirmation
 ```
 
-During the first-time installation:
-1. You'll be prompted for an ISO file path
-2. The script will create a 10GB disk image
-3. It will set up a VM with 2 cores and 2GB RAM
-4. Network will be configured using a TAP device and bridge
+#### Starting an Existing VM
+```bash
+# Launch previously created VM
+sudo ./setup_vm.sh --name <vm_name>
 
-When using Ubuntu distributions, you might need to modify GRUB parameters:
-- Press 'e' to edit boot parameters at the GRUB menu
-- Add 'console=ttyS0 text' at the end of the linux line
-- Example: `linux /casper/vmlinuz ... console=ttyS0 text`
+# Or simply run without parameters and enter name when prompted
+sudo ./setup_vm.sh
+```
+
+#### VM Specifications
+- **Disk**: 10GB QCOW2 image
+- **RAM**: 2GB
+- **CPU**: 2 cores
+- **Network**: Bridged networking with TAP device
+- **Console**: Serial console (headless mode)
+
+#### Important Installation Notes
+
+When installing Ubuntu-based distributions, you'll need to modify GRUB parameters:
+
+1. During boot, press `e` to edit boot parameters at the GRUB menu
+2. Add `console=ttyS0 text` at the end of the linux line
+3. Example: `linux /casper/vmlinuz ... console=ttyS0 text`
+
+This ensures proper serial console functionality for headless operation.
 
 ### Manual VM Setup
 
-For users who need more customization, here are the manual setup instructions.
+For advanced users requiring customization, here are detailed manual setup instructions:
 
 #### On Debian 11
 
-1. Install required packages:
+1. **Install required packages**:
    ```bash
    sudo apt update
    sudo apt install qemu-kvm virtinst
    ```
 
-2. Check hardware virtualization support:
+2. **Check hardware virtualization support**:
    ```bash
    egrep -c '(vmx|svm)' /proc/cpuinfo
    sudo apt install -y cpu-checker
    kvm-ok
    ```
 
-3. Install KVM and related tools:
+3. **Install KVM and related tools**:
    ```bash
    sudo apt install libvirt-daemon-system libvirt-clients bridge-utils
-   sudo systemctl start libvirt
+   sudo systemctl start libvirtd
    sudo systemctl enable libvirtd
    ```
 
-4. Set up networking:
+4. **Set up networking**:
    ```bash
    sudo virsh net-start default
    sudo virsh net-autostart default
    ip a show virbr0  # Verify bridge exists
    ```
 
-5. Create a VM:
+5. **Create a VM**:
    ```bash
    sudo virt-install \
      --name netem-vm \
@@ -128,25 +157,25 @@ For users who need more customization, here are the manual setup instructions.
 
 #### On Ubuntu 20.04
 
-1. Install required packages:
+1. **Install required packages**:
    ```bash
    sudo apt update
    sudo apt install uml-utilities qemu-utils bridge-utils
    ```
 
-2. Create a disk image:
+2. **Create a disk image**:
    ```bash
    qemu-img create -f qcow2 /var/lib/libvirt/images/netem-vm.qcow2 10G
    ```
 
-3. Set up TAP device and bridge:
+3. **Set up TAP device and bridge**:
    ```bash
    sudo tunctl -t tap0 -u `whoami`
    sudo ip link set tap0 up
    sudo brctl addif virbr0 tap0
    ```
 
-4. Launch VM with QEMU/KVM:
+4. **Launch VM with QEMU/KVM**:
    ```bash
    sudo qemu-system-x86_64 -enable-kvm \
      -m 2048 \
@@ -158,148 +187,297 @@ For users who need more customization, here are the manual setup instructions.
 
 ## Network Configuration
 
-After setting up the VM, you need to configure it to intercept and process network traffic between your client and server.
+### Automated Configuration
 
-### Using the Automated Script
-
-The repository includes a script for automated network configuration:
+The `udp_config.sh` script configures network routing automatically:
 
 ```bash
-# Configure traffic redirection through the VM
 sudo ./udp_config.sh
 ```
 
 This script:
-1. Configures the client host to route traffic through the VM
-2. Sets up the VM to forward traffic between client and server
-3. Configures SSH direct routing to bypass VM for SSH traffic
-4. Applies necessary iptables rules
+- Configures the VM for packet forwarding
+- Sets up the client host to route traffic through the VM
+- Configures direct SSH routing (bypasses VM)
+- Applies necessary iptables rules for UDP ports 5683 and 5684
+
+#### Network Parameters
+The script uses these default IP addresses (modify in the script if different):
+- **Client Host**: 192.168.0.228
+- **VM**: 192.168.0.172
+- **Server (RPi)**: 192.168.0.157
 
 ### Manual Configuration
 
-For manual configuration:
+For custom setups or when you need more control over the configuration process:
 
-1. Inside the VM, enable IP forwarding:
+#### VM Configuration
+
+1. **Inside the VM, enable IP forwarding**:
    ```bash
    sudo sysctl -w net.ipv4.ip_forward=1
    sudo sh -c 'echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf'
    ```
 
-2. Configure iptables for forwarding:
+2. **Configure iptables for forwarding**:
    ```bash
    sudo iptables -t nat -A POSTROUTING -o ens3 -j MASQUERADE
    sudo iptables -A FORWARD -i ens3 -o ens3 -j ACCEPT
    ```
 
-3. On the client host, route traffic through VM:
+#### Client Host Configuration
+
+1. **Enable IP forwarding on the host**:
    ```bash
-   # Enable IP forwarding
    sudo sysctl -w net.ipv4.ip_forward=1
-   
+   ```
+
+2. **Route traffic through VM**:
+   ```bash
    # Make the server reachable through the VM
    sudo ip route add <server_ip>/32 via <vm_ip> dev br0
    
-   # Configure iptables for the target port
-   sudo iptables -t nat -A PREROUTING -p udp --dport <target_port> -j DNAT --to-destination <vm_ip>
+   # Configure iptables for the target ports
+   sudo iptables -t nat -A PREROUTING -p udp --dport 5683 -j DNAT --to-destination <vm_ip>
+   sudo iptables -t nat -A PREROUTING -p udp --dport 5684 -j DNAT --to-destination <vm_ip>
    ```
 
-4. For CoAP with DTLS (port 5684):
+3. **For CoAP with DTLS (port 5684), filter ICMP packets**:
    ```bash
    # Filter out ICMP packets appearing at the end of the DTLS handshake
    sudo iptables -A OUTPUT -p icmp --icmp-type port-unreachable -j DROP
    ```
 
-## Applying Network Conditions
+4. **Configure direct SSH routing (optional but recommended)**:
+   ```bash
+   # Create SSH routing table if it doesn't exist
+   if ! grep -q "ssh-route" /etc/iproute2/rt_tables; then
+       echo "200 ssh-route" >> /etc/iproute2/rt_tables
+   fi
+   
+   # Add rule and route for direct SSH access
+   sudo ip rule add to <server_ip> dport 22 table ssh-route
+   sudo ip route add <server_ip> dev br0 table ssh-route
+   ```
 
-Once the VM is set up and network traffic is flowing through it, you can apply various network conditions using NetEm.
+#### Example with Actual IPs
 
-### Adding Delay
-
-To simulate network latency:
+Using the default configuration from `udp_config.sh`:
 
 ```bash
-# Add 100ms delay to all packets
-sudo tc qdisc add dev <vm_interface> root netem delay 100ms
+# VM configuration (run inside VM)
+sudo sysctl -w net.ipv4.ip_forward=1
+sudo iptables -t nat -A POSTROUTING -o ens3 -j MASQUERADE
+sudo iptables -A FORWARD -i ens3 -o ens3 -j ACCEPT
 
-# Add variable delay (100ms ±20ms)
-sudo tc qdisc add dev <vm_interface> root netem delay 100ms 20ms
+# Client host configuration
+sudo sysctl -w net.ipv4.ip_forward=1
+sudo ip route add 192.168.0.157/32 via 192.168.0.172 dev br0
+sudo iptables -t nat -A PREROUTING -p udp --dport 5683 -j DNAT --to-destination 192.168.0.172
+sudo iptables -t nat -A PREROUTING -p udp --dport 5684 -j DNAT --to-destination 192.168.0.172
+sudo iptables -A OUTPUT -p icmp --icmp-type port-unreachable -j DROP
 
-# Add correlated delay (25% correlation)
-sudo tc qdisc add dev <vm_interface> root netem delay 100ms 20ms 25%
+# SSH direct routing
+echo "200 ssh-route" >> /etc/iproute2/rt_tables
+sudo ip rule add to 192.168.0.157 dport 22 table ssh-route
+sudo ip route add 192.168.0.157 dev br0 table ssh-route
 ```
 
-### Adding Packet Loss
+## Network Scenarios
 
-To simulate unreliable networks:
+### Available Scenarios
 
+The framework provides four predefined scenarios based on real-world use cases:
+
+| Scenario         | Delay    | Loss  | Jitter | Rate     | Use Case Description |
+|------------------|----------|-------|--------|----------|---------------------|
+| Fiducial         | 0ms      | 0%    | 0ms    | Unlimited| Baseline (no emulation) |
+| Smart Factory    | 20ms     | 1.0%  | 5ms    | 50 Mbps  | Industrial IoT environment |
+| Smart Home       | 5ms      | 0.1%  | 1ms    | 10 Mbps  | Residential IoT network |
+| Public Transport | 50ms     | 2.0%  | 10ms   | 5 Mbps   | Mobile/cellular network |
+
+### Scenario Management
+
+Use the `net_config.sh` script for scenario management:
+
+#### Apply a Scenario
 ```bash
-# Add 10% packet loss
-sudo tc qdisc add dev <vm_interface> root netem loss 10%
+sudo ./net_config.sh set <scenario_name>
 
-# Add burst packet loss (10% with 25% correlation)
-sudo tc qdisc add dev <vm_interface> root netem loss 10% 25%
+# Examples:
+sudo ./net_config.sh set smart-factory
+sudo ./net_config.sh set smart-home
+sudo ./net_config.sh set public-transport
+sudo ./net_config.sh set fiducial
 ```
 
-### Other Network Conditions
-
-NetEm supports various other network conditions:
-
+#### Check Current Configuration
 ```bash
-# Add packet corruption (2%)
-sudo tc qdisc add dev <vm_interface> root netem corrupt 2%
-
-# Add packet duplication (1%)
-sudo tc qdisc add dev <vm_interface> root netem duplicate 1%
-
-# Add packet reordering (25% of packets with 10ms delay)
-sudo tc qdisc add dev <vm_interface> root netem delay 10ms reorder 25%
-
-# Limit bandwidth to 1Mbit/s
-sudo tc qdisc add dev <vm_interface> root tbf rate 1mbit burst 32kbit latency 400ms
+sudo ./net_config.sh show
 ```
 
-To remove all network conditions:
+#### Reset to Baseline
+```bash
+sudo ./net_config.sh reset
+```
+
+#### Test VM Connection
+```bash
+sudo ./net_config.sh test
+```
+
+### Advanced Configuration Options
+
+The script supports customization:
 
 ```bash
-sudo tc qdisc del dev <vm_interface> root
+# Custom VM connection
+sudo ./net_config.sh --user myuser --host 192.168.1.100 set smart-factory
+
+# Verbose output
+sudo ./net_config.sh --verbose show
+
+# Custom network interface
+sudo ./net_config.sh --interface eth0 set smart-home
+```
+
+## Usage Examples
+
+### Complete Testing Workflow
+
+```bash
+# 1. Initial setup (first time only)
+sudo ./setup_vm.sh --install --name netem-vm
+sudo ./udp_config.sh
+
+# 2. Baseline testing
+sudo ./net_config.sh set fiducial
+# Run your CoAP tests here
+# Record baseline results
+
+# 3. Smart Factory testing
+sudo ./net_config.sh set smart-factory
+sudo ./net_config.sh show  # Verify configuration
+# Run your CoAP tests here
+# Record results
+
+# 4. Reset and continue with other scenarios
+sudo ./net_config.sh reset
+sudo ./net_config.sh set smart-home
+# ... continue testing
+
+# 5. Final cleanup
+sudo ./net_config.sh reset
+```
+
+### Daily Usage (After Initial Setup)
+
+```bash
+# Start VM
+sudo ./setup_vm.sh --name netem-vm
+
+# Apply desired scenario
+sudo ./net_config.sh set public-transport
+
+# Run tests...
+
+# Clean up
+sudo ./net_config.sh reset
 ```
 
 ## Troubleshooting
 
-### Finding the VM Interface Name
+### Common Issues
 
-If you're not sure what network interface to use in the VM:
-
+#### SSH Connection Failed
 ```bash
-# List all interfaces
+# Test connectivity
+sudo ./net_config.sh test
+
+# Check if VM is running
+sudo ./setup_vm.sh --name netem-vm
+```
+
+#### Wrong Network Interface
+```bash
+# Inside the VM, find the correct interface
 ip a
 
-# The interface will typically be named ens3, enp1s0, or eth0
+# Use the correct interface name
+sudo ./net_config.sh --interface ens3 show
 ```
 
-### Checking Traffic Flow
-
-To verify traffic is flowing through the VM:
-
+#### Traffic Not Being Intercepted
 ```bash
-# Install tcpdump
-sudo apt install tcpdump
+# Verify routing configuration
+ip route show
+sudo iptables -t nat -L
 
-# Monitor traffic on the interface
-sudo tcpdump -i <vm_interface> udp port 5683 or udp port 5684
+# Check if traffic flows through VM
+sudo tcpdump -i br0 udp port 5683
 ```
 
-### Resetting Network Configuration
+#### VM Won't Start
+```bash
+# Check if disk image exists
+ls -la /var/lib/libvirt/images/
 
-If you need to reset the network configuration:
+# Verify bridge configuration
+ip link show br0
+```
 
+### Verification Commands
+
+#### Check Traffic Flow
 ```bash
 # On the VM
-sudo iptables -t nat -F
-sudo iptables -F FORWARD
-
-# On the host
-sudo ip route del <server_ip>/32
-sudo iptables -t nat -F PREROUTING
-sudo iptables -D OUTPUT -p icmp --icmp-type port-unreachable -j DROP
+sudo tcpdump -i ens3 udp port 5683 or udp port 5684
 ```
+
+#### Monitor Network Conditions
+```bash
+# Check current queue discipline
+sudo ./net_config.sh show
+
+# Detailed traffic control information
+ssh user@vm_ip "sudo tc -s qdisc show dev ens3"
+```
+
+#### Reset Everything
+```bash
+# Reset network emulation
+sudo ./net_config.sh reset
+
+# Reset routing (if needed)
+sudo ip route flush table ssh-route
+sudo iptables -t nat -F
+```
+
+### Log Files and Debugging
+
+The scripts provide verbose output when things go wrong. For additional debugging:
+
+```bash
+# Enable verbose mode
+sudo ./net_config.sh --verbose show
+
+# Check system logs
+journalctl -u libvirtd
+```
+
+### Getting Help
+
+For additional options and detailed usage:
+
+```bash
+sudo ./net_config.sh --help
+```
+
+## Script Reference
+
+- **`setup_vm.sh`**: VM creation and management
+- **`udp_config.sh`**: Network routing configuration  
+- **`net_config.sh`**: Network scenario management
+- **`scenarios.md`**: Detailed scenario parameters and manual commands
+
+All scripts require sudo privileges and should be run from the `network_emulation` directory.
