@@ -1,6 +1,6 @@
 # Benchmarking Post-Quantum Cryptography in libcoap
 
-A comprehensive framework for benchmarking post-quantum cryptographic algorithms in CoAP using liboqs, wolfSSL, and libcoap libraries. This framework supports performance testing across different security modes, algorithms, and protocols with automated data collection and analysis.
+A benchmarking tool for post-quantum cryptographic algorithms in CoAP using liboqs, wolfSSL, and libcoap libraries. This tool enables performance testing across different security modes, algorithms and protocols with automated data collection and analysis.
 
 ## Table of Contents
 - [Installation](#installation)
