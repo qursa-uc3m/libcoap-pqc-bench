@@ -718,34 +718,40 @@ IFS=',' read -ra RESOURCE_ARRAY <<< "$RESOURCES"
 # Convert comma-separated algorithms to array
 IFS=',' read -ra ALGORITHMS_ARRAY <<< "$ALGORITHM_LIST"
 
-# Iterate through each algorithm (NEW OUTERMOST LOOP)
-for algorithm in "${ALGORITHMS_ARRAY[@]}"; do
-    log "HEADER" "Starting benchmarks for algorithm: $algorithm"
+# Get available certificate configurations for PKI mode if needed
+if [[ "$SECURITY_MODES" == *"pki"* ]]; then
+    cert_configs=$(get_available_cert_configs)
+    log "INFO" "Available certificate configurations: ${cert_configs[*]}"
+fi
+
+# Generate one session ID for the entire benchmark run
+RANDOM_STR=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 2 | head -n 1)
+SESSION_ID="$(date +%m%d)_${RANDOM_STR}"
+log "INFO" "Session ID: $SESSION_ID"
+
+# Iterate through each iteration
+for ((iteration=1; iteration<=ITERATIONS; iteration++)); do
+    log "HEADER" "Starting Iteration $iteration of $ITERATIONS"
     
-    # Write algorithm.txt BEFORE any benchmark operations
-    echo "$algorithm" > "${REPO_ROOT}/algorithm.txt"
-    log "INFO" "Set algorithm to: $algorithm"
+    # Setup directory for this iteration
+    if [ $ITERATIONS -gt 1 ]; then
+        setup_iteration_directory $iteration
+    fi
     
-    # Generate a unique session ID for this algorithm
-    RANDOM_STR=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 2 | head -n 1)
-    SESSION_ID="${algorithm}_$(date +%m%d)_${RANDOM_STR}"
-    log "INFO" "Session ID for $algorithm: $SESSION_ID"
-    
-    # Iterate through each iteration
-    for ((iteration=1; iteration<=ITERATIONS; iteration++)); do
-        # Setup directory for this iteration
-        if [ $ITERATIONS -gt 1 ]; then
-            log "HEADER" "Starting Iteration $iteration of $ITERATIONS for algorithm $algorithm"
-            setup_iteration_directory $iteration
-        fi
-        
-        # Iterate through security modes
-        for sec_mode in $SECURITY_MODES; do
-            # Setup for each security mode
-            log "HEADER" "Starting $sec_mode mode benchmarks for algorithm $algorithm"
+    # Iterate through security modes
+    for sec_mode in $SECURITY_MODES; do
+        if [ "$sec_mode" == "pki" ]; then
+            # PKI mode: iterate through algorithms
+            log "HEADER" "Starting PKI mode benchmarks (Iteration $iteration)"
             
-            if [ "$sec_mode" == "pki" ]; then
-                # If PKI mode, iterate through certificate configurations
+            # Iterate through each algorithm for PKI mode
+            for algorithm in "${ALGORITHMS_ARRAY[@]}"; do
+                log "INFO" "Setting algorithm to: $algorithm for PKI mode"
+                echo "$algorithm" > "${REPO_ROOT}/algorithm.txt"
+                
+                log "HEADER" "Starting PKI benchmarks for algorithm $algorithm (Iteration $iteration)"
+                
+                # Iterate through certificate configurations
                 for cert_config in $cert_configs; do
                     # Iterate through requested resources
                     for resource_item in "${RESOURCE_ARRAY[@]}"; do
@@ -774,51 +780,59 @@ for algorithm in "${ALGORITHMS_ARRAY[@]}"; do
                         fi
                     done
                 done
-            else
-                # For PSK and NOSEC modes, no certificate configs needed
-                # Iterate through requested resources
-                for resource_item in "${RESOURCE_ARRAY[@]}"; do
-                    # Parse resource to extract name and parameters
-                    parsed=$(parse_resource "$resource_item")
-                    resource=$(echo "$parsed" | cut -d';' -f1)
-                    delay=$(echo "$parsed" | cut -d';' -f2)
+                
+                log "SUCCESS" "Completed PKI benchmarks for algorithm $algorithm (Iteration $iteration)"
+            done
+        else
+            # PSK and NOSEC modes: NO algorithm iteration
+            log "HEADER" "Starting $sec_mode mode benchmarks (Iteration $iteration)"
+            
+            # Set algorithm to N/A for non-PKI modes
+            echo "N/A" > "${REPO_ROOT}/algorithm.txt"
+            log "INFO" "Set algorithm to N/A for $sec_mode mode"
+            
+            # Iterate through requested resources
+            for resource_item in "${RESOURCE_ARRAY[@]}"; do
+                # Parse resource to extract name and parameters
+                parsed=$(parse_resource "$resource_item")
+                resource=$(echo "$parsed" | cut -d';' -f1)
+                delay=$(echo "$parsed" | cut -d';' -f2)
+                
+                # Use ASYNC_DELAY if specified and no specific delay in resource
+                if [ "$resource" == "async" ] && [ -z "$delay" ] && [ -n "$ASYNC_DELAY" ]; then
+                    delay="$ASYNC_DELAY"
+                fi
+                
+                # Run appropriate tests based on resource type
+                if [ "$resource" == "time" ]; then
+                    # Run scenarioA 
+                    run_benchmark "$sec_mode" "$resource" "con" "" "$delay" "$iteration"
                     
-                    # Use ASYNC_DELAY if specified and no specific delay in resource
-                    if [ "$resource" == "async" ] && [ -z "$delay" ] && [ -n "$ASYNC_DELAY" ]; then
-                        delay="$ASYNC_DELAY"
-                    fi
-                    
-                    # Run appropriate tests based on resource type
-                    if [ "$resource" == "time" ]; then
-                        # Run scenarioA 
-                        run_benchmark "$sec_mode" "$resource" "con" "" "$delay" "$iteration"
-                        
-                        # Run scenarioC 
-                        run_benchmark "$sec_mode" "$resource" "non" "" "$delay" "$iteration"
-                    elif [ "$resource" == "async" ] || [ "$resource" == "example_data" ]; then
-                        # Run scenarioB 
-                        run_benchmark "$sec_mode" "$resource" "" "" "$delay" "$iteration"
-                    else
-                        log "WARNING" "Unknown resource type: $resource, skipping"
-                    fi
-                done
-            fi
-        done
-        
-        # Finalize this iteration's directory immediately after completion
-        if [ $ITERATIONS -gt 1 ]; then
-            log "SUCCESS" "Completed iteration $iteration of $ITERATIONS for algorithm $algorithm"
-            finalize_iteration_directory $iteration
+                    # Run scenarioC 
+                    run_benchmark "$sec_mode" "$resource" "non" "" "$delay" "$iteration"
+                elif [ "$resource" == "async" ] || [ "$resource" == "example_data" ]; then
+                    # Run scenarioB 
+                    run_benchmark "$sec_mode" "$resource" "" "" "$delay" "$iteration"
+                else
+                    log "WARNING" "Unknown resource type: $resource, skipping"
+                fi
+            done
+            
+            log "SUCCESS" "Completed $sec_mode mode benchmarks (Iteration $iteration)"
         fi
     done
     
-    # Create a summary file with all iteration directories if we ran multiple iterations
+    # Finalize this iteration's directory
     if [ $ITERATIONS -gt 1 ]; then
-        create_iteration_summary
+        log "SUCCESS" "Completed iteration $iteration of $ITERATIONS"
+        finalize_iteration_directory $iteration
     fi
-    
-    log "SUCCESS" "Completed all benchmarks for algorithm: $algorithm"
 done
+
+# Create iteration summary if multiple iterations were run
+if [ $ITERATIONS -gt 1 ]; then
+    create_iteration_summary
+fi
 
 # Calculate total benchmark duration
 BENCHMARK_END_TIME=$(date +%s)
