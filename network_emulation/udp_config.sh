@@ -3,7 +3,7 @@
 COMPUTER="192.168.0.228"
 VM="192.168.0.172"
 RPI="192.168.0.157"
-VM_USER="dasobral"
+VM_USER="ubuntu"
 VM_NETWORK="192.168.0.0/24"
 
 # Colors for output

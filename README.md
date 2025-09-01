@@ -79,7 +79,7 @@ Options:
 
 ## Certificate Management
 
-The framework includes a certificate management system that simplifies the use of different certificate types for benchmarking. This is essential for the PKI security mode.
+The repository includes a certificate management system that simplifies the use of different certificate types for benchmarking. This is essential for the PKI security mode.
 
 ### Available Certificate Types
 

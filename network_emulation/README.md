@@ -35,6 +35,20 @@ SSH Traffic ──┘                      │
 
 The VM sits between your client and server, intercepting and modifying network traffic according to configured scenarios. SSH traffic bypasses the VM for direct access.
 
+### Network Requirements
+
+**Important:** This network emulation setup assumes you are connected to a typical home/lab router with `192.168.0.x` addressing. The scripts are configured for this network range.
+
+**Prerequisites:**
+
+- Home router or isolated network using `192.168.0.1` as gateway
+- Available IP address `192.168.0.172` for the network emulation VM
+- Not compatible with networks that use different addressing schemes
+
+For typical home network setup (recommended), ensure your computer is connected to a router with gateway `192.168.0.1` before proceeding.
+
+If you're on a different network you'll need to modify the IP addresses in the scripts `network_emulation/net_config.sh` and  `network_emulation/udp_config.sh`,
+
 ## Quick Start
 
 For users who want to get started immediately:
@@ -64,39 +78,26 @@ For users who want to get started immediately:
    sudo ./net_config.sh reset
    ```
 
-## VM Setup
-
-### Automated VM Setup
+## Automated VM Setup
 
 The `setup_vm.sh` script handles VM creation and management:
 
-#### First-time Installation
+### First-time Installation
+
+First, download an Ubuntu or Debian ISO. For example:
+
+```bash
+wget https://releases.ubuntu.com/jammy/ubuntu-22.04.5-live-server-amd64.iso
+```
+
+Then run:
+
 ```bash
 # Create and install a new VM
 sudo ./setup_vm.sh --install --name <vm_name>
-
-# You'll be prompted for:
-# - OS ISO file path (full path required)
-# - Installation confirmation
 ```
 
-#### Starting an Existing VM
-```bash
-# Launch previously created VM
-sudo ./setup_vm.sh --name <vm_name>
-
-# Or simply run without parameters and enter name when prompted
-sudo ./setup_vm.sh
-```
-
-#### VM Specifications
-- **Disk**: 10GB QCOW2 image
-- **RAM**: 2GB
-- **CPU**: 2 cores
-- **Network**: Bridged networking with TAP device
-- **Console**: Serial console (headless mode)
-
-#### Important Installation Notes
+You will be prompted to enter the path to the ISO file and confirm the installation.
 
 When installing Ubuntu-based distributions, you'll need to modify GRUB parameters:
 
@@ -106,7 +107,59 @@ When installing Ubuntu-based distributions, you'll need to modify GRUB parameter
 
 This ensures proper serial console functionality for headless operation.
 
-### Manual VM Setup
+During Ubuntu installation, configure these settings:
+
+**Profile Setup:**
+
+- **Your name**: `Network Admin` (or any display name)
+- **Your server's name**: `vm-network` (or your chosen VM name)
+- **Pick a username**: `ubuntu` (connected with the `VM_USER` variable in scripts)
+- **Password**: Choose a password (remember for SSH access)
+
+**SSH Configuration:**
+
+- **✓ Install OpenSSH server** (required for network emulation scripts)
+
+#### Passwordless `sudo` for network tools on the VM
+
+If your VM requires a password for `sudo`, it is recommended to configure passwordless access for the specific network tools used by the emulation scripts. This avoids interactive password prompts and allows automation to run smoothly.
+
+On the VM, connect via SSH:
+
+```bash
+ssh ubuntu@192.168.0.172
+# Enter the password
+sudo visudo
+```
+
+At the end of the file, add the following line:
+
+```text
+ubuntu ALL=(ALL) NOPASSWD: /usr/sbin/tc, /usr/sbin/ip, /usr/sbin/iptables
+```
+
+This configuration grants the `ubuntu` user passwordless sudo privileges only for the `tc`, `ip`, and `iptables` commands, while leaving normal sudo protections in place for all other commands.
+
+### Starting an Existing VM
+
+```bash
+# Launch previously created VM
+
+sudo ./setup_vm.sh --name <vm_name>
+
+# Or simply run without parameters and enter name when prompted
+sudo ./setup_vm.sh
+```
+
+### VM Specifications
+
+- **Disk**: 10GB QCOW2 image
+- **RAM**: 2GB
+- **CPU**: 2 cores
+- **Network**: Bridged networking with TAP device
+- **Console**: Serial console (headless mode)
+
+## Manual VM Setup
 
 For advanced users requiring customization, here are detailed manual setup instructions:
 

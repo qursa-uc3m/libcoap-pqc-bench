@@ -11,7 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT=$(dirname "$SCRIPT_DIR")
 
 # Default VM configuration
-VM_USER="dasobral"
+VM_USER="ubuntu"
 VM_HOST="192.168.0.172"
 VM_INTERFACE="ens3"
 

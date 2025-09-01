@@ -63,6 +63,7 @@ check_disk() {
       echo "Disk image $qcow2_disk exists but is empty. Exiting..."
       exit 1
     fi
+    echo "Disk image $qcow2_disk already exists."
   else
     echo "Disk image $qcow2_disk does not exist. Creating it ..."
     echo "Creating a 10GB disk image..."
@@ -76,11 +77,15 @@ check_virbr0() {
   echo "Checking if bridge exists..."
   if ! ip link show br0 &> /dev/null; then
     echo "Custom br0 bridge does not exist. Creating it ..."
+    # Auto-detect active network interface
+    NETWORK_INTERFACE=$(ip route | grep default | head -1 | sed 's/.*dev \([^ ]*\).*/\1/')
+    echo "Using network interface: $NETWORK_INTERFACE"
+    
     sudo ip link add br0 type bridge
     sudo ip link set br0 up
-    sudo ip link set enp0s31f6 master br0
+    sudo ip link set "$NETWORK_INTERFACE" master br0
     sudo dhclient br0 # Using DHCP to get an IP address for the bridge (gateway)
-    echo "Custom bridge (br0) stablished."
+    echo "Custom bridge (br0) established."
   else
     echo "Custom (br0) bridge exists."
   fi
