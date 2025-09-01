@@ -171,7 +171,7 @@ Install the required dependencies:
 
 ```bash
 # Install perf and tshark
-sudo apt install linux-tools-$(uname -r) tshark
+sudo apt install linux-tools-$(uname -r) tshark parallel
 
 # Install Python requirements
 python3 -m venv .bench-env

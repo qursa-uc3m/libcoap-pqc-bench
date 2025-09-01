@@ -26,6 +26,7 @@ OBSERVE_TIME=""
 PARALLELIZATION=""
 CLIENT_AUTH="no"
 PAUSE_BETWEEN_RUNS=10
+RASP_SERVER="false"
 MEASURE_ENERGY="false"
 CERT_CONFIGS_FILTER=""
 SECURITY_MODES="pki psk nosec"
@@ -61,6 +62,7 @@ show_help() {
     echo "                        'parallel': clients run across different cores"
     echo "  -client-auth MODE     Client authentication mode [yes|no] (default: no)"
     echo "  -pause SECONDS        Seconds to pause between benchmark runs (default: 10)"
+    echo "  -rasp                 Enable RASP server mode (default: false)"
     echo "  -energy               Enable energy measurements (requires RD-USB setup)"
     echo "  -cert-filter PATTERN  Only run certificate configs matching pattern (comma-separated)"
     echo "  -security MODES       Security modes to test (comma-separated: pki,psk,nosec)"
@@ -310,7 +312,11 @@ run_benchmark() {
     local cmd_args=""
     
     # Construct the common command arguments
-    cmd_args="-n $NUM_CLIENTS -sec-mode $sec_mode -r $resource -rasp"
+    cmd_args="-n $NUM_CLIENTS -sec-mode $sec_mode -r $resource"
+
+    if [ "$RASP_SERVER" == "true" ]; then
+        cmd_args="$cmd_args -rasp"
+    fi
     
     # Add resource-specific arguments
     if [ "$resource" == "time" ]; then
@@ -542,6 +548,10 @@ while [[ $# -gt 0 ]]; do
             PAUSE_BETWEEN_RUNS="$2"
             shift 2
             ;;
+        -rasp)
+            RASP_SERVER="true"
+            shift
+            ;;
         -energy)
             MEASURE_ENERGY="true"
             shift
@@ -664,6 +674,7 @@ log "HEADER" "Benchmark Configuration"
 log "INFO" "Number of clients: $NUM_CLIENTS"
 log "INFO" "Security modes: $SECURITY_MODES"
 log "INFO" "Resources to test: $RESOURCES"
+log "INFO" "Server mode: $([ "$RASP_SERVER" == "true" ] && echo "Raspberry Pi (remote)" || echo "Local")"
 log "INFO" "Parallelization mode: $PARALLELIZATION"
 log "INFO" "Algorithms to test: $ALGORITHM_LIST"
 [ -n "$ASYNC_DELAY" ] && log "INFO" "Async delay parameter: $ASYNC_DELAY seconds"
@@ -726,7 +737,7 @@ fi
 
 # Generate one session ID for the entire benchmark run
 RANDOM_STR=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 2 | head -n 1)
-SESSION_ID="$(date +%m%d)_${RANDOM_STR}"
+SESSION_ID="$([ "$RASP_SERVER" == "true" ] && echo "rasp" || echo "local")_$(date +%m%d)_${RANDOM_STR}"
 log "INFO" "Session ID: $SESSION_ID"
 
 # Iterate through each iteration
