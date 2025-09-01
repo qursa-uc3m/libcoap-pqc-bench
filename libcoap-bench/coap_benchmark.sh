@@ -23,9 +23,9 @@ confirm_flag=""
 custom_param=""
 custom_param_value=0
 rasp_param=""
-#parallelization_mode=""
+parallelization_mode=""
 cert_config="DEFAULT"
-client_auth="no"  # Default to mutual authentication
+client_auth="no"
 
 # Function to display usage information
 usage() {
@@ -52,13 +52,6 @@ usage() {
     exit 1
 }
 
-echo "Creating benchmark data directory in ${BENCH_DIR}/bench-data ..."
-mkdir -p ${BENCH_DIR}/bench-data
-
-# Cleanup temp files
-sudo rm -f "${BENCH_DIR}/bench-data/time_output.txt"
-sudo rm -f "${BENCH_DIR}/bench-data/auxiliary.txt"
-
 # Function to clean up and exit on interruption
 cleanup() {
     echo "Script interrupted. Cleaning up..."
@@ -67,11 +60,56 @@ cleanup() {
     exit 1
 }
 
-# Trap interrupt signal (Ctrl+C) to perform cleanup
-trap cleanup INT
+# Filenames generation function
+generate_filenames() {
+    local prefix="$1"
+    local add_udp_prefix="$2"
+    
+    # Define filename_add based on scenario
+    local filename_add=""
+    if [[ "$r_param" == "time" &&  "$confirm_param" == "con" ]]; then
+        filename_add="_scenarioA"
+    elif [[ "$r_param" == "time" &&  "$confirm_param" == "non" ]]; then
+        filename_add="_scenarioC"
+    else
+        filename_add="_scenarioB"
+    fi
+
+    # Prepare base filename for results
+    local filename=""
+    if [ "$sec_mode" == "pki" ] || [ "$sec_mode" == "psk" ]; then
+        # Add algorithm, cert type, and client auth indicator
+        if [ "$sec_mode" == "pki" ]; then
+            cert_indicator="_${cert_config}"
+            client_auth_suffix=$([ "$client_auth" == "yes" ] && echo "_client-auth" || echo "")
+        else
+            cert_indicator=""
+            client_auth_suffix=""
+        fi
+        
+        if [ -n "$custom_param" ]; then
+            filename="${prefix}${rasp_param:+_rasp}_conv_stats_${varalg}${cert_indicator}_n${n}_s${custom_param_value}_${parallelization_mode}_${sec_mode}${client_auth_suffix}"
+        elif [ -n "$parallelization_mode" ]; then 
+            filename="${prefix}${rasp_param:+_rasp}_conv_stats_${varalg}${cert_indicator}_n${n}_${parallelization_mode}_${sec_mode}${client_auth_suffix}"
+        else
+            filename="${prefix}${rasp_param:+_rasp}_conv_stats_${varalg}${cert_indicator}_n${n}_${sec_mode}${client_auth_suffix}"
+        fi
+    else
+        if [ -n "$custom_param" ]; then
+            filename="${prefix}${rasp_param:+_rasp}_conv_stats_n${n}_s${custom_param_value}_${parallelization_mode}_${sec_mode}"
+        elif [ -n "$parallelization_mode" ]; then 
+            filename="${prefix}${rasp_param:+_rasp}_conv_stats_n${n}_${parallelization_mode}_${sec_mode}"
+        else
+            filename="${prefix}${rasp_param:+_rasp}_conv_stats_n${n}_${sec_mode}"
+        fi
+    fi
+    
+    echo "${filename}${filename_add}"
+}
 
 # Function to start energy monitoring with guaranteed initialization using a named pipe
 start_energy_monitoring() {
+    energy_filename=$(generate_filenames "" false)
     energy_name="energy_$energy_filename"
     start_sock="${BENCH_DIR}/.energy_monitor_start.sock"
     stop_sock="${BENCH_DIR}/.energy_monitor_stop.sock"
@@ -242,6 +280,299 @@ handle_example_data_updates() {
     # Return the PID to the caller
     return $updates_pid
 }
+
+# Function to setup network and start server
+setup_network_and_server() {
+    if [ -n "$rasp_param" ]; then
+        # Raspberry Pi setup
+        bridge_ip=$(ip addr show $bridge_interface | grep -Po 'inet \K[\d.]+') 
+        client_ip=$(ip addr show enp0s31f6 | grep -Po 'inet \K[\d.]+')
+        address="[$server_ip]"
+        echo "Listening on $bridge_interface"
+        echo "Bridge IP: $bridge_ip"
+        echo "Client IP: $client_ip"
+        echo "Server IP: $server_ip"
+
+        tshark -i $bridge_interface -f "udp port $coap_port and host $bridge_ip" -w "${BENCH_DIR}/bench-data/udp_conversations.pcapng" -z conv,udp &
+        tshark_pid=$!
+        
+        # Clean up any lingering coap-server processes first
+        echo "-----------------------------------------------------------------------------------------"
+        echo "Cleaning up any existing coap-server processes on $server_ip..."
+        ssh root@$server_ip "pkill -9 -f 'coap-server' || true"
+        
+        # Small delay to ensure ports are fully released
+        sleep 1
+
+        # Start the server on the Raspberry Pi
+        echo "-----------------------------------------------------------------------------------------"
+        echo "Starting server on $server_ip..."
+        ssh root@$server_ip "cd ~/libcoap-pqc-bench && ./libcoap-bench/coap_benchmark_server.sh -sec-mode $sec_mode -rasp -cert-config $cert_config -client-auth $client_auth" &
+        SERVER_SSH_PID=$!
+    else
+        # Local setup
+        address="[::1]"
+        tshark -i lo -w "${BENCH_DIR}/bench-data/udp_conversations.pcapng" -z conv,udp &
+        tshark_pid=$!
+        
+        # Clean up any lingering coap-server processes first
+        echo "-----------------------------------------------------------------------------------------"
+        echo "Cleaning up any existing coap-server processes..."
+        pkill -9 -f 'coap-server' || true
+        
+        # Small delay to ensure ports are fully released
+        sleep 1
+
+        # Start the local server
+        echo "-----------------------------------------------------------------------------------------"
+        echo "Starting local server..."
+        ${REPO_ROOT}/libcoap-bench/coap_benchmark_server.sh -sec-mode $sec_mode -cert-config $cert_config -client-auth $client_auth &
+        SERVER_PID=$!
+    fi
+    
+    # Give the server time to start
+    echo "Give a moment for the server to start..."
+    sleep 3
+}
+
+# Function to stop server and cleanup
+stop_server_and_cleanup() {
+    echo "Stopping all processes..."
+    
+    # Kill tshark
+    kill -9 $(pidof tshark) 2>/dev/null
+    
+    # Allow time for tshark to finish capturing
+    sleep 2
+    
+    if [ -n "$rasp_param" ]; then
+        # Stop remote server gracefully
+        echo "Automatically stopping the server on the Raspberry Pi..."
+        ssh root@$server_ip "pkill -2 coap-server || pkill -2 -f coap-server" || echo "Warning: Failed to stop server"
+    else
+        # Stop local server gracefully
+        echo "Stopping local server..."
+        server_PID=$(ps -e -f | grep "coap-se" | tail -2 | head -1 | awk '{print $2}')
+        [ -n "$server_PID" ] && sudo kill -2 "$server_PID" 2>/dev/null
+    fi
+    
+    sleep 3
+    echo "-----------------------------------------------------------------------------------------"
+}
+
+# Function to get CPU cycles
+get_cpu_cycles() {
+    if [ -n "$rasp_param" ]; then
+        # Get CPU cycles from remote server
+        cpu_cycles=$(ssh root@$server_ip "awk '/cycles/ {print \$1}' ~/libcoap-pqc-bench/libcoap-bench/bench-data/auxiliary_server.txt")
+    else
+        # Get CPU cycles from local server
+        cpu_cycles=$(awk '/cycles/ {print $1}' "${BENCH_DIR}/bench-data/auxiliary_server.txt" 2>/dev/null || echo "0")
+    fi
+    
+    # Remove dots/periods used as thousands separators and whitespace
+    cpu_cycles=$(echo "$cpu_cycles" | sed 's/\.//g' | tr -d ' ')
+    
+    if [ -z "$cpu_cycles" ] || [ "$cpu_cycles" = "0" ]; then
+        echo "Warning: Could not retrieve CPU cycles from server. Using default value of 0."
+        cpu_cycles=0
+    else
+        cpu_cycles=$((cpu_cycles))
+    fi
+    echo $cpu_cycles > "${BENCH_DIR}/bench-data/cycles_output.txt"
+}
+
+# Function to process results
+process_results() {
+    # Save timing information
+    {
+        echo "Started at:  $initial_time"
+        echo "Finished at: $final_time"
+        elapsed=$(echo "$final_time - $initial_time" | bc)
+        echo "Elapsed time: ${elapsed} s"
+    } > "${BENCH_DIR}/bench-data/initial_and_final_time.txt"
+    
+    # Write captured conversations
+    rm -f "${BENCH_DIR}/bench-data/${filename}.txt"
+    if [ -n "$rasp_param" ]; then
+        # Raspberry Pi case
+        tshark -r "${BENCH_DIR}/bench-data/udp_conversations.pcapng" -z conv,udp | grep "<-> $server_ip" > "${BENCH_DIR}/bench-data/${filename}.txt"
+    else
+        # Local case
+        tshark -r "${BENCH_DIR}/bench-data/udp_conversations.pcapng" -z conv,udp | grep "::1:" > "${BENCH_DIR}/bench-data/${filename}.txt"
+    fi
+    
+    # Get CPU cycles
+    get_cpu_cycles
+    
+    # Process metrics with the unified benchmark data manager
+    python3 "${BENCH_DIR}/bench-data-manager.py" process \
+        --stats-file "${BENCH_DIR}/bench-data/${filename}.txt" \
+        --time-file "${BENCH_DIR}/bench-data/time_output.txt" \
+        --cycles-file "${BENCH_DIR}/bench-data/cycles_output.txt" \
+        --output-file "${BENCH_DIR}/bench-data/${filename}.csv"
+
+    # Add energy data to the CSV file if energy monitoring was enabled
+    if [ "${MEASURE_ENERGY:-false}" == "true" ] && [ -e "${BENCH_DIR}/bench-data/${filename}.csv" ]; then
+        # Find the energy measurements file
+        energy_file="${BENCH_DIR}/bench-data/energy_${energy_filename}.csv"
+        if [ -e "$energy_file" ]; then
+            echo "Adding energy data from $energy_file to ${BENCH_DIR}/bench-data/${filename}.csv"
+            python3 "${BENCH_DIR}/bench-data-manager.py" merge \
+                --energy-file "$energy_file" \
+                --benchmark-file "${BENCH_DIR}/bench-data/${filename}.csv"
+        else
+            echo "Warning: Energy file $energy_file not found"
+        fi
+    fi
+    
+    # Clean up temporary files
+    echo "Cleaning up temporary files..."
+    if [ -f "${BENCH_DIR}/bench-data/udp_conversations.pcapng" ]; then
+        sudo rm "${BENCH_DIR}/bench-data/udp_conversations.pcapng"
+    fi
+}
+
+# Function to execute client commands
+execute_client_commands() {
+    if [ -n "$custom_param" ]; then
+        echo "Running with observer mode (-s $custom_param_value)"
+        PUT_UPDATES_PID=""
+        
+        # Special handling for example_data resource with observer mode
+        if [ "$r_param" == "example_data" ]; then
+            # Construct PUT command base (without the -e parameter and payload)
+            put_cmd_base="${COAP_BIN}/coap-client -m put ${confirm_flag}"
+                        
+            # Add security parameters based on mode
+            case "$sec_mode" in
+                pki)
+                    if [ "$client_auth" = "yes" ]; then
+                        put_cmd_base="$put_cmd_base -c \"${cert_file}\" -j \"${key_file}\""
+                    fi
+                    put_cmd_base="$put_cmd_base -C \"${ca_file}\""
+                    ;;
+                psk)
+                    put_cmd_base="$put_cmd_base -k \"$(cat ${ACTIVE_PSK})\" -u uc3m"
+                    ;;
+                nosec)
+                    # No additional parameters needed
+                    ;;
+            esac
+                        
+            # Add protocol, address and resource
+            put_cmd_base="$put_cmd_base"
+        fi
+        
+        if [ "$parallelization_mode" = "background" ]; then
+            # Run clients in background
+            background_pids=()
+            for ((i = 1; i <= $n; i++)); do
+                COAP_WOLFSSL_GROUPS="$varalg" eval "$client_cmd" &
+                background_pids+=($!)
+            done
+
+            sleep 0.5
+
+            # Special handling for example_data resource with observer mode
+            if [ "$r_param" == "example_data" ]; then
+                handle_example_data_updates "$custom_param_value" "$put_cmd_base"
+                PUT_UPDATES_PID=$!
+                echo "Captured update process PID: $PUT_UPDATES_PID"
+            fi
+
+            wait "${background_pids[@]}"
+            # Kill the update process if it's still running
+            if [ -n "$PUT_UPDATES_PID" ]; then
+                echo "Terminating resource update process (PID: $PUT_UPDATES_PID)..."
+                kill $PUT_UPDATES_PID 2>/dev/null || true
+            fi
+        elif [ "$parallelization_mode" = "parallel" ]; then
+            # Run clients in parallel across cores
+            dynamic_commands=()
+            for ((i = 1; i <= $n; i++)); do
+                dynamic_commands+=("COAP_WOLFSSL_GROUPS=\"$varalg\" $client_cmd")
+            done
+            
+            parallel -j$n ::: "${dynamic_commands[@]}" &
+            parallel_pid=$!
+
+            sleep 0.5
+
+            # Special handling for example_data resource with observer mode
+            if [ "$r_param" == "example_data" ]; then
+                handle_example_data_updates "$custom_param_value" "$put_cmd_base"
+                PUT_UPDATES_PID=$!
+                echo "Captured update process PID: $PUT_UPDATES_PID"
+            fi
+
+            # wait for them to finish (or expire)
+            wait "$parallel_pid"
+
+            # Kill the update process if it's still running
+            if [ -n "$PUT_UPDATES_PID" ]; then
+                echo "Terminating resource update process (PID: $PUT_UPDATES_PID)..."
+                kill $PUT_UPDATES_PID 2>/dev/null || true
+            fi
+        else
+            echo "Observer mode requires parallelization. Please run with --parallelization <background|parallel>." 
+            echo "Exiting ..."
+            exit 1
+        fi
+
+        if [ "$r_param" = "example_data" ]; then
+            sed -i '1d' "${BENCH_DIR}/bench-data/auxiliary.txt"
+        fi
+    else
+        # Non-observer mode execution
+        echo "Running in standard mode (non-observer)"
+        
+        if [ "$parallelization_mode" = "parallel" ]; then
+            # Parallel execution using GNU parallel
+            echo "Executing $n clients in parallel..."
+            
+            # Create an array of identical commands to run in parallel
+            dynamic_commands=()
+            for ((i = 1; i <= $n; i++)); do
+                dynamic_commands+=("COAP_WOLFSSL_GROUPS=\"$varalg\" $client_cmd")
+            done
+            
+            # Run all commands in parallel
+            parallel -j$n ::: "${dynamic_commands[@]}" &
+            parallel_pid=$!
+            wait $parallel_pid
+        elif [ "$parallelization_mode" = "background" ]; then
+            # Background execution
+            echo "Executing $n clients in background..."
+            # Run clients in background
+            background_pids=()
+            for ((i = 1; i <= $n; i++)); do
+                COAP_WOLFSSL_GROUPS="$varalg" eval "$client_cmd" &
+                background_pids+=($!)
+            done
+            wait "${background_pids[@]}"
+        else
+            # Sequential execution (default mode)
+            echo "Executing $n clients sequentially..."
+            for ((i = 1; i < $n; i++)); do
+                COAP_WOLFSSL_GROUPS="$varalg" eval "$client_cmd"
+                sleep 0.1
+            done
+            # Final execution (avoid sleep after last one)
+            COAP_WOLFSSL_GROUPS="$varalg" eval "$client_cmd"
+        fi
+    fi
+}
+
+# Trap interrupt signal (Ctrl+C) to perform cleanup
+trap cleanup INT
+
+echo "Creating benchmark data directory in ${BENCH_DIR}/bench-data ..."
+mkdir -p ${BENCH_DIR}/bench-data
+
+# Cleanup temp files
+sudo rm -f "${BENCH_DIR}/bench-data/time_output.txt"
+sudo rm -f "${BENCH_DIR}/bench-data/auxiliary.txt"
 
 # Parse command line arguments
 while [ "$#" -gt 0 ]; do
@@ -435,91 +766,11 @@ echo "  parallelization : $parallelization_mode"
 
 echo "-----------------------------------------------------------------------------------------"
 
-# Set up network configuration based on rasp_param
-if [ -n "$rasp_param" ]; then
-    bridge_ip=$(ip addr show $bridge_interface | grep -Po 'inet \K[\d.]+') 
-    client_ip=$(ip addr show enp0s31f6 | grep -Po 'inet \K[\d.]+')
-    address="[$server_ip]"
-    echo "Listening on $bridge_interface"
-    echo "Bridge IP: $bridge_ip"
-    echo "Client IP: $client_ip"
-    echo "Server IP: $server_ip"
-
-    tshark -i $bridge_interface -f "udp port $coap_port and host $bridge_ip" -w "${BENCH_DIR}/bench-data/udp_conversations.pcapng" -z conv,udp &
-    tshark_pid=$!
-else
-    address="[::1]"
-    tshark -i loopback -w "${BENCH_DIR}/bench-data/udp_conversations.pcapng" -z conv,udp &
-    tshark_pid=$!
-fi
-
-# Allow time for tshark to start capturing
-sleep 2
-
-if [ -n "$rasp_param" ]; then
-        # Clean up any lingering coap-server processes first
-        echo "-----------------------------------------------------------------------------------------"
-        echo "Cleaning up any existing coap-server processes on $server_ip..."
-        ssh root@$server_ip "pkill -9 -f 'coap-server' || true"
-        
-        # Small delay to ensure ports are fully released
-        sleep 1
-
-        # Start the server on the Raspberry Pi
-        echo "-----------------------------------------------------------------------------------------"
-        echo "Starting server on $server_ip..."
-        ssh root@$server_ip "cd ~/libcoap-pqc-bench && ./libcoap-bench/coap_benchmark_server.sh -sec-mode $sec_mode -rasp -cert-config $cert_config -client-auth $client_auth" &
-        SERVER_SSH_PID=$!
-        
-        # Give the server time to start
-        echo "Give a moment for the server to start..."
-        sleep 3
-        
-fi
+# Setup network and start server
+setup_network_and_server
 
 # Start energy monitoring if enabled
 if [ "${MEASURE_ENERGY:-false}" == "true" ]; then
-    # First create the energy_filename so we can use it for energy monitoring
-    # Define energy_filename_add based on scenario
-    if [[ "$r_param" == "time" &&  "$confirm_param" == "con" ]]; then
-        energy_filename_add="_scenarioA"
-    elif [[ "$r_param" == "time" &&  "$confirm_param" == "non" ]]; then
-        energy_filename_add="_scenarioC"
-    else
-        energy_filename_add="_scenarioB"
-    fi
-
-    # Prepare base energy_filename for results
-    if [ "$sec_mode" == "pki" ] || [ "$sec_mode" == "psk" ]; then
-        # Add algorithm, cert type, and client auth indicator
-        if [ "$sec_mode" == "pki" ]; then
-            # Include cert type and optional client auth flag
-            cert_indicator="_${cert_config}"
-            client_auth_suffix=$([ "$client_auth" == "yes" ] && echo "_client-auth" || echo "")
-        else
-            cert_indicator=""
-            client_auth_suffix=""
-        fi
-        
-        if [ -n "$custom_param" ]; then
-            energy_filename="${rasp_param:+rasp}_conv_stats_${varalg}${cert_indicator}_n${n}_s${custom_param_value}_${parallelization_mode}_${sec_mode}${client_auth_suffix}"
-        elif [ -n "$parallelization_mode" ]; then
-            energy_filename="${rasp_param:+rasp}_conv_stats_${varalg}${cert_indicator}_n${n}_${parallelization_mode}_${sec_mode}${client_auth_suffix}"
-        else
-            energy_filename="${rasp_param:+rasp}_conv_stats_${varalg}${cert_indicator}_n${n}_${sec_mode}${client_auth_suffix}"
-        fi
-    else
-        if [ -n "$custom_param" ]; then
-            energy_filename="${rasp_param:+rasp}_conv_stats_n${n}_s${custom_param_value}_${parallelization_mode}_${sec_mode}"
-        elif [ -n "$parallelization_mode" ]; then
-            energy_filename="${rasp_param:+rasp}_conv_stats_n${n}_${parallelization_mode}_${sec_mode}"
-        else
-            energy_filename="${rasp_param:+rasp}_conv_stats_n${n}_${sec_mode}"
-        fi
-    fi
-    energy_filename="${energy_filename}${energy_filename_add}"
-    
-    # Now start energy monitoring with the correct energy_filename
     echo "-----------------------------------------------------------------------------------------"
     start_energy_monitoring
 fi
@@ -561,136 +812,8 @@ client_cmd="$client_cmd >> ${BENCH_DIR}/bench-data/auxiliary.txt"
 # Capture initial time
 initial_time=$(date +%s.%N)
 
-# Execute the client commands based on parameters
-if [ -n "$custom_param" ]; then
-    echo "Running with observer mode (-s $custom_param_value)"
-    PUT_UPDATES_PID=""
-    
-    # Special handling for example_data resource with observer mode
-    if [ "$r_param" == "example_data" ]; then
-        # Construct PUT command base (without the -e parameter and payload)
-        put_cmd_base="${COAP_BIN}/coap-client -m put ${confirm_flag}"
-                    
-        # Add security parameters based on mode
-        case "$sec_mode" in
-            pki)
-                if [ "$client_auth" = "yes" ]; then
-                    put_cmd_base="$put_cmd_base -c \"${cert_file}\" -j \"${key_file}\""
-                fi
-                put_cmd_base="$put_cmd_base -C \"${ca_file}\""
-                ;;
-            psk)
-                put_cmd_base="$put_cmd_base -k \"$(cat ${ACTIVE_PSK})\" -u uc3m"
-                ;;
-            nosec)
-                # No additional parameters needed
-                ;;
-        esac
-                    
-        # Add protocol, address and resource
-        put_cmd_base="$put_cmd_base"
-    fi
-    
-    if [ "$parallelization_mode" = "background" ]; then
-        # Run clients in background
-        background_pids=()
-        for ((i = 1; i <= $n; i++)); do
-            COAP_WOLFSSL_GROUPS="$varalg" eval "$client_cmd" &
-            background_pids+=($!)
-        done
-
-        sleep 1
-
-        # Special handling for example_data resource with observer mode
-        if [ "$r_param" == "example_data" ]; then
-            handle_example_data_updates "$custom_param_value" "$put_cmd_base"
-            # Capture the PID of the background process using $?
-            PUT_UPDATES_PID=$!
-            echo "Captured update process PID: $PUT_UPDATES_PID"
-        fi
-
-        wait "${background_pids[@]}"
-        # Kill the update process if it's still running
-        if [ -n "$PUT_UPDATES_PID" ]; then
-            echo "Terminating resource update process (PID: $PUT_UPDATES_PID)..."
-            kill $PUT_UPDATES_PID 2>/dev/null || true
-        fi
-    elif [ "$parallelization_mode" = "parallel" ]; then
-        # Run clients in parallel across cores
-        dynamic_commands=()
-        for ((i = 1; i <= $n; i++)); do
-            dynamic_commands+=("COAP_WOLFSSL_GROUPS=\"$varalg\" $client_cmd")
-        done
-        
-        parallel -j$n ::: "${dynamic_commands[@]}" &
-        parallel_pid=$!
-
-        sleep 1
-
-        # Special handling for example_data resource with observer mode
-        if [ "$r_param" == "example_data" ]; then
-            handle_example_data_updates "$custom_param_value" "$put_cmd_base"
-            # Capture the PID of the background process using $?
-            PUT_UPDATES_PID=$!
-            echo "Captured update process PID: $PUT_UPDATES_PID"
-        fi
-
-        # wait for them to finish (or expire)
-        wait "$parallel_pid"
-
-        # Kill the update process if it's still running
-        if [ -n "$PUT_UPDATES_PID" ]; then
-            echo "Terminating resource update process (PID: $PUT_UPDATES_PID)..."
-            kill $PUT_UPDATES_PID 2>/dev/null || true
-        fi
-    else
-        echo "Observer mode requires parallelization. Please run with --parallelization <background|parallel>." 
-        echo "Exiting ..."
-        exit 1
-    fi
-
-    if [ "$r_param" = "example_data" ]; then
-        sed -i '1d' "${BENCH_DIR}/bench-data/auxiliary.txt"
-    fi
-else
-    # Non-observer mode execution
-    echo "Running in standard mode (non-observer)"
-    
-    if [ "$parallelization_mode" = "parallel" ]; then
-        # Parallel execution using GNU parallel
-        echo "Executing $n clients in parallel..."
-        
-        # Create an array of identical commands to run in parallel
-        dynamic_commands=()
-        for ((i = 1; i <= $n; i++)); do
-            dynamic_commands+=("COAP_WOLFSSL_GROUPS=\"$varalg\" $client_cmd")
-        done
-        
-        # Run all commands in parallel
-        parallel -j$n ::: "${dynamic_commands[@]}" &
-        parallel_pid=$!
-        wait $parallel_pid
-    elif [ "$parallelization_mode" = "background" ]; then
-        # Background execution
-        echo "Executing $n clients in background..."
-        # Run clients in background
-        background_pids=()
-        for ((i = 1; i <= $n; i++)); do
-            COAP_WOLFSSL_GROUPS="$varalg" eval "$client_cmd" &
-            background_pids+=($!)
-        done
-        wait "${background_pids[@]}"
-    else
-        # Sequential execution (default mode)
-        echo "Executing $n clients sequentially..."
-        for ((i = 1; i < $n; i++)); do
-            COAP_WOLFSSL_GROUPS="$varalg" eval "$client_cmd"
-            sleep 0.2
-        done
-        # Final execution (avoid sleep after last one)
-        COAP_WOLFSSL_GROUPS="$varalg" eval "$client_cmd"
-    fi
-fi
+# Execute the client commands
+execute_client_commands
 
 # Capture final time
 final_time=$(date +%s.%N)
@@ -701,129 +824,14 @@ if [ "${MEASURE_ENERGY:-false}" == "true" ]; then
     stop_energy_monitoring
 fi
 
-# Define filename_add based on scenario
-if [[ "$r_param" == "time" &&  "$confirm_param" == "con" ]]; then
-    filename_add="_scenarioA"
-elif [[ "$r_param" == "time" &&  "$confirm_param" == "non" ]]; then
-    filename_add="_scenarioC"
-else
-    filename_add="_scenarioB"
-fi
+# Generate filename
+filename=$(generate_filenames "udp" true)
 
+# Stop server and cleanup
+stop_server_and_cleanup
 
-# Prepare base filename for results
-if [ "$sec_mode" == "pki" ] || [ "$sec_mode" == "psk" ]; then
-    # Add algorithm, cert type, and client auth indicator
-    if [ "$sec_mode" == "pki" ]; then
-        # Include cert type and optional client auth flag
-        cert_indicator="_${cert_config}"
-        client_auth_suffix=$([ "$client_auth" == "yes" ] && echo "_client-auth" || echo "")
-    else
-        cert_indicator=""
-        client_auth_suffix=""
-    fi
-    
-    if [ -n "$custom_param" ]; then
-        filename="udp${rasp_param:+_rasp}_conv_stats_${varalg}${cert_indicator}_n${n}_s${custom_param_value}_${parallelization_mode}_${sec_mode}${client_auth_suffix}"
-    elif [ -n "$parallelization_mode" ]; then 
-        filename="udp${rasp_param:+_rasp}_conv_stats_${varalg}${cert_indicator}_n${n}_${parallelization_mode}_${sec_mode}${client_auth_suffix}"
-    else
-        filename="udp${rasp_param:+_rasp}_conv_stats_${varalg}${cert_indicator}_n${n}_${sec_mode}${client_auth_suffix}"
-    fi
-else
-    if [ -n "$custom_param" ]; then
-        filename="udp${rasp_param:+_rasp}_conv_stats_n${n}_s${custom_param_value}_${parallelization_mode}_${sec_mode}"
-    elif [ -n "$parallelization_mode" ]; then 
-        filename="udp${rasp_param:+_rasp}_conv_stats_n${n}_${parallelization_mode}_${sec_mode}"
-    else
-        filename="udp${rasp_param:+_rasp}_conv_stats_n${n}_${sec_mode}"
-    fi
-fi
-filename="${filename}${filename_add}"
-
-# Process the results
-if [ -z "$rasp_param" ]; then
-    # Process local results
-    kill -9 $(pidof tshark) 2>/dev/null
-    
-    # Stop the libcoap server
-    server_PID=$(ps -e -f | grep "coap-se" | tail -2 | head -1 | awk '{print $2}')
-    [ -n "$server_PID" ] && sudo kill -2 $server_PID
-    
-    # Allow time for tshark to finish capturing
-    sleep 2
-    
-    # Write captured conversations
-    rm -f "${BENCH_DIR}/bench-data/${filename}.txt"
-    tshark -r "${BENCH_DIR}/bench-data/udp_conversations.pcapng" -z conv,udp | grep "::1:" > "${BENCH_DIR}/bench-data/${filename}.txt"
-else
-    # Process remote (Raspberry Pi) results
-    echo "-----------------------------------------------------------------------------------------"
-    kill -9 $(pidof tshark) 2>/dev/null
-    # Allow time for tshark to finish capturing
-    sleep 2
-
-    # Write captured conversations
-    rm -f "${BENCH_DIR}/bench-data/${filename}.txt"
-    tshark -r "${BENCH_DIR}/bench-data/udp_conversations.pcapng" -z conv,udp | grep "<-> $server_ip" > "${BENCH_DIR}/bench-data/${filename}.txt"
-    
-    # Save timing information
-{
-    echo "Started at:  $initial_time"
-    echo "Finished at: $final_time"
-
-    # Calculate elapsed time (in seconds)
-    elapsed=$(echo "$final_time - $initial_time" | bc)
-
-    echo "Elapsed time: ${elapsed} s"
-} > "${BENCH_DIR}/bench-data/initial_and_final_time.txt"
-
-    # Wait for server to be shut down
-    echo "Automatically stopping the server on the Raspberry Pi..."
-    ssh root@$server_ip "pkill -2 coap-server || pkill -2 -f coap-server" || echo "Warning: Failed to stop server"
-    sleep 3
-    echo "-----------------------------------------------------------------------------------------" 
-    
-    # Get CPU cycles from server
-    cpu_cycles=$(ssh root@$server_ip "awk '/cycles/ {print \$1}' ~/libcoap-pqc-bench/libcoap-bench/bench-data/auxiliary_server.txt")
-    if [ -z "$cpu_cycles" ]; then
-        echo "Warning: Could not retrieve CPU cycles from server. Using default value of 0."
-        cpu_cycles=0
-    else
-        cpu_cycles=$((cpu_cycles))
-    fi
-    echo $cpu_cycles > "${BENCH_DIR}/bench-data/cycles_output.txt"
-    
-    # Process metrics with the unified benchmark data manager
-    python3 "${BENCH_DIR}/bench-data-manager.py" process \
-        --stats-file "${BENCH_DIR}/bench-data/${filename}.txt" \
-        --time-file "${BENCH_DIR}/bench-data/time_output.txt" \
-        --cycles-file "${BENCH_DIR}/bench-data/cycles_output.txt" \
-        --output-file "${BENCH_DIR}/bench-data/${filename}.csv"
-
-    # Add energy data to the CSV file if energy monitoring was enabled
-    if [ "${MEASURE_ENERGY:-false}" == "true" ] && [ -e "${BENCH_DIR}/bench-data/${filename}.csv" ]; then
-        # Find the energy measurements file
-        energy_file="${BENCH_DIR}/bench-data/energy_${energy_filename}.csv"
-        if [ -e "$energy_file" ]; then
-            echo "Adding energy data from $energy_file to ${BENCH_DIR}/bench-data/${filename}.csv"
-            python3 "${BENCH_DIR}/bench-data-manager.py" merge \
-                --energy-file "$energy_file" \
-                --benchmark-file "${BENCH_DIR}/bench-data/${filename}.csv"
-        else
-            echo "Warning: Energy file $energy_file not found"
-        fi
-    fi
-    
-    # Clean up temporary files
-    echo "Cleaning up temporary files..."
-    #if [ -f "${BENCH_DIR}/bench-data/${filename}.txt" ]; then
-    #    sudo rm "${BENCH_DIR}/bench-data/${filename}.txt"
-    #fi
-    if [ -f "${BENCH_DIR}/bench-data/udp_conversations.pcapng" ]; then
-        sudo rm "${BENCH_DIR}/bench-data/udp_conversations.pcapng"
-    fi
-fi
+# Process results
+process_results
 
 echo "Benchmark completed successfully: $filename"
 exit 0

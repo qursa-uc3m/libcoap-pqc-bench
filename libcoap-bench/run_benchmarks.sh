@@ -62,7 +62,7 @@ show_help() {
     echo "                        'parallel': clients run across different cores"
     echo "  -client-auth MODE     Client authentication mode [yes|no] (default: no)"
     echo "  -pause SECONDS        Seconds to pause between benchmark runs (default: 10)"
-    echo "  -rasp                 Enable RASP server mode (default: false)"
+    echo "  -rasp                 Enable RASP server mode (default: local server)"
     echo "  -energy               Enable energy measurements (requires RD-USB setup)"
     echo "  -cert-filter PATTERN  Only run certificate configs matching pattern (comma-separated)"
     echo "  -security MODES       Security modes to test (comma-separated: pki,psk,nosec)"
@@ -316,6 +316,9 @@ run_benchmark() {
 
     if [ "$RASP_SERVER" == "true" ]; then
         cmd_args="$cmd_args -rasp"
+    else
+        # Local server mode - no additional flags needed as coap_benchmark.sh handles local by default
+        log "INFO" "Using local server mode"
     fi
     
     # Add resource-specific arguments
@@ -453,7 +456,12 @@ create_summary_report() {
         
         # Create a temp file list to avoid subshell issues
         local file_list="/tmp/benchmark_files.txt"
-        find "$BENCH_DATA_DIR" -name "udp_rasp_conv_stats_*.csv" -type f | sort > "$file_list"
+        # Look for both local and remote benchmark files
+        if [ "$RASP_SERVER" == "true" ]; then
+            find "$BENCH_DATA_DIR" -name "udp_rasp_conv_stats_*.csv" -type f | sort > "$file_list"
+        else
+            find "$BENCH_DATA_DIR" -name "udp_conv_stats_*.csv" -type f | sort > "$file_list"
+        fi
         
         # Check if any files were found
         if [ ! -s "$file_list" ]; then
