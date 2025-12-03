@@ -314,23 +314,24 @@ Optional arguments:
 The benchmark creates CSV files with a naming pattern that reflects the test parameters:
 
 ```
-udp[_rasp]_conv_stats_[ALGORITHM]_[<CERT_CONFIG>]_n<N>[_s<S>][_<P>]_<SEC_MODE>[_client-auth]_scenario<SCENARIO>
+udp[_rasp]_conv_stats_[ALGORITHM_CERT_CONFIG]_n<N>[_s<S>][_<P>]_<SEC_MODE>[_client-auth]_scenario<SCENARIO>
 ```
 
 Where:
 - `_rasp`: Present if the `-rasp` flag was used
-- `ALGORITHM`: The KEM algorithm used (e.g., KYBER_LEVEL5, P256_KYBER_LEVEL1) for PKI/PSK modes
+- `ALGORITHM_CERT_CONFIG`: Only present for PKI mode (e.g., KYBER_LEVEL5_DILITHIUM_LEVEL3)
 - `N`: Number of clients
 - `_s<S>`: Present if the `-s` parameter was used
 - `_<P>`: Parallelization mode (background or parallel)
 - `<SEC_MODE>`: Security mode (pki, psk, or nosec)
-- `_<CERT_CONFIG>`: Present for PKI mode, indicating the certificate type
-- `_client-auth`: Present if client authentication was enabled
+- `_client-auth`: Present if client authentication was enabled (PKI mode only)
 - `_scenario<SCENARIO>`: Indicates the scenario (A, B, or C)
 
-Example:
+Examples:
 ```
 udp_rasp_conv_stats_KYBER_LEVEL1_DILITHIUM_LEVEL3_n10_s30_parallel_pki_client-auth_scenarioA.csv
+udp_rasp_conv_stats_n25_psk_scenarioA.csv
+udp_conv_stats_n10_nosec_scenarioB.csv
 ```
 
 ## Energy Measurement

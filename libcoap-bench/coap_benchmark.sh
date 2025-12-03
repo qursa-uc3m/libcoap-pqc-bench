@@ -77,15 +77,10 @@ generate_filenames() {
 
     # Prepare base filename for results
     local filename=""
-    if [ "$sec_mode" == "pki" ] || [ "$sec_mode" == "psk" ]; then
-        # Add algorithm, cert type, and client auth indicator
-        if [ "$sec_mode" == "pki" ]; then
-            cert_indicator="_${cert_config}"
-            client_auth_suffix=$([ "$client_auth" == "yes" ] && echo "_client-auth" || echo "")
-        else
-            cert_indicator=""
-            client_auth_suffix=""
-        fi
+    if [ "$sec_mode" == "pki" ]; then
+        # PKI mode: include algorithm and cert config
+        cert_indicator="_${cert_config}"
+        client_auth_suffix=$([ "$client_auth" == "yes" ] && echo "_client-auth" || echo "")
         
         if [ -n "$custom_param" ]; then
             filename="${prefix}${rasp_param:+_rasp}_conv_stats_${varalg}${cert_indicator}_n${n}_s${custom_param_value}_${parallelization_mode}_${sec_mode}${client_auth_suffix}"
@@ -95,6 +90,7 @@ generate_filenames() {
             filename="${prefix}${rasp_param:+_rasp}_conv_stats_${varalg}${cert_indicator}_n${n}_${sec_mode}${client_auth_suffix}"
         fi
     else
+        # PSK and nosec modes: no algorithm in filename
         if [ -n "$custom_param" ]; then
             filename="${prefix}${rasp_param:+_rasp}_conv_stats_n${n}_s${custom_param_value}_${parallelization_mode}_${sec_mode}"
         elif [ -n "$parallelization_mode" ]; then 
@@ -740,12 +736,12 @@ if [ "$sec_mode" == "psk" ]; then
     echo "Key value: $(cat ${ACTIVE_PSK})"
 fi
 
-# Read KEM algorithm from first line of algorithm.txt
-if [ -f "${REPO_ROOT}/algorithm.txt" ]; then
+# Read KEM algorithm from first line of algorithm.txt (only relevant for PKI mode)
+if [ "$sec_mode" == "pki" ] && [ -f "${REPO_ROOT}/algorithm.txt" ]; then
     kem_algorithm=$(head -n 1 "${REPO_ROOT}/algorithm.txt")
     varalg="${kem_algorithm}"
 else
-    varalg="UNKNOWN_KEM"
+    varalg=""
 fi        
 
 # Set port based on security mode

@@ -86,8 +86,8 @@ class BenchmarkConfig:
         elif "_parallel" in filename:
             config.parallelization = "parallel"
             
-        # Extract algorithm (only for pki/psk)
-        if config.security_mode in ("pki", "psk"):
+        # Extract algorithm (only for pki)
+        if config.security_mode == "pki":
             # This is a simplification - actual parsing would need to be more robust
             # to handle different algorithm naming patterns
             algorithm_match = re.search(r'stats_([A-Z0-9_]+)_', filename)
@@ -111,11 +111,11 @@ class BenchmarkConfig:
         prefix = "udp_rasp" if self.rasp else "udp"
         parts.append(prefix)
         
-        # Add algorithm and cert type for pki/psk
-        if self.security_mode in ("pki", "psk") and self.algorithm:
+        # Add algorithm and cert type for pki only
+        if self.security_mode == "pki" and self.algorithm:
             parts.append(self.algorithm)
             
-            if self.security_mode == "pki" and self.cert_type:
+            if self.cert_type:
                 parts.append(self.cert_type)
         
         # Add clients

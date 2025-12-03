@@ -67,7 +67,7 @@ chmod +x plots_wrapper.sh
 bench-data-pll-15/           # Root data directory
 ├── bench-data-fiducial/     # Baseline network data
 │   ├── udp_rasp_conv_stats_KYBER_LEVEL1_RSA_2048_n25_pki_scenarioA.csv
-│   ├── udp_rasp_conv_stats_KYBER_LEVEL1_n25_psk_scenarioA.csv
+│   ├── udp_rasp_conv_stats_n25_psk_scenarioA.csv
 │   └── ...
 ├── bench-data-smarthome/    # Smart home network data
 │   ├── udp_rasp_conv_stats_KYBER_LEVEL1_RSA_2048_n25_pki_scenarioA.csv
@@ -229,11 +229,13 @@ range_row
 ### File Naming Convention
 
 ```
-udp_[rasp_]conv_stats_[ALGORITHM]_[CERTIFICATE]_n[N]_[parallel_][MODE]_scenario[SCENARIO][_filtered].csv
+PKI mode:   udp_[rasp_]conv_stats_[ALGORITHM]_[CERTIFICATE]_n[N]_[parallel_]pki_scenario[SCENARIO][_filtered].csv
+PSK mode:   udp_[rasp_]conv_stats_n[N]_[parallel_]psk_scenario[SCENARIO][_filtered].csv
+nosec mode: udp_[rasp_]conv_stats_n[N]_[parallel_]nosec_scenario[SCENARIO][_filtered].csv
 
 Examples:
 - udp_rasp_conv_stats_KYBER_LEVEL1_RSA_2048_n25_pki_scenarioA.csv
-- udp_rasp_conv_stats_KYBER_LEVEL3_n25_parallel_psk_scenarioC_filtered.csv
+- udp_rasp_conv_stats_n25_parallel_psk_scenarioC_filtered.csv
 - udp_rasp_conv_stats_n25_nosec_scenarioA.csv
 ```
 

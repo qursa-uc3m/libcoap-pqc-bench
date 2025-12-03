@@ -575,7 +575,7 @@ def get_file_patterns(algorithm, cert_type, n, s, p, scenario, rasp=False, filte
     patterns = {
         'pki': f"udp{rasp_prefix}_conv_stats_{algorithm}_{cert_type}_n{n}{s_suffix}{p_suffix}_pki{scenario_suffix}{filtered}.csv",
         'pki_client_auth': f"udp{rasp_prefix}_conv_stats_{algorithm}_{cert_type}_n{n}{s_suffix}{p_suffix}_pki_client-auth{scenario_suffix}{filtered}.csv",
-        'psk': f"udp{rasp_prefix}_conv_stats_{algorithm}_n{n}{s_suffix}{p_suffix}_psk{scenario_suffix}{filtered}.csv",
+        'psk': f"udp{rasp_prefix}_conv_stats_n{n}{s_suffix}{p_suffix}_psk{scenario_suffix}{filtered}.csv",
         'nosec': f"udp{rasp_prefix}_conv_stats_n{n}{s_suffix}{p_suffix}_nosec{scenario_suffix}{filtered}.csv",
         'nosec_flexible': f"udp{rasp_prefix}_conv_stats*n{n}*_nosec*{scenario_suffix}{filtered}.csv"
     }
