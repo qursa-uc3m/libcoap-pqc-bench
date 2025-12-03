@@ -48,6 +48,13 @@ show_usage() {
     echo "  $0 deploy            # Copy pskeys dir to Raspberry Pi"
 }
 
+# Get active key filename (returns empty if not found or no match)
+get_active_key_file() {
+    [ -f "${ACTIVE_PSK}" ] || return 1
+    local active_value=$(cat "${ACTIVE_PSK}")
+    grep -l "^${active_value}$" "${PSK_DIR}"/*.key 2>/dev/null | head -1
+}
+
 # Generate a new PSK key with specified bit length
 generate_key() {
     local bit_size=$1
@@ -77,38 +84,24 @@ list_keys() {
     echo "---------------------------------------------"
     
     # Check if any keys exist
-    local key_count=0
-    for key_file in "${PSK_DIR}"/*.key; do
-        if [[ -f "$key_file" ]]; then
-            ((key_count++))
-            break
-        fi
-    done
-    
-    if [[ $key_count -eq 0 ]]; then
+    local keys=("${PSK_DIR}"/*.key)
+    if [[ ! -f "${keys[0]}" ]]; then
         echo -e "${YELLOW}No keys found. Generate a key first with:${NC}"
         echo -e "${YELLOW}$0 generate [bit_size]${NC}"
         return 0
     fi
     
-    # Show current active key if exists
-    if [[ -f "${ACTIVE_PSK}" ]]; then
-        local active_key_value=$(cat "${ACTIVE_PSK}")
+    # Get active key info
+    local active_key_file=$(get_active_key_file)
+    local active_key_value=""
+    [ -f "${ACTIVE_PSK}" ] && active_key_value=$(cat "${ACTIVE_PSK}")
+    
+    # Show current active key header if exists
+    if [[ -n "$active_key_value" ]]; then
         echo -e "${GREEN}Currently active key:${NC}"
-        local active_found=false
-        
-        for key_file in "${PSK_DIR}"/*.key; do
-            if [[ -f "$key_file" ]]; then
-                local key_value=$(cat "$key_file")
-                if [[ "$key_value" == "$active_key_value" ]]; then
-                    echo -e "${GREEN}* $(basename "$key_file")${NC} - $key_value ${GREEN}(ACTIVE)${NC}"
-                    active_found=true
-                    break
-                fi
-            fi
-        done
-        
-        if [[ "$active_found" != "true" ]]; then
+        if [[ -n "$active_key_file" ]]; then
+            echo -e "${GREEN}* $(basename "$active_key_file")${NC} - $active_key_value ${GREEN}(ACTIVE)${NC}"
+        else
             echo -e "${YELLOW}* Custom key - $active_key_value${NC}"
         fi
         echo "---------------------------------------------"
@@ -116,18 +109,16 @@ list_keys() {
     
     # List all keys
     echo -e "${BLUE}All available keys:${NC}"
-    for key_file in "${PSK_DIR}"/*.key; do
-        if [[ -f "$key_file" ]]; then
-            local key_value=$(cat "$key_file")
-            local key_name=$(basename "$key_file")
-            local key_size=$(echo "$key_name" | grep -o "[0-9]\+" | head -1)
-            
-            # Check if this is the active key
-            if [[ -f "${ACTIVE_PSK}" ]] && [[ "$(cat "${ACTIVE_PSK}")" == "$key_value" ]]; then
-                echo -e "${GREEN}* $key_name${NC} - ${key_size}-bit - $key_value ${GREEN}(ACTIVE)${NC}"
-            else
-                echo "* $key_name - ${key_size}-bit - $key_value"
-            fi
+    for key_file in "${keys[@]}"; do
+        [[ -f "$key_file" ]] || continue
+        local key_value=$(cat "$key_file")
+        local key_name=$(basename "$key_file")
+        local key_size=$(echo "$key_name" | grep -o "[0-9]\+" | head -1)
+        
+        if [[ "$key_file" == "$active_key_file" ]]; then
+            echo -e "${GREEN}* $key_name${NC} - ${key_size}-bit - $key_value ${GREEN}(ACTIVE)${NC}"
+        else
+            echo "* $key_name - ${key_size}-bit - $key_value"
         fi
     done
 }
@@ -153,29 +144,20 @@ activate_key() {
 
 # Show current active key
 show_current_key() {
-    if [[ -f "${ACTIVE_PSK}" ]]; then
-        echo -e "${BLUE}Currently active PSK key:${NC}"
-        echo -e "${YELLOW}$(cat "${ACTIVE_PSK}")${NC}"
-        
-        # Find the key file with this value
-        local active_key_value=$(cat "${ACTIVE_PSK}")
-        local active_key_name=""
-        
-        for key_file in "${PSK_DIR}"/*.key; do
-            if [[ -f "$key_file" ]] && [[ "$(cat "$key_file")" == "$active_key_value" ]]; then
-                active_key_name=$(basename "$key_file")
-                break
-            fi
-        done
-        
-        if [[ -n "$active_key_name" ]]; then
-            echo -e "Key name: ${GREEN}${active_key_name}${NC}"
-        else
-            echo -e "Key name: ${YELLOW}Custom key (not managed by this script)${NC}"
-        fi
-    else
+    if [[ ! -f "${ACTIVE_PSK}" ]]; then
         echo -e "${YELLOW}No active key set.${NC}"
         echo -e "Set an active key with: ${YELLOW}$0 activate <key_filename>${NC}"
+        return
+    fi
+    
+    echo -e "${BLUE}Currently active PSK key:${NC}"
+    echo -e "${YELLOW}$(cat "${ACTIVE_PSK}")${NC}"
+    
+    local active_key_file=$(get_active_key_file)
+    if [[ -n "$active_key_file" ]]; then
+        echo -e "Key name: ${GREEN}$(basename "$active_key_file")${NC}"
+    else
+        echo -e "Key name: ${YELLOW}Custom key (not managed by this script)${NC}"
     fi
 }
 
@@ -196,16 +178,9 @@ deploy_key() {
     rsync -av --progress "${PSK_DIR}/" "${RASPBERRY_PI_USER}@${RASPBERRY_PI_IP}:${RASPBERRY_PI_PATH}/pskeys/"
     
     if [ $? -eq 0 ]; then
-        # Get current key name for the message
         local key_value=$(cat "${ACTIVE_PSK}")
-        local active_key_name=""
-        
-        for key_file in "${PSK_DIR}"/*.key; do
-            if [[ -f "$key_file" ]] && [[ "$(cat "$key_file")" == "$key_value" ]]; then
-                active_key_name=$(basename "$key_file")
-                break
-            fi
-        done
+        local active_key_file=$(get_active_key_file)
+        local active_key_name=$(basename "$active_key_file" 2>/dev/null || echo "custom")
         
         # Show success message on RPi
         ssh ${RASPBERRY_PI_USER}@${RASPBERRY_PI_IP} "
