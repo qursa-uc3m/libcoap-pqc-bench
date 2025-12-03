@@ -46,7 +46,7 @@ To generate a full set of certificates for all supported algorithms, run:
 The certificate generation script supports the following options:
 
 - `--rasp` - Sync generated certificates to a Raspberry Pi after creation
-- `--rpi-address ADDR` - Specify Raspberry Pi IP address (default: 192.168.0.157)
+- `--rpi-address ADDR` - Specify Raspberry Pi IP address (default: configured in config.env)
 - `--rpi-user USER` - Specify Raspberry Pi username (default: root)
 
 Example with custom Raspberry Pi settings:

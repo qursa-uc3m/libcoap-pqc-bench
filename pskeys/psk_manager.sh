@@ -24,7 +24,7 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 # Raspberry Pi SSH configuration (from config.env)
-RASPBERRY_PI_IP="${RASPBERRY_PI_IP:-192.168.0.157}"
+RASPBERRY_PI_IP="${RASPBERRY_PI_IP}"
 RASPBERRY_PI_USER="${RASPBERRY_PI_USER:-root}"
 RASPBERRY_PI_PATH="${RASPBERRY_PI_PATH:-~/libcoap-pqc-bench}"
 

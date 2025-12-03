@@ -98,7 +98,7 @@ If you need to generate new post-quantum certificates:
 
 Options:
 - `--rasp`: Sync certificates to Raspberry Pi after generation
-- `--rpi-address ADDR`: Specify Raspberry Pi IP address (default: 192.168.0.157)
+- `--rpi-address ADDR`: Specify Raspberry Pi IP address (default: configured in config.env)
 - `--rpi-user USER`: Specify Raspberry Pi username (default: root)
 
 This requires the [oqs-provider](https://github.com/open-quantum-safe/oqs-provider) for OpenSSL. Installation instructions are in the folder `certs/oqs_prov_install/`.

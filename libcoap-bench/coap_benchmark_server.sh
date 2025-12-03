@@ -166,7 +166,7 @@ case "$SEC_MODE" in
       CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH perf stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -A ::1 -c ${cert_file} -j ${key_file} ${client_auth_flag}"
     else
       # Add behavior when rasp_option is on for pki
-      CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH perf_5.10 stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -A 192.168.0.157 -c ${cert_file} -j ${key_file} ${client_auth_flag}"
+      CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH perf_5.10 stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -A ${RASPBERRY_PI_IP} -c ${cert_file} -j ${key_file} ${client_auth_flag}"
     fi
     ;;
   psk)
@@ -174,7 +174,7 @@ case "$SEC_MODE" in
       CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH perf stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -k $(cat ${ACTIVE_PSK}) -h uc3m -A ::1"
     else
       # Add behavior when rasp_option is on for psk
-      CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH perf_5.10 stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -k $(cat ${ACTIVE_PSK}) -h uc3m -A 192.168.0.157"
+      CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH perf_5.10 stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -k $(cat ${ACTIVE_PSK}) -h uc3m -A ${RASPBERRY_PI_IP}"
     fi
     ;;
   nosec)
@@ -182,7 +182,7 @@ case "$SEC_MODE" in
       CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH perf stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -A ::1"
     else
       # Add behavior when rasp_option is on for nosec
-      CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH perf_5.10 stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -A 192.168.0.157"
+      CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH perf_5.10 stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -A ${RASPBERRY_PI_IP}"
     fi
     ;;
   *)

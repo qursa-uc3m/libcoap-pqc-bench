@@ -1,13 +1,24 @@
 #!/bin/bash
 
+# Import configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Load environment configuration
+if [ -f "${REPO_ROOT}/config.local.env" ]; then
+    source "${REPO_ROOT}/config.local.env"
+elif [ -f "${REPO_ROOT}/config.env" ]; then
+    source "${REPO_ROOT}/config.env"
+fi
+
 # Default values
 OPENSSL=${OPENSSL:-/usr/bin/openssl}
 PROVIDER_PATH=${PROVIDER_PATH:-/opt/oqs_openssl3/oqs-provider/_build/lib}
 OPENSSL_CONF="/opt/oqs_openssl3/.local/ssl/openssl.cnf"
 RASP_SYNC=false
-RPI_ADDRESS="192.168.0.157"
-RPI_USER="root"
-RPI_PATH="~/libcoap-pqc-bench"
+RPI_ADDRESS="${RASPBERRY_PI_IP}"
+RPI_USER="${RASPBERRY_PI_USER:-root}"
+RPI_PATH="${RASPBERRY_PI_PATH:-~/libcoap-pqc-bench}"
 
 # Parse command line arguments
 while [[ "$#" -gt 0 ]]; do
@@ -28,8 +39,8 @@ while [[ "$#" -gt 0 ]]; do
       echo "Usage: $0 [options]"
       echo "Options:"
       echo "  --rasp              Sync certificates to Raspberry Pi after generation"
-      echo "  --rpi-address ADDR  Specify Raspberry Pi IP address (default: 192.168.0.157)"
-      echo "  --rpi-user USER     Specify Raspberry Pi username (default: root)"
+      echo "  --rpi-address ADDR  Specify Raspberry Pi IP address (default: ${RPI_ADDRESS})"
+      echo "  --rpi-user USER     Specify Raspberry Pi username (default: ${RPI_USER})"
       echo "  --help              Display this help message"
       exit 0
       ;;

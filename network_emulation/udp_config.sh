@@ -10,9 +10,9 @@ elif [ -f "${REPO_ROOT}/config.env" ]; then
 fi
 
 # Device configurations (from config.env with fallbacks)
-COMPUTER="${CLIENT_IP:-192.168.0.228}"
-VM="${VM_IP:-192.168.0.172}"
-RPI="${RASPBERRY_PI_IP:-192.168.0.157}"
+COMPUTER="${CLIENT_IP}"
+VM="${VM_IP}"
+RPI="${RASPBERRY_PI_IP}"
 VM_USER="${VM_USER:-ubuntu}"
 VM_NETWORK="${NETWORK_RANGE:-192.168.0.0/24}"
 

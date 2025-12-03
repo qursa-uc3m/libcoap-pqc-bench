@@ -19,7 +19,7 @@ ACTIVE_PSK="${PSK_DIR}/active_psk.txt"
 
 # Global variables and defaults (using config values)
 bridge_interface="${BRIDGE_INTERFACE:-br0}"
-server_ip="${RASPBERRY_PI_IP:-192.168.0.157}"
+server_ip="${RASPBERRY_PI_IP}"
 tshark_pid=""
 
 # Default values
