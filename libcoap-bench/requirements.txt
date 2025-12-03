@@ -17,7 +17,10 @@ pyarrow>=11.0.0  # For faster CSV operations with pandas
 # Serial communication
 pyserial>=3.5
 
-# USB communication
+# USB communication (for FNIRSI power meter - optional for local mode)
 hidapi >= 0.10.1
 #pyusb>=1.3.1
 crc>=7.1.0
+
+# Energy monitoring - CodeCarbon (for local mode / software-based estimation)
+codecarbon>=3.2.0

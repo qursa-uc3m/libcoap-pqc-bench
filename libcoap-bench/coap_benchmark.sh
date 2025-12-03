@@ -12,6 +12,12 @@ elif [ -f "${REPO_ROOT}/config.env" ]; then
     source "${REPO_ROOT}/config.env"
 fi
 
+# Set defaults for local mode configuration
+LOCAL_MODE="${LOCAL_MODE:-false}"
+ENERGY_MONITOR_TYPE="${ENERGY_MONITOR_TYPE:-fnirsi}"
+LOCAL_SERVER_ADDRESS="${LOCAL_SERVER_ADDRESS:-::1}"
+LOCAL_CAPTURE_INTERFACE="${LOCAL_CAPTURE_INTERFACE:-lo}"
+
 BENCH_DIR="${REPO_ROOT}/libcoap-bench"
 COAP_BIN="${REPO_ROOT}/libcoap/build/bin"
 PSK_DIR="${REPO_ROOT}/pskeys"
@@ -127,8 +133,25 @@ start_energy_monitoring() {
     mkfifo "$start_sock" 2>/dev/null
     mkfifo "$stop_sock" 2>/dev/null
     
+    # Select energy monitor based on configuration
+    local energy_monitor_script=""
+    local python_cmd="python3"
+    
+    if [ "$ENERGY_MONITOR_TYPE" = "codecarbon" ] || [ "$LOCAL_MODE" = "true" ]; then
+        energy_monitor_script="${BENCH_DIR}/energy_monitor_codecarbon.py"
+        echo "Using CodeCarbon energy monitor (software-based estimation)"
+        # Use virtualenv Python for CodeCarbon (required even when running with sudo)
+        if [ -f "${REPO_ROOT}/.bench-env/bin/python3" ]; then
+            python_cmd="${REPO_ROOT}/.bench-env/bin/python3"
+            echo "Using virtualenv Python: $python_cmd"
+        fi
+    else
+        energy_monitor_script="${BENCH_DIR}/energy_monitor.py"
+        echo "Using FNIRSI energy monitor (USB power meter)"
+    fi
+    
     # Start energy monitor with sync mechanism
-    python ${BENCH_DIR}/energy_monitor.py --force-reset \
+    "$python_cmd" "$energy_monitor_script" --force-reset \
            --output "${BENCH_DIR}/bench-data/$energy_name" \
            --start-pipe "$start_sock" \
            --stop-pipe "$stop_sock" &

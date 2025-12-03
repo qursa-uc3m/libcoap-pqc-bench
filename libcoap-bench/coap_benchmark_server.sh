@@ -159,31 +159,25 @@ if [ "$SEC_MODE" == "pki" ] && [ "$client_auth" == "no" ]; then
   client_auth_flag="-n"
 fi
 
+# Select perf command based on mode (configurable via config.env)
+if [ -z "$rasp_option" ]; then
+  PERF="${PERF_CMD:-perf}"
+  SERVER_ADDR="::1"
+else
+  PERF="${PERF_CMD_RPI:-perf_5.10}"
+  SERVER_ADDR="${RASPBERRY_PI_IP}"
+fi
+
 # Determine the command based on the value of -sec-mode
 case "$SEC_MODE" in
   pki)
-    if [ -z "$rasp_option" ]; then
-      CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH perf stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -A ::1 -c ${cert_file} -j ${key_file} ${client_auth_flag}"
-    else
-      # Add behavior when rasp_option is on for pki
-      CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH perf_5.10 stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -A ${RASPBERRY_PI_IP} -c ${cert_file} -j ${key_file} ${client_auth_flag}"
-    fi
+    CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH $PERF stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -A ${SERVER_ADDR} -c ${cert_file} -j ${key_file} ${client_auth_flag}"
     ;;
   psk)
-    if [ -z "$rasp_option" ]; then
-      CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH perf stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -k $(cat ${ACTIVE_PSK}) -h uc3m -A ::1"
-    else
-      # Add behavior when rasp_option is on for psk
-      CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH perf_5.10 stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -k $(cat ${ACTIVE_PSK}) -h uc3m -A ${RASPBERRY_PI_IP}"
-    fi
+    CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH $PERF stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -k $(cat ${ACTIVE_PSK}) -h uc3m -A ${SERVER_ADDR}"
     ;;
   nosec)
-    if [ -z "$rasp_option" ]; then
-      CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH perf stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -A ::1"
-    else
-      # Add behavior when rasp_option is on for nosec
-      CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH perf_5.10 stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -A ${RASPBERRY_PI_IP}"
-    fi
+    CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH $PERF stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -A ${SERVER_ADDR}"
     ;;
   *)
     echo "Invalid -sec-mode value: $SEC_MODE"

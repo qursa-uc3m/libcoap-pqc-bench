@@ -12,6 +12,17 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 # Source certificate configuration
 source "${REPO_ROOT}/certs/config_certs.sh"
 
+# Load environment configuration
+if [ -f "${REPO_ROOT}/config.local.env" ]; then
+    source "${REPO_ROOT}/config.local.env"
+elif [ -f "${REPO_ROOT}/config.env" ]; then
+    source "${REPO_ROOT}/config.env"
+fi
+
+# Set defaults for local mode configuration
+LOCAL_MODE="${LOCAL_MODE:-false}"
+ENERGY_MONITOR_TYPE="${ENERGY_MONITOR_TYPE:-fnirsi}"
+
 # Color codes for output formatting
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -343,10 +354,14 @@ run_benchmark() {
         cmd_args="$cmd_args -cert-config $cert_config -client-auth $CLIENT_AUTH"
     fi
     
-    # Set environment variable for energy measurements
+    # Set environment variables for energy measurements and local mode
     if [ "$MEASURE_ENERGY" == "true" ]; then
         export MEASURE_ENERGY=true
     fi
+    
+    # Export local mode settings for child scripts
+    export LOCAL_MODE
+    export ENERGY_MONITOR_TYPE
     
     # Prepare log message
     local res_display="$resource"
@@ -683,6 +698,7 @@ log "INFO" "Number of clients: $NUM_CLIENTS"
 log "INFO" "Security modes: $SECURITY_MODES"
 log "INFO" "Resources to test: $RESOURCES"
 log "INFO" "Server mode: $([ "$RASP_SERVER" == "true" ] && echo "Raspberry Pi (remote)" || echo "Local")"
+log "INFO" "Local mode config: $LOCAL_MODE"
 log "INFO" "Parallelization mode: $PARALLELIZATION"
 log "INFO" "Algorithms to test: $ALGORITHM_LIST"
 [ -n "$ASYNC_DELAY" ] && log "INFO" "Async delay parameter: $ASYNC_DELAY seconds"
@@ -701,6 +717,9 @@ fi
 log "INFO" "Client authentication: $CLIENT_AUTH"
 log "INFO" "Pause between runs: $PAUSE_BETWEEN_RUNS seconds"
 log "INFO" "Energy measurements: $MEASURE_ENERGY"
+if [ "$MEASURE_ENERGY" == "true" ]; then
+    log "INFO" "Energy monitor type: $ENERGY_MONITOR_TYPE"
+fi
 
 if [ $ITERATIONS -gt 1 ]; then
     log "INFO" "Iteration mode: enabled (${ITERATIONS} iterations per test)"

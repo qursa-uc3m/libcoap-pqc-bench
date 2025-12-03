@@ -3,6 +3,8 @@
 A benchmarking tool for post-quantum cryptographic algorithms in CoAP using liboqs, wolfSSL, and libcoap libraries. This tool enables performance testing across different security modes, algorithms and protocols with automated data collection and analysis.
 
 ## Table of Contents
+- [Quick Start (Local Mode)](#quick-start-local-mode)
+- [System Permissions Setup](#system-permissions-setup)
 - [Installation](#installation)
   - [PQC Dependencies](#pqc-dependencies)
   - [libcoap Installation](#libcoap-installation)
@@ -37,6 +39,82 @@ A benchmarking tool for post-quantum cryptographic algorithms in CoAP using libo
 - [Network Emulation](#network-emulation)
 - [Utility Scripts](#utility-scripts)
 - [Troubleshooting](#troubleshooting)
+
+## Quick Start (Local Mode)
+
+Run benchmarks locally without Raspberry Pi hardware:
+
+```bash
+# 1. Install system dependencies
+sudo apt install tshark parallel
+
+# 2. Set up Python environment
+python3 -m venv .bench-env
+source .bench-env/bin/activate
+pip install -r ./libcoap-bench/requirements.txt
+
+# 3. Fix system permissions (see System Permissions Setup below)
+sudo chmod -R a+r /sys/devices/virtual/powercap/
+
+# 4. Build libcoap with WolfSSL (see Installation section for PQC dependencies)
+./scripts/install_libcoap.sh wolfssl
+
+# 5. Generate and activate a PSK key
+./pskeys/psk_manager.sh generate 256
+./pskeys/psk_manager.sh activate $(ls pskeys/psk_256_*.key | head -1 | xargs basename)
+
+# 6. Run a simple benchmark
+./libcoap-bench/run_benchmarks.sh -n 5 -security psk -resources time -y
+```
+
+## System Permissions Setup
+
+### RAPL Energy Monitoring Permissions
+
+CodeCarbon uses Intel RAPL for energy measurement. Grant read access:
+
+```bash
+# One-time fix (resets on reboot)
+sudo chmod -R a+r /sys/devices/virtual/powercap/
+
+# Permanent fix - create udev rule
+sudo bash -c 'cat > /etc/udev/rules.d/99-rapl.rules << EOF
+SUBSYSTEM=="powercap", ACTION=="add", RUN+="/bin/chmod -R a+r /sys/devices/virtual/powercap/"
+EOF'
+sudo udevadm control --reload-rules
+```
+
+### Perf Tool Setup
+
+The `perf` tool is used for CPU cycle counting. Install it:
+
+```bash
+sudo apt install linux-tools-generic linux-tools-$(uname -r)
+```
+
+> **⚠️ Ubuntu 24.04 with kernel 6.14 bug**: The `linux-tools-6.14.x` packages are missing the `perf` binary ([Bug #2117159](https://bugs.launchpad.net/ubuntu/+source/linux-hwe-6.14/+bug/2117159)). Apply this workaround:
+>
+> ```bash
+> # Find a working perf and symlink it
+> WORKING_PERF=$(ls /usr/lib/linux-tools-*/perf 2>/dev/null | head -1)
+> sudo ln -sf "$WORKING_PERF" /usr/lib/linux-tools/$(uname -r)/perf
+> 
+> # Verify it works
+> perf --version
+> ```
+
+The perf command can be configured in `config.env`:
+- `PERF_CMD`: Command for local mode (default: `perf`)
+- `PERF_CMD_RPI`: Command for Raspberry Pi (default: `perf_5.10`)
+
+### Packet Capture Permissions (tshark)
+
+Add your user to the wireshark group to capture packets without root:
+
+```bash
+sudo usermod -aG wireshark $USER
+# Log out and back in for changes to take effect
+```
 
 ## Installation
 
