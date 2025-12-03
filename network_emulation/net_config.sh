@@ -17,6 +17,10 @@ elif [ -f "${REPO_ROOT}/config.env" ]; then
     source "${REPO_ROOT}/config.env"
 fi
 
+# Mode configuration
+LOCAL_MODE="${LOCAL_MODE:-false}"
+LOCAL_INTERFACE="${LOCAL_CAPTURE_INTERFACE:-lo}"
+
 # VM configuration (from config.env with fallbacks)
 VM_USER="${VM_USER:-ubuntu}"
 VM_HOST="${VM_IP:-192.168.0.172}"
@@ -40,7 +44,7 @@ usage() {
     echo "  show              Show current network configuration"
     echo "  set <scenario>    Apply a network emulation scenario"
     echo "  reset             Reset to original configuration"
-    echo "  test              Test SSH connection to VM"
+    echo "  test              Test connection (SSH or local sudo)"
     echo
     echo "Scenarios:"
     echo "  fiducial          No network emulation (baseline)"
@@ -49,15 +53,19 @@ usage() {
     echo "  public-transport  50ms delay, 2% loss, 5Mbps"
     echo
     echo "Options:"
+    echo "  --local           Force local mode (loopback interface)"
+    echo "  --remote          Force remote mode (SSH to VM)"
     echo "  -u, --user        VM username (default: $VM_USER)"
     echo "  -h, --host        VM hostname/IP (default: $VM_HOST)"
-    echo "  -i, --interface   Network interface (default: $VM_INTERFACE)"
+    echo "  -i, --interface   Network interface (default: auto)"
     echo "  -v, --verbose     Verbose output"
     echo "  --help            Show this help message"
     echo
+    echo "Mode: Uses LOCAL_MODE from config.env, or --local/--remote flags"
+    echo
     echo "Examples:"
     echo "  $0 show"
-    echo "  $0 set smart-factory"
+    echo "  $0 --local set smart-factory"
     echo "  $0 set public-transport --host 192.168.0.100"
     echo "  $0 reset"
     echo
@@ -88,33 +96,65 @@ log() {
     esac
 }
 
-# Function to execute SSH command
-exec_ssh() {
+# Function to execute command (local or remote)
+exec_cmd() {
     local cmd=$1
     if [ "$VERBOSE" == "true" ]; then
         log "INFO" "Executing: $cmd"
     fi
-    ssh "${VM_USER}@${VM_HOST}" "$cmd"
+    if [ "$USE_LOCAL" == "true" ]; then
+        eval "sudo $cmd"
+    else
+        ssh "${VM_USER}@${VM_HOST}" "sudo $cmd"
+    fi
 }
 
-# Function to test SSH connection
-test_connection() {
-    log "INFO" "Testing SSH connection to ${VM_USER}@${VM_HOST}..."
-    if exec_ssh "echo 'Connection successful'" > /dev/null 2>&1; then
-        log "SUCCESS" "SSH connection is working"
-        return 0
+# Get the active interface
+get_interface() {
+    if [ -n "$OVERRIDE_INTERFACE" ]; then
+        echo "$OVERRIDE_INTERFACE"
+    elif [ "$USE_LOCAL" == "true" ]; then
+        echo "$LOCAL_INTERFACE"
     else
-        log "ERROR" "Failed to connect to VM. Please check SSH configuration."
-        return 1
+        echo "$VM_INTERFACE"
+    fi
+}
+
+# Function to test connection
+test_connection() {
+    local iface=$(get_interface)
+    if [ "$USE_LOCAL" == "true" ]; then
+        log "INFO" "Testing local sudo permissions on interface $iface..."
+        if sudo tc qdisc show dev "$iface" > /dev/null 2>&1; then
+            log "SUCCESS" "Local mode: sudo and tc working"
+            return 0
+        else
+            log "ERROR" "Failed to access tc on $iface. Check sudo permissions."
+            return 1
+        fi
+    else
+        log "INFO" "Testing SSH connection to ${VM_USER}@${VM_HOST}..."
+        if ssh "${VM_USER}@${VM_HOST}" "echo 'Connection successful'" > /dev/null 2>&1; then
+            log "SUCCESS" "SSH connection is working"
+            return 0
+        else
+            log "ERROR" "Failed to connect to VM. Please check SSH configuration."
+            return 1
+        fi
     fi
 }
 
 # Function to show current configuration
 show_current() {
+    local iface=$(get_interface)
     log "INFO" "Fetching current network configuration..."
-    local result=$(exec_ssh "sudo tc qdisc show dev ${VM_INTERFACE}")
     
-    echo -e "\n${CYAN}Current configuration on ${VM_INTERFACE}:${NC}"
+    local mode_str="Remote (${VM_USER}@${VM_HOST})"
+    [ "$USE_LOCAL" == "true" ] && mode_str="Local"
+    
+    local result=$(exec_cmd "tc qdisc show dev ${iface}" 2>&1)
+    
+    echo -e "\n${CYAN}Mode: ${mode_str} | Interface: ${iface}${NC}"
     echo "$result"
     
     # Detect which scenario is active
@@ -122,20 +162,20 @@ show_current() {
         echo -e "\n${YELLOW}Network emulation is active:${NC}"
         
         # Extract parameters
-        local delay=$(echo "$result" | grep -oP 'delay \K[0-9.]+ms' || echo "N/A")
-        local loss=$(echo "$result" | grep -oP 'loss \K[0-9.]+%' || echo "N/A")
-        local rate=$(echo "$result" | grep -oP 'rate \K[0-9.]+Mbit' || echo "N/A")
+        local delay=$(echo "$result" | grep -oP 'delay \K[0-9.]+ms' | head -1 || echo "N/A")
+        local loss=$(echo "$result" | grep -oP 'loss \K[0-9.]+%' | head -1 || echo "N/A")
+        local rate=$(echo "$result" | grep -oP 'rate \K[0-9.]+[KMG]?bit' | head -1 || echo "N/A")
         
         echo "  Delay: $delay"
         echo "  Loss: $loss"
         echo "  Rate: $rate"
         
         # Try to identify the scenario
-        if [[ "$delay" == "20ms" ]] && [[ "$loss" == "1%" ]]; then
+        if [[ "$delay" == "20"* ]] && [[ "$loss" == "1"* ]]; then
             echo -e "  ${GREEN}Scenario: Smart Factory${NC}"
-        elif [[ "$delay" == "5ms" ]] && [[ "$loss" == "0.1%" ]]; then
+        elif [[ "$delay" == "5"* ]] && [[ "$loss" == "0.1"* ]]; then
             echo -e "  ${GREEN}Scenario: Smart Home${NC}"
-        elif [[ "$delay" == "50ms" ]] && [[ "$loss" == "2%" ]]; then
+        elif [[ "$delay" == "50"* ]] && [[ "$loss" == "2"* ]]; then
             echo -e "  ${GREEN}Scenario: Public Transport${NC}"
         else
             echo -e "  ${YELLOW}Scenario: Custom/Unknown${NC}"
@@ -147,25 +187,30 @@ show_current() {
 
 # Function to reset to original configuration
 reset_config() {
-    log "INFO" "Resetting to original configuration..."
+    local iface=$(get_interface)
+    log "INFO" "Resetting network emulation on $iface..."
     
     # Clear any existing emulation
-    exec_ssh "sudo tc qdisc del dev ${VM_INTERFACE} root" 2>/dev/null
+    exec_cmd "tc qdisc del dev ${iface} root" 2>/dev/null
     
-    # Restore original fq_codel configuration
-    local cmd="sudo tc qdisc add dev ${VM_INTERFACE} root fq_codel limit 10240 flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64"
-    
-    if exec_ssh "$cmd"; then
-        log "SUCCESS" "Configuration reset to original fq_codel"
+    if [ "$USE_LOCAL" == "true" ]; then
+        # For loopback, just clear (kernel handles default)
+        log "SUCCESS" "Network emulation cleared"
     else
-        log "ERROR" "Failed to reset configuration"
-        return 1
+        # For remote VM, restore original fq_codel configuration
+        local cmd="tc qdisc add dev ${iface} root fq_codel limit 10240 flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64"
+        if exec_cmd "$cmd" 2>/dev/null; then
+            log "SUCCESS" "Configuration reset to original fq_codel"
+        else
+            log "WARNING" "Could not restore fq_codel, but emulation is cleared"
+        fi
     fi
 }
 
 # Function to apply network scenario
 apply_scenario() {
     local scenario=$1
+    local iface=$(get_interface)
     
     case "$scenario" in
         "fiducial")
@@ -175,10 +220,10 @@ apply_scenario() {
             
         "smart-factory")
             log "INFO" "Applying Smart Factory scenario..."
-            exec_ssh "sudo tc qdisc del dev ${VM_INTERFACE} root" 2>/dev/null
+            exec_cmd "tc qdisc del dev ${iface} root" 2>/dev/null
             
-            local cmd="sudo tc qdisc add dev ${VM_INTERFACE} root netem delay 20ms 5ms distribution normal loss 1% rate 50Mbit"
-            if exec_ssh "$cmd"; then
+            local cmd="tc qdisc add dev ${iface} root netem delay 20ms 5ms distribution normal loss 1% rate 50Mbit"
+            if exec_cmd "$cmd"; then
                 log "SUCCESS" "Smart Factory scenario applied"
             else
                 log "ERROR" "Failed to apply Smart Factory scenario"
@@ -188,10 +233,10 @@ apply_scenario() {
             
         "smart-home")
             log "INFO" "Applying Smart Home scenario..."
-            exec_ssh "sudo tc qdisc del dev ${VM_INTERFACE} root" 2>/dev/null
+            exec_cmd "tc qdisc del dev ${iface} root" 2>/dev/null
             
-            local cmd="sudo tc qdisc add dev ${VM_INTERFACE} root netem delay 5ms 1ms distribution normal loss 0.1% rate 10Mbit"
-            if exec_ssh "$cmd"; then
+            local cmd="tc qdisc add dev ${iface} root netem delay 5ms 1ms distribution normal loss 0.1% rate 10Mbit"
+            if exec_cmd "$cmd"; then
                 log "SUCCESS" "Smart Home scenario applied"
             else
                 log "ERROR" "Failed to apply Smart Home scenario"
@@ -201,10 +246,10 @@ apply_scenario() {
             
         "public-transport")
             log "INFO" "Applying Public Transport scenario..."
-            exec_ssh "sudo tc qdisc del dev ${VM_INTERFACE} root" 2>/dev/null
+            exec_cmd "tc qdisc del dev ${iface} root" 2>/dev/null
             
-            local cmd="sudo tc qdisc add dev ${VM_INTERFACE} root netem delay 50ms 10ms distribution normal loss 2.0% rate 5Mbit"
-            if exec_ssh "$cmd"; then
+            local cmd="tc qdisc add dev ${iface} root netem delay 50ms 10ms distribution normal loss 2.0% rate 5Mbit"
+            if exec_cmd "$cmd"; then
                 log "SUCCESS" "Public Transport scenario applied"
             else
                 log "ERROR" "Failed to apply Public Transport scenario"
@@ -228,9 +273,19 @@ apply_scenario() {
 COMMAND=""
 SCENARIO=""
 VERBOSE=false
+USE_LOCAL="$LOCAL_MODE"
+OVERRIDE_INTERFACE=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --local)
+            USE_LOCAL="true"
+            shift
+            ;;
+        --remote)
+            USE_LOCAL="false"
+            shift
+            ;;
         -u|--user)
             VM_USER="$2"
             shift 2
@@ -240,7 +295,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         -i|--interface)
-            VM_INTERFACE="$2"
+            OVERRIDE_INTERFACE="$2"
             shift 2
             ;;
         -v|--verbose)
