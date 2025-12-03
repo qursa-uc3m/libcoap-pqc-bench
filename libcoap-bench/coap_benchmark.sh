@@ -575,8 +575,8 @@ echo "Creating benchmark data directory in ${BENCH_DIR}/bench-data ..."
 mkdir -p ${BENCH_DIR}/bench-data
 
 # Cleanup temp files
-sudo rm -f "${BENCH_DIR}/bench-data/time_output.txt"
-sudo rm -f "${BENCH_DIR}/bench-data/auxiliary.txt"
+rm -f "${BENCH_DIR}/bench-data/time_output.txt"
+rm -f "${BENCH_DIR}/bench-data/auxiliary.txt"
 
 # Parse command line arguments
 while [ "$#" -gt 0 ]; do
