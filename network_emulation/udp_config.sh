@@ -1,10 +1,20 @@
 #!/bin/bash
-# Device configurations
-COMPUTER="192.168.0.228"
-VM="192.168.0.172"
-RPI="192.168.0.157"
-VM_USER="ubuntu"
-VM_NETWORK="192.168.0.0/24"
+
+# Load environment configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+if [ -f "${REPO_ROOT}/config.local.env" ]; then
+    source "${REPO_ROOT}/config.local.env"
+elif [ -f "${REPO_ROOT}/config.env" ]; then
+    source "${REPO_ROOT}/config.env"
+fi
+
+# Device configurations (from config.env with fallbacks)
+COMPUTER="${CLIENT_IP:-192.168.0.228}"
+VM="${VM_IP:-192.168.0.172}"
+RPI="${RASPBERRY_PI_IP:-192.168.0.157}"
+VM_USER="${VM_USER:-ubuntu}"
+VM_NETWORK="${NETWORK_RANGE:-192.168.0.0/24}"
 
 # Colors for output
 GREEN='\033[0;32m'

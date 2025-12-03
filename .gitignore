@@ -1,6 +1,7 @@
 .vscode/
 libcoap/
 check_*
+config.local.env
 # certificates
 *.pem
 *.key

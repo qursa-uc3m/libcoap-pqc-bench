@@ -10,10 +10,17 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT=$(dirname "$SCRIPT_DIR")
 
-# Default VM configuration
-VM_USER="ubuntu"
-VM_HOST="192.168.0.172"
-VM_INTERFACE="ens3"
+# Load environment configuration
+if [ -f "${REPO_ROOT}/config.local.env" ]; then
+    source "${REPO_ROOT}/config.local.env"
+elif [ -f "${REPO_ROOT}/config.env" ]; then
+    source "${REPO_ROOT}/config.env"
+fi
+
+# VM configuration (from config.env with fallbacks)
+VM_USER="${VM_USER:-ubuntu}"
+VM_HOST="${VM_IP:-192.168.0.172}"
+VM_INTERFACE="${VM_INTERFACE:-ens3}"
 
 # Color codes for output
 RED='\033[0;31m'

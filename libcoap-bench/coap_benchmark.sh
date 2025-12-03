@@ -4,14 +4,22 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$(pwd)/certs/config_certs.sh"
 export REPO_ROOT
+
+# Load environment configuration
+if [ -f "${REPO_ROOT}/config.local.env" ]; then
+    source "${REPO_ROOT}/config.local.env"
+elif [ -f "${REPO_ROOT}/config.env" ]; then
+    source "${REPO_ROOT}/config.env"
+fi
+
 BENCH_DIR="${REPO_ROOT}/libcoap-bench"
 COAP_BIN="${REPO_ROOT}/libcoap/build/bin"
 PSK_DIR="${REPO_ROOT}/pskeys"
 ACTIVE_PSK="${PSK_DIR}/active_psk.txt"
 
-# Global variables and defaults
-bridge_interface="br0"
-server_ip="192.168.0.157"
+# Global variables and defaults (using config values)
+bridge_interface="${BRIDGE_INTERFACE:-br0}"
+server_ip="${RASPBERRY_PI_IP:-192.168.0.157}"
 tshark_pid=""
 
 # Default values

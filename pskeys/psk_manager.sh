@@ -5,6 +5,14 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Load environment configuration
+if [ -f "${REPO_ROOT}/config.local.env" ]; then
+    source "${REPO_ROOT}/config.local.env"
+elif [ -f "${REPO_ROOT}/config.env" ]; then
+    source "${REPO_ROOT}/config.env"
+fi
+
 PSK_DIR="${SCRIPT_DIR}"
 ACTIVE_PSK="${PSK_DIR}/active_psk.txt"
 
@@ -15,10 +23,10 @@ YELLOW='\033[0;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-# Raspberry Pi SSH configuration
-RASPBERRY_PI_IP="192.168.0.157"
-RASPBERRY_PI_USER="root"
-RASPBERRY_PI_PATH="~/libcoap-pqc-bench"
+# Raspberry Pi SSH configuration (from config.env)
+RASPBERRY_PI_IP="${RASPBERRY_PI_IP:-192.168.0.157}"
+RASPBERRY_PI_USER="${RASPBERRY_PI_USER:-root}"
+RASPBERRY_PI_PATH="${RASPBERRY_PI_PATH:-~/libcoap-pqc-bench}"
 
 # Display usage information
 show_usage() {

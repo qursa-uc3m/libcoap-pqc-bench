@@ -3,6 +3,14 @@
 # Import certificate configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$(pwd)/certs/config_certs.sh"
+
+# Load environment configuration
+if [ -f "${REPO_ROOT}/config.local.env" ]; then
+    source "${REPO_ROOT}/config.local.env"
+elif [ -f "${REPO_ROOT}/config.env" ]; then
+    source "${REPO_ROOT}/config.env"
+fi
+
 BENCH_DIR="${REPO_ROOT}/libcoap-bench"
 COAP_BIN="${REPO_ROOT}/libcoap/build/bin"
 PSK_DIR="${REPO_ROOT}/pskeys"
