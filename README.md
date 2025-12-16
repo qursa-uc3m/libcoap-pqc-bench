@@ -1,724 +1,211 @@
 # Benchmarking Post-Quantum Cryptography in libcoap
 
-A benchmarking tool for post-quantum cryptographic algorithms in CoAP using liboqs, wolfSSL, and libcoap libraries. This tool enables performance testing across different security modes, algorithms and protocols with automated data collection and analysis.
+This repository provides a tool for benchmarking Post-Quantum Cryptography (PQC) algorithms within the CoAP protocol. It integrates **liboqs** (for PQC algorithms), **wolfSSL** (for SSL/TLS support), and **libcoap** (for CoAP implementation) to enable performance testing across different security modes, algorithms, and network conditions.
 
-## Table of Contents
-- [Quick Start (Local Mode)](#quick-start-local-mode)
-- [Repository Structure](#repository-structure)
-- [System Permissions Setup](#system-permissions-setup)
-- [Installation](#installation)
-  - [PQC Dependencies](#pqc-dependencies)
-  - [libcoap Installation](#libcoap-installation)
-- [Certificate Management](#certificate-management)
-  - [Available Certificate Types](#available-certificate-types)
-  - [Managing Certificates](#managing-certificates)
-  - [Generating New Certificates](#generating-new-certificates)
-- [PSK Key Management](#psk-key-management)
-  - [Generating Keys](#generating-keys)
-  - [Managing Keys](#managing-keys)
-  - [Deploying Keys](#deploying-keys)
-- [Running Benchmarks](#running-benchmarks)
-  - [Dependencies](#dependencies)
-  - [Algorithm Selection](#algorithm-selection)
-  - [Basic Benchmarks](#basic-benchmarks)
-  - [Automated Benchmarks](#automated-benchmarks)
-  - [Filename Convention](#filename-convention)
-- [Energy Measurement](#energy-measurement)
-  - [Hardware Setup](#hardware-setup)
-  - [Software Configuration](#software-configuration)
-  - [Running Measurements](#running-measurements)
-- [Data Visualization](#data-visualization)
-  - [Scatter Plots](#scatter-plots)
-  - [Bar Plots](#bar-plots)
-  - [Heat Maps](#heat-maps)
-  - [Box Plots](#box-plots)
-  - [Candlestick Plots](#candlestick-plots)
-  - [Metrics](#metrics)
-- [Data Processing and Analysis](#data-processing-and-analysis)
-  - [Outlier Filtering](#outlier-filtering)
-  - [Cross-Network Comparison](#cross-network-comparison)
-- [Network Emulation](#network-emulation)
-- [Utility Scripts](#utility-scripts)
-- [Troubleshooting](#troubleshooting)
+The goal is to evaluate the impact of PQC on constrained IoT environments, measuring metrics like handshake duration, energy consumption, and data overhead.
+
+## Benchmark Architecture
+
+The tool runs in two main configurations. **Local Mode** runs the Client and Server on the same machine, which is useful for development. **Remote Mode** runs the Client on a PC and the Server on a constrained device (e.g., Raspberry Pi), optionally with a Network Emulation VM in between to simulate real-world conditions.
+
+- The **`libcoap-bench/run_benchmarks.sh`** script is the main orchestrator. It manages the entire benchmark session, iterating through algorithms, security modes, and repetition counts, launching the client and server processes automatically.
+
+- The **`libcoap-bench/coap_benchmark.sh`** script wraps the client execution, while **`libcoap-bench/coap_benchmark_server.sh`** wraps the server execution, ensuring the correct security configurations are applied on the target device.
 
 ## Quick Start (Local Mode)
 
-Run benchmarks locally without Raspberry Pi hardware:
+Follow these steps to get a benchmark running on your local machine.
+
+### 1. Install System Dependencies
 
 ```bash
-# 1. Install system dependencies
-sudo apt install tshark parallel
+sudo apt install tshark parallel linux-tools-$(uname -r)
+```
 
-# 2. Set up Python environment
+### 2. Setup Python Environment
+
+```bash
 python3 -m venv .bench-env
 source .bench-env/bin/activate
 pip install -r ./libcoap-bench/requirements.txt
-
-# 3. Fix system permissions (see System Permissions Setup below)
-sudo chmod -R a+r /sys/devices/virtual/powercap/
-
-# 4. Build libcoap with WolfSSL (see Installation section for PQC dependencies)
-./scripts/install_libcoap.sh wolfssl
-
-# 5. Generate and activate a PSK key
-./pskeys/psk_manager.sh generate 256
-./pskeys/psk_manager.sh activate $(ls pskeys/psk_256_*.key | head -1 | xargs basename)
-
-# 6. Run a simple benchmark
-./libcoap-bench/run_benchmarks.sh -n 5 -security psk -resources time -y
 ```
 
-## Repository Structure
+### 3. Install Libraries
 
-### Key Directories
-
-- **`libcoap-bench/`** - Benchmarking suite
-  - **`libcoap-patches/`** - Modified libcoap sources with timing instrumentation. Copied over upstream during installation to enable automated RTT measurement.
-  - **`energy/`** - Energy monitoring backends (FNIRSI USB meter, CodeCarbon)
-  - **`data/`** - Benchmark results (raw, aggregated, plots, summaries)
-- **`scripts/`** - Installation and setup scripts
-- **`certs/`** - Certificate management for PKI mode
-- **`pskeys/`** - PSK key management
-- **`wolfssl/`** - WolfSSL library with PQC support
-- **`libcoap/`** - CoAP protocol implementation
-
-## System Permissions Setup
-
-### RAPL Energy Monitoring Permissions
-
-CodeCarbon uses Intel RAPL for energy measurement. Grant read access:
-
-```bash
-# One-time fix (resets on reboot)
-sudo chmod -R a+r /sys/devices/virtual/powercap/
-
-# Permanent fix - create udev rule
-sudo bash -c 'cat > /etc/udev/rules.d/99-rapl.rules << EOF
-SUBSYSTEM=="powercap", ACTION=="add", RUN+="/bin/chmod -R a+r /sys/devices/virtual/powercap/"
-EOF'
-sudo udevadm control --reload-rules
-```
-
-### Perf Tool Setup
-
-The `perf` tool is used for CPU cycle counting. Install it:
-
-```bash
-sudo apt install linux-tools-generic linux-tools-$(uname -r)
-```
-
-> **⚠️ Ubuntu 24.04 with kernel 6.14 bug**: The `linux-tools-6.14.x` packages are missing the `perf` binary ([Bug #2117159](https://bugs.launchpad.net/ubuntu/+source/linux-hwe-6.14/+bug/2117159)). Apply this workaround:
->
-> ```bash
-> # Find a working perf and symlink it
-> WORKING_PERF=$(ls /usr/lib/linux-tools-*/perf 2>/dev/null | head -1)
-> sudo ln -sf "$WORKING_PERF" /usr/lib/linux-tools/$(uname -r)/perf
-> 
-> # Verify it works
-> perf --version
-> ```
-
-The perf command can be configured in `config.env`:
-- `PERF_CMD`: Command for local mode (default: `perf`)
-- `PERF_CMD_RPI`: Command for Raspberry Pi (default: `perf_5.10`)
-
-### Packet Capture Permissions (tshark)
-
-Add your user to the wireshark group to capture packets without root:
-
-```bash
-sudo usermod -aG wireshark $USER
-# Log out and back in for changes to take effect
-```
-
-## Installation
-
-### PQC Dependencies
-
-If you want to use Post-Quantum Cryptography, first install the dependencies:
+First, install the PQC dependencies.
 
 ```bash
 ./scripts/install_liboqs_for_wolfssl.sh
 ```
 
-Then build wolfssl:
+Then build wolfssl.
 
 ```bash
 ./scripts/install_wolfssl.sh [--fork | --release [version]]
 ```
 
 Options:
+
 - `--fork`: Clone from dasobral/wolfssl-liboqs.git (default). This version fixes issues with DILITHIUM and FALCON certificates across different security levels.
 - `--release [ver]`: Clone from wolfSSL/wolfssl.git with specified version (default: v5.7.6-stable)
 
-### libcoap Installation
-
-Install libcoap dependencies:
+Finally, install libcoap dependencies and build the library.
 
 ```bash
 sudo apt-get install -y autoconf automake libtool make gcc
 sudo apt-get install autoconf-archive libwolfssl-dev libcunit1-dev pkg-config
 ```
 
-And run the installation script with the desired options:
+Run the installation script with the desired options:
 
 ```bash
 ./scripts/install_libcoap.sh [wolfssl] [--install-dir=PATH]
 ```
 
 Options:
+
 - `wolfssl`: Configure libcoap with WolfSSL as the underlying crypto library (otherwise uses OpenSSL)
 - `--install-dir=PATH`: Specify a custom installation directory
 
-## Certificate Management
+### 4. Prepare Security Material (PSK)
 
-The repository includes a certificate management system that simplifies the use of different certificate types for benchmarking. This is essential for the PKI security mode.
-
-### Available Certificate Types
-
-- **RSA**: Traditional RSA certificates (RSA_2048)
-- **Elliptic Curve**: Traditional EC certificates (EC_P256, EC_ED25519)
-- **Dilithium**: Post-quantum signatures at different security levels (DILITHIUM_LEVEL2, DILITHIUM_LEVEL3, DILITHIUM_LEVEL5)
-- **Falcon**: Post-quantum signatures at different security levels (FALCON_LEVEL1, FALCON_LEVEL5)
-
-### Generating New Certificates
-
-If you need to generate new post-quantum certificates:
+Generate a Pre-Shared Key for the simplest security mode.
 
 ```bash
-./certs/generate_certs.sh [--rasp] [--rpi-address ADDR] [--rpi-user USER]
-```
-
-Options:
-- `--rasp`: Sync certificates to Raspberry Pi after generation
-- `--rpi-address ADDR`: Specify Raspberry Pi IP address (default: configured in config.env)
-- `--rpi-user USER`: Specify Raspberry Pi username (default: root)
-
-This requires the [oqs-provider](https://github.com/open-quantum-safe/oqs-provider) for OpenSSL. Installation instructions are in the folder `certs/oqs_prov_install/`.
-
-### Managing Certificates
-
-Use the certificate configuration scripts to list, validate, and set up certificates:
-
-```bash
-# List available certificate configurations
-./certs/config_certs.sh --list
-
-# Validate a specific certificate configuration
-./certs/config_certs.sh --validate DILITHIUM_LEVEL3
-
-# Set up a certificate configuration for use
-./certs/config_certs.sh --setup DILITHIUM_LEVEL3
-```
-
-## PSK Key Management
-
-The framework includes a Pre-Shared Key (PSK) management system for handling cryptographic keys. This is essential for the PSK security mode.
-
-### Generating Keys
-
-Create new keys with different bit strengths:
-
-```bash
-# Generate a new 256-bit key (default)
-./pskeys/psk_manager.sh generate
-
-# Generate keys with specific bit lengths
-./pskeys/psk_manager.sh generate 128
 ./pskeys/psk_manager.sh generate 256
-./pskeys/psk_manager.sh generate 384
-./pskeys/psk_manager.sh generate 512
+./pskeys/psk_manager.sh activate $(ls pskeys/psk_256_*.key | head -1 | xargs basename)
 ```
 
-### Managing Keys
+### 5. Run a Benchmark
 
-List and activate keys for benchmarking:
+Run a simple test with 5 clients using PSK security.
 
 ```bash
-# List all available PSK keys
-./pskeys/psk_manager.sh list
-
-# Show the currently active key
-./pskeys/psk_manager.sh current
-
-# Activate a specific key for use in benchmarks
-./pskeys/psk_manager.sh activate psk_256_12345678.key
+./libcoap-bench/run_benchmarks.sh -n 5 -security psk -resources time -y
 ```
 
-### Deploying Keys
+**→ For detailed benchmark instructions, see [libcoap-bench/README.md](./libcoap-bench/README.md)**
 
-Synchronize keys between test systems if server runs in a different instance or device (you might have to manually update the IP address in the script):
+---
+
+## Security Modes & Setup
+
+The framework supports three security modes.
+
+### 1. Pre-Shared Keys (PSK)
+
+This is the simplest secure mode, ideal for constrained devices. Use the `pskeys/` tools to generate and manage keys.
+
+Command: `./pskeys/psk_manager.sh generate <bits>`
+
+See [pskeys/README.md](./pskeys/README.md) for details.
+
+### 2. Public Key Infrastructure (PKI)
+
+This mode uses X.509 certificates and is where PQC algorithms (Dilithium, Falcon) are most critical. You must generate PQC certificates before running PKI benchmarks.
+
+Setup:
 
 ```bash
-# Deploy keys to the Raspberry Pi
-./pskeys/psk_manager.sh deploy
+# Generate all certificate chains (RSA, EC, Dilithium, Falcon)
+./certs/generate_certs.sh
 ```
 
-This ensures that both client and server use the same cryptographic material for PSK-based security.
+Use `./certs/config_certs.sh` to switch between active certificate types (e.g., `DILITHIUM_LEVEL3`). See [certs/README.md](./certs/README.md) for configuration details.
 
-## Running Benchmarks
+### 3. No Security (NoSec)
 
-### Dependencies
+Baseline CoAP over UDP without encryption. No setup is required.
 
-Install the required dependencies:
+## Supported Algorithms
+
+You can benchmark the following algorithms (controlled via `-algorithms` flag in `run_benchmarks.sh`):
+
+**Key Exchange (KEM):**
+
+- `KYBER_LEVEL1`, `KYBER_LEVEL3`, `KYBER_LEVEL5`
+- Hybrid: `P256_KYBER_LEVEL1`, `P384_KYBER_LEVEL3`, `P521_KYBER_LEVEL5`
+
+**Signatures (PKI Certificates):**
+
+- `DILITHIUM_LEVEL2`, `DILITHIUM_LEVEL3`, `DILITHIUM_LEVEL5`
+- `FALCON_LEVEL1`, `FALCON_LEVEL5`
+- Classical: `RSA_2048`, `EC_P256`, `EC_ED25519`
+
+## Advanced Features
+
+### Energy Monitoring
+
+The framework can measure energy consumption of the handshake and data transfer. It supports FNIRSI USB meters (FNB48/58) for physical measurement and CodeCarbon (Intel RAPL) for local estimation.
+
+See [libcoap-bench/energy/README.md](./libcoap-bench/energy/README.md) for setup instructions.
+
+### Network Emulation
+
+You can simulate real-world networks (Smart Home, Factory, etc.) using a VM bridge with QEMU/KVM and NetEm.
+
+See [network_emulation/README.md](./network_emulation/README.md) for details.
+
+## System Setup Details
+
+### RAPL Permissions (Energy Monitoring)
+
+CodeCarbon uses Intel RAPL to measure CPU energy. By default, this is root-only. Grant permissions to run benchmarks as a standard user:
 
 ```bash
-# Install perf and tshark
-sudo apt install linux-tools-$(uname -r) tshark parallel
+# Temporary (resets on reboot)
+sudo chmod -R a+r /sys/devices/virtual/powercap/
 
-# Install Python requirements
-python3 -m venv .bench-env
-source .bench-env/bin/activate
-pip install --no-cache-dir -r ./libcoap-bench/requirements.txt
+# Permanent fix (udev rule)
+sudo bash -c 'cat > /etc/udev/rules.d/99-rapl.rules << EOF
+SUBSYSTEM=="powercap", ACTION=="add", RUN+="/bin/chmod -R a+r /sys/devices/virtual/powercap/"
+EOF'
+sudo udevadm control --reload-rules
 ```
 
-### Algorithm Selection
+### Perf Tool (CPU Cycles)
 
-
-The framework now supports runtime algorithm selection without recompilation. This is a major improvement that allows testing different algorithms dynamically.
-
-#### Supported Algorithms
-
-**Key Exchange Algorithms:**
-- `KYBER_LEVEL1`: NIST Level 1 security (~AES-128)
-- `KYBER_LEVEL3`: NIST Level 3 security (~AES-192)
-- `KYBER_LEVEL5`: NIST Level 5 security (~AES-256)
-
-**Hybrid Algorithms (Classical + PQC):**
-- `P256_KYBER_LEVEL1`: ECDH P-256 + KYBER Level 1
-- `P384_KYBER_LEVEL3`: ECDH P-384 + KYBER Level 3
-- `P521_KYBER_LEVEL5`: ECDH P-521 + KYBER Level 5
-
-#### Manual Algorithm Testing
-
-Test individual algorithms manually without recompilation:
+Used for precise CPU cycle counting.
 
 ```bash
-# Start server (on Raspberry Pi or local machine)
-coap-server -A 0.0.0.0 -k ./pskeys/psk_256_1744210857.key -u uc3m
-
-# Test different algorithms from client
-COAP_WOLFSSL_GROUPS=KYBER_LEVEL1 ./libcoap/build/bin/coap-client -k ./pskeys/psk_256_1744210857.key -u uc3m -m get coaps://[server-ip]/time
-COAP_WOLFSSL_GROUPS=KYBER_LEVEL3 ./libcoap/build/bin/coap-client -k ./pskeys/psk_256_1744210857.key -u uc3m -m get coaps://[server-ip]/time
-COAP_WOLFSSL_GROUPS=P256_KYBER_LEVEL1 ./libcoap/build/bin/coap-client -k ./pskeys/psk_256_1744210857.key -u uc3m -m get coaps://[server-ip]/time
+sudo apt install linux-tools-generic linux-tools-$(uname -r)
 ```
 
-### Basic Benchmarks
-
-For manual benchmark execution, use the individual scripts:
-
-#### Server Side
-```bash
-./libcoap-bench/coap_benchmark_server.sh -sec-mode <pki|psk|nosec> [-rasp] [-cert-config <CONFIG>] [-client-auth <yes|no>]
-```
-
-Options:
-- `-sec-mode`: Security mode (pki, psk, or nosec)
-- `-rasp`: Indicates whether the server is running on a Raspberry Pi
-- `-cert-config`: Certificate configuration to use (for PKI mode)
-- `-client-auth`: Enable/disable client certificate authentication (default: no)
-- `-list-certs`: Lists available certificate configurations
-
-#### Client Side
-```bash
-./libcoap-bench/coap_benchmark.sh -n <positive_integer> -sec-mode <pki|psk|nosec> -r <time|async> [-confirm <con|non>] [-s <integer>=1] [-rasp] [-parallelization <background|parallel>] [-cert-config <CONFIG>] [-client-auth <yes|no>]
-```
-
-Options:
-- `-n`: Number of clients making requests to the server
-- `-sec-mode`: Security mode (pki, psk, or nosec)
-- `-r`: Resource type (time for scenario A/C, async for scenario B)
-- `-confirm`: Whether messages are confirmable (con) or non-confirmable (non)
-- `-s`: Sets the clients in observer mode with the specified number of seconds
-- `-rasp`: Indicates whether the server is running on a Raspberry Pi
-- `-parallelization`: How clients run (background or parallel)
-- `-cert-config`: Certificate configuration to use (for PKI mode)
-- `-client-auth`: Enable/disable client certificate authentication
-
-### Automated Benchmarks
-
-For comprehensive automated testing, use the benchmark runner:
+**Ubuntu 24.04 with kernel 6.14 bug**: The `linux-tools-6.14.x` packages are missing the `perf` binary ([Bug #2117159](https://bugs.launchpad.net/ubuntu/+source/linux-hwe-6.14/+bug/2117159)). Apply this workaround:
 
 ```bash
-./libcoap-bench/run_benchmarks.sh -n NUM_CLIENTS [OPTIONS]
+# Find a working perf and symlink it
+WORKING_PERF=$(ls /usr/lib/linux-tools-*/perf 2>/dev/null | head -1)
+sudo ln -sf "$WORKING_PERF" /usr/lib/linux-tools/$(uname -r)/perf
+ 
+# Verify it works
+perf --version
 ```
 
-Required arguments:
-- `-n NUM_CLIENTS`: Number of clients for benchmarking
+The perf command can be configured in `config.env`:
 
-Optional arguments:
-- `-algorithms ALGOS`: **NEW** Comma-separated list of algorithms to test (default: KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5)
-- `-s TIME`: Time for observer mode in seconds
-- `-parallelization MODE`: Parallelization mode (background/parallel)
-- `-client-auth MODE`: Client authentication mode (yes/no)
-- `-pause SECONDS`: Seconds to pause between benchmark runs
-- `-energy`: Enable energy measurements (FNIRSI hardware or CodeCarbon software)
-- `-cert-filter PATTERN`: Only run certificate configs matching pattern
-- `-security MODES`: Security modes to test (comma-separated: pki,psk,nosec)
-- `-resources RES`: Resources to test (time,async or async?N where N is delay seconds)
-- `-async-delay SECONDS`: Set delay for async resource
-- `-iterations N`: Run each test configuration N times
-- `-y`: Skip confirmation prompts
-- `-v`: Verbose output
+- `PERF_CMD`: Command for local mode (default: `perf`)
+- `PERF_CMD_RPI`: Command for Raspberry Pi (default: `perf_5.10`)
 
-#### Basic Usage Examples:
+### Packet Capture
+
+Allow non-root packet capture for `tshark`:
 
 ```bash
-# Test default algorithms (KYBER_LEVEL1, KYBER_LEVEL3, KYBER_LEVEL5)
-./libcoap-bench/run_benchmarks.sh -n 25
-
-# Test specific algorithms
-./libcoap-bench/run_benchmarks.sh -n 25 -algorithms "KYBER_LEVEL1,P256_KYBER_LEVEL1"
-
-# Test with multiple security modes
-./libcoap-bench/run_benchmarks.sh -n 25 -security "pki,psk" -algorithms "KYBER_LEVEL1,KYBER_LEVEL3"
-```
-
-#### Advanced Usage Examples:
-
-```bash
-# Full hybrid algorithm testing
-./libcoap-bench/run_benchmarks.sh -n 25 \
-  -algorithms "KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5,P256_KYBER_LEVEL1,P384_KYBER_LEVEL3,P521_KYBER_LEVEL5" \
-  -security "pki,psk" \
-  -iterations 5 \
-  -energy
-
-# Observer mode testing with parallelization
-./libcoap-bench/run_benchmarks.sh -n 50 \
-  -s 30 \
-  -parallelization parallel \
-  -algorithms "KYBER_LEVEL1,KYBER_LEVEL3" \
-  -resources "async?5"
-
-# Certificate-specific PKI testing
-./libcoap-bench/run_benchmarks.sh -n 25 \
-  -algorithms "KYBER_LEVEL1,KYBER_LEVEL3" \
-  -security pki \
-  -cert-filter "DILITHIUM_LEVEL2,FALCON_LEVEL1" \
-  -client-auth yes
-
-# Complete benchmark with energy monitoring
-./libcoap-bench/run_benchmarks.sh -n 50 -s 30 -parallelization parallel -client-auth yes -energy -iterations 3 -resources time,async -security pki,psk -algorithms "KYBER_LEVEL1,KYBER_LEVEL3,P256_KYBER_LEVEL1"
-```
-
-### Filename Convention
-
-The benchmark creates CSV files with a naming pattern that reflects the test parameters:
-
-```
-udp[_rasp]_conv_stats_[ALGORITHM_CERT_CONFIG]_n<N>[_s<S>][_<P>]_<SEC_MODE>[_client-auth]_scenario<SCENARIO>
-```
-
-Where:
-- `_rasp`: Present if the `-rasp` flag was used
-- `ALGORITHM_CERT_CONFIG`: Only present for PKI mode (e.g., KYBER_LEVEL5_DILITHIUM_LEVEL3)
-- `N`: Number of clients
-- `_s<S>`: Present if the `-s` parameter was used
-- `_<P>`: Parallelization mode (background or parallel)
-- `<SEC_MODE>`: Security mode (pki, psk, or nosec)
-- `_client-auth`: Present if client authentication was enabled (PKI mode only)
-- `_scenario<SCENARIO>`: Indicates the scenario (A, B, or C)
-
-Examples:
-```
-udp_rasp_conv_stats_KYBER_LEVEL1_DILITHIUM_LEVEL3_n10_s30_parallel_pki_client-auth_scenarioA.csv
-udp_rasp_conv_stats_n25_psk_scenarioA.csv
-udp_conv_stats_n10_nosec_scenarioB.csv
-```
-
-## Energy Measurement
-
-Two backends are supported:
-- **FNIRSI** - USB power meters (FNB48, FNB58, C1) for physical measurements
-- **CodeCarbon** - Software estimation via Intel RAPL (used automatically in local mode)
-
-```bash
-# With automated benchmarks
-./libcoap-bench/run_benchmarks.sh -n 10 -energy -security pki -resources time
-
-# Manual measurement (FNIRSI)
-python3 libcoap-bench/energy_monitor.py --backend fnirsi --duration 30 --output ./test
-
-# Manual measurement (CodeCarbon)
-python3 libcoap-bench/energy_monitor.py --backend codecarbon --duration 30 --output ./test
-```
-
-For FNIRSI hardware setup and detailed options, see [libcoap-bench/energy/README.md](./libcoap-bench/energy/README.md).
-
-## Data Visualization
-
-The benchmark framework includes comprehensive tools for visualizing benchmark results with support for multiple plot types and metrics.
-
-### Scatter Plots
-
-For detailed analysis of a single scenario with data points connected by lines:
-
-```bash
-python3 libcoap-plots/bench-data-plots.py <metric> --algorithms <algorithms_list> --cert-types <cert_types_list> <n> --scatter --scenarios <scenario> [options]
-```
-
-Example:
-```bash
-python3 libcoap-plots/bench-data-plots.py duration --algorithms "KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5" --cert-types "DILITHIUM_LEVEL2" 50 --scatter --scenarios A --rasp
-```
-
-### Bar Plots
-
-For comparing multiple scenarios, algorithms, and certificate types:
-
-```bash
-python3 libcoap-plots/bench-data-plots.py <metric> --algorithms <algorithms_list> --cert-types <cert_types_list> <n> --barplot --scenarios <scenario_list> [options]
-```
-
-Example:
-```bash
-python3 libcoap-plots/bench-data-plots.py "Energy (mWh)" --algorithms "KYBER_LEVEL1,KYBER_LEVEL3" --cert-types "DILITHIUM_LEVEL2" 20 --barplot --scenarios A,C --rasp
-```
-
-### Heat Maps
-
-For visualizing performance across algorithm-certificate combinations:
-
-```bash
-python3 libcoap-plots/bench-data-plots.py <metric> --algorithms <algorithms_list> --cert-types <cert_types_list> <n> --heatmap --scenarios <scenario> [options]
-```
-
-Example:
-```bash
-python3 libcoap-plots/bench-data-plots.py duration --algorithms "KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5" --cert-types "RSA_2048,DILITHIUM_LEVEL2,FALCON_LEVEL1" 25 --heatmap --scenarios A --rasp
-```
-
-### Box Plots
-
-For analyzing performance variability across configurations:
-
-```bash
-python3 libcoap-plots/bench-data-plots.py <metric> --algorithms <algorithms_list> --cert-types <cert_types_list> <n> --boxplot --scenarios <scenario> [options]
-```
-
-Example:
-```bash
-python3 libcoap-plots/bench-data-plots.py duration --algorithms "KYBER_LEVEL1,KYBER_LEVEL3" --cert-types "DILITHIUM_LEVEL2,FALCON_LEVEL1" 25 --boxplot --scenarios A --rasp
-```
-
-### Candlestick Plots
-
-For discrete metrics showing min-max ranges with mode values:
-
-```bash
-python3 libcoap-plots/bench-data-plots.py <metric> --algorithms <algorithms_list> --cert-types <cert_types_list> <n> --candlestick --scenarios <scenario> [options]
-```
-
-Example:
-```bash
-python3 libcoap-plots/bench-data-plots.py total_frames --algorithms "KYBER_LEVEL1,KYBER_LEVEL3" --cert-types "DILITHIUM_LEVEL2" 25 --candlestick --scenarios A --rasp
-```
-
-### Metrics
-
-The visualization tools support various metrics:
-
-**Continuous Metrics:**
-- `duration`: Time taken for the benchmark (seconds)
-- `duration ms`: Duration in milliseconds
-- `cpu_cycles`: CPU cycle count on the server
-- `Power (W)`: Average power consumption
-- `Max Power (W)`: Maximum power consumption
-- `Energy (Wh)`: Total energy consumed
-- `Energy (mWh)`: Total energy consumed in milliwatt-hours
-
-**Discrete Metrics:**
-- `total_frames`: Total number of CoAP frames
-- `total_bytes`: Total number of bytes transferred
-- `frames_sent`: Frames sent by client
-- `frames_received`: Frames received by client
-- `bytes_sent`: Bytes sent by client
-- `bytes_received`: Bytes received by client
-
-**Common Options:**
-- `--rasp`: Use Raspberry Pi dataset
-- `--s <value>`: Include observer mode data
-- `--p <mode>`: Include parallelization mode data
-- `--filtered`: Use filtered dataset (outliers removed)
-- `--custom-suffix <suffix>`: Use custom data directory suffix
-- `--data-dir <dir>`: Specify data directory
-
-## Data Processing and Analysis
-
-### Outlier Filtering
-
-Remove timeout-affected iterations for cleaner statistical analysis based upon a simple threshold on the coefficient of variation (CV):
-
-```bash
-# Filter outliers using CV-based detection
-python3 libcoap-plots/bench-data-filter.py <input_file_or_directory> [--cv-threshold 3.0] [--file-pattern "*.csv"]
-```
-
-This creates `*_filtered.csv` files with outliers removed and statistics recalculated. You can adjust the CV threshold to keep more or less outliers.
-
-Example:
-```bash
-# Filter all CSV files in bench-data directory
-python3 libcoap-plots/bench-data-filter.py ./libcoap-bench/bench-data --cv-threshold 3.0
-
-# Filter a specific file
-python3 libcoap-plots/bench-data-filter.py ./libcoap-bench/bench-data/udp_rasp_conv_stats_KYBER_LEVEL1_n25_psk_scenarioA.csv
-```
-
-### Cross-Network Comparison
-
-Compare performance across different network conditions:
-
-```bash
-# Network impact analysis
-python3 libcoap-plots/bench-data-compare.py
-```
-
-This tool supports:
-- **Tradeoff plots**: Performance vs. energy consumption across networks
-- **Spider plots**: Multi-metric network impact visualization
-- **Statistical difference analysis**: Network condition impact quantification
-- **Algorithm scaling analysis**: Performance scaling with algorithm complexity
-
-This script spects a folder structure within libcoap-plots like bench-data-*/bench-data-#, where * can be any string identifying the experiment and # a string with the network type name. You might have to modify this names at the beginning of the script. 
-
-## Network Emulation
-
-For testing in simulated network conditions:
-
-```bash
-# Set up a new VM for emulation
-sudo ./network_emulation/setup_vm.sh --install --name <vm_name>
-
-# Launch an existing VM
-sudo ./network_emulation/setup_vm.sh --name <vm_name>
-
-# Configure traffic redirection through the VM
-sudo ./network_emulation/udp_config.sh
-```
-
-Inside the VM, you can apply network conditions using NetEm:
-
-```bash
-# Add 100ms delay
-sudo tc qdisc add dev <vm_interface> root netem delay 100ms
-
-# Add packet loss
-sudo tc qdisc add dev <vm_interface> root netem loss 10%
-
-# Remove network conditions
-sudo tc qdisc del dev <vm_interface> root
-```
-
-For detailed instructions, see [network_emulation/README.md](network_emulation/README.md).
-
-## Utility Scripts
-
-The repository includes several utility scripts:
-
-### Data Management
-
-For processing, merging, and aggregating benchmark data:
-
-```bash
-# Process raw benchmark data
-python3 libcoap-bench/bench-data-manager.py process --input-dir <dir>
-
-# Merge energy data with benchmark results
-python3 libcoap-bench/bench-data-manager.py merge --energy-file <file> --benchmark-file <file>
-
-# Aggregate data from multiple iterations
-python3 libcoap-bench/bench-data-manager.py aggregate --session-id <id> --iterations <N>
-```
-
-### Plotting Wrapper Scripts
-
-Batch generate plots for multiple networks:
-
-```bash
-# Generate plots for all networks and metrics
-./libcoap-plots/plots_wrapper.sh "duration,Energy (Wh)" barplot A --filtered
+sudo usermod -aG wireshark $USER
+# Log out and back in to apply
 ```
 
 ## Troubleshooting
 
-### Cleaning Zombie Processes
-
-You can check if there are any zombie processes with:
+If a benchmark crashes, you can cleanup old processes with:
 
 ```bash
-sudo netstat -tulnp | grep -E '5683|5684'
+pgrep -f 'libcoap' | xargs -r kill -9
 ```
 
-You can remove them with:
+To analyze PQC traffic using the OQS-enabled Wireshark docker image:
 
 ```bash
-sudo pgrep -f 'libcoap' | while read pid; do sudo kill -9 $pid; done
-```
-
-### Algorithm Selection Issues
-
-If algorithm selection is not working:
-
-```bash
-# Verify libcoap was built with runtime algorithm support
-./libcoap/build/bin/coap-client --help | grep -i wolfssl
-
-# Check algorithm.txt file is being written
-cat algorithm.txt
-
-# Test manual algorithm selection
-COAP_WOLFSSL_GROUPS=KYBER_LEVEL1 ./libcoap/build/bin/coap-client -k ./pskeys/active_psk.txt -u uc3m -m get coaps://[server-ip]/time
-```
-
-### Energy Monitoring Issues
-
-If energy monitoring is not working:
-
-```bash
-# Check device detection
-python3 libcoap-bench/energy_monitor.py --list-devices
-
-# Verify USB permissions
-lsusb | grep -i fnirsi
-ls -la /dev/ttyACM*
-
-# Test device communication
-python3 libcoap-bench/energy_monitor.py --identify
-```
-
-### Data Analysis Issues
-
-If plots are not generating correctly:
-
-```bash
-# Check data file structure
-head -20 libcoap-bench/bench-data/udp_rasp_conv_stats_*.csv
-
-# Verify Python dependencies
-pip list | grep -E "pandas|matplotlib|numpy|scipy"
-
-# Test with minimal dataset
-python3 libcoap-plots/bench-data-plots.py duration --algorithms "KYBER_LEVEL1" --cert-types "RSA_2048" 25 --scatter --scenarios A
-```
-
-### Analyzing Traffic with Wireshark
-
-See [OQS-wireshark](https://github.com/open-quantum-safe/oqs-demos/blob/main/wireshark/USAGE.md) for details.
-
-Setup:
-```bash
-xhost +si:localuser:root  # If running as root
-sudo docker run --net=host --privileged --env="DISPLAY" --volume="$HOME/.Xauthority:/root/.Xauthority:rw" openquantumsafe/wireshark
-```
-
-You can just run our helper script with sudo privileges:
-```bash
-sudo ./oqs_wireshark.sh
-```
-
-Filter by:
-```
-udp.port==5684 || udp.port==5683
+sudo ./scripts/oqs_wireshark.sh
 ```
