@@ -1158,7 +1158,7 @@ def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     s_suffix = f"_s{s}" if s else ""
     p_suffix = f"_{p}" if p else ""
     scenario_suffix = f"_scenario{scenario}"
-    rasp_prefix = "rasp" if rasp else ""
+    rasp_prefix = "rasp" if rasp else "local"
     filtered = "_filtered" if filtering else ""
     
     # Variables to track min and max values for color scaling
@@ -1306,7 +1306,7 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     s_suffix = f"_s{s}" if s else ""
     p_suffix = f"_{p}" if p else ""
     scenario_suffix = f"_scenario{scenario}"
-    rasp_prefix = "rasp" if rasp else ""
+    rasp_prefix = "rasp" if rasp else "local"
     filtered = "_filtered" if filtering else ""
     
     # Use the external extract_iteration_summaries function
@@ -1787,7 +1787,7 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
     s_suffix = f"_s{s}" if s else ""
     p_suffix = f"_{p}" if p else ""
     scenario_suffix = f"_scenario{scenario}"
-    rasp_prefix = "rasp" if rasp else ""
+    rasp_prefix = "rasp" if rasp else "local"
     filtered = "_filtering" if filtering else ""
     
     # Calculate positions for candlesticks with consistent ordering
