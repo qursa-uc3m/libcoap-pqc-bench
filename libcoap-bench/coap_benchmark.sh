@@ -126,32 +126,24 @@ start_energy_monitoring() {
     
     echo "Starting energy monitoring..."
     
-    # Remove any existing sockets
     rm -f "$start_sock" "$stop_sock"
-    
-    # Create sockets for synchronization
     mkfifo "$start_sock" 2>/dev/null
     mkfifo "$stop_sock" 2>/dev/null
     
-    # Select energy monitor based on configuration
-    local energy_monitor_script=""
     local python_cmd="python3"
+    local backend="fnirsi"
     
     if [ "$ENERGY_MONITOR_TYPE" = "codecarbon" ] || [ "$LOCAL_MODE" = "true" ]; then
-        energy_monitor_script="${BENCH_DIR}/energy_monitor_codecarbon.py"
+        backend="codecarbon"
         echo "Using CodeCarbon energy monitor (software-based estimation)"
-        # Use virtualenv Python for CodeCarbon (required even when running with sudo)
         if [ -f "${REPO_ROOT}/.bench-env/bin/python3" ]; then
             python_cmd="${REPO_ROOT}/.bench-env/bin/python3"
-            echo "Using virtualenv Python: $python_cmd"
         fi
     else
-        energy_monitor_script="${BENCH_DIR}/energy_monitor.py"
         echo "Using FNIRSI energy monitor (USB power meter)"
     fi
     
-    # Start energy monitor with sync mechanism
-    "$python_cmd" "$energy_monitor_script" --force-reset \
+    "$python_cmd" "${BENCH_DIR}/energy_monitor.py" --backend "$backend" --force-reset \
            --output "${BENCH_DIR}/bench-data/$energy_name" \
            --start-pipe "$start_sock" \
            --stop-pipe "$stop_sock" &
