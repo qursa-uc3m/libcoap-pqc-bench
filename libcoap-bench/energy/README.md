@@ -1,6 +1,27 @@
-# FNIRSI FNB58 Power Meter Setup Instructions
+# Energy Monitoring
 
-This guide provides step-by-step instructions for setting up and using the FNIRSI FNB58 USB power meter with the `energy_monitor.py` script for energy consumption measurements.
+The energy monitoring system supports two backends:
+- **FNIRSI** - Physical USB power meters (FNB48, FNB58, C1) for accurate hardware measurements
+- **CodeCarbon** - Software-based estimation via Intel RAPL (for local testing without hardware)
+
+## Usage
+
+```bash
+# FNIRSI USB power meter (default)
+python3 energy_monitor.py --backend fnirsi --duration 30 --output ./test
+
+# CodeCarbon software estimation
+python3 energy_monitor.py --backend codecarbon --duration 30 --output ./test
+
+# Merge energy data into benchmark results
+python3 energy_monitor.py --merge ./energy.csv --benchmark ./results.csv
+```
+
+---
+
+# FNIRSI USB Power Meter Setup
+
+This guide covers setup for FNIRSI FNB58 and compatible USB power meters.
 
 ## Initial Setup
 

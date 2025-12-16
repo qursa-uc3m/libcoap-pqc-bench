@@ -352,7 +352,7 @@ Optional arguments:
 - `-parallelization MODE`: Parallelization mode (background/parallel)
 - `-client-auth MODE`: Client authentication mode (yes/no)
 - `-pause SECONDS`: Seconds to pause between benchmark runs
-- `-energy`: Enable energy measurements (requires of a suitable USB meter and a dedicated script for parsing the data to a suitable format. We provide our own [here](./libcoap-bench))
+- `-energy`: Enable energy measurements (FNIRSI hardware or CodeCarbon software)
 - `-cert-filter PATTERN`: Only run certificate configs matching pattern
 - `-security MODES`: Security modes to test (comma-separated: pki,psk,nosec)
 - `-resources RES`: Resources to test (time,async or async?N where N is delay seconds)
@@ -429,45 +429,22 @@ udp_conv_stats_n10_nosec_scenarioB.csv
 
 ## Energy Measurement
 
-The framework supports energy measurement using the FNIRSI FNB58 USB Fast Charge Tester or compatible devices.
-
-### Hardware Setup
-
-1. Connect the FNIRSI FNB58 to your computer via USB
-2. Set up USB permissions:
-```bash
-sudo bash -c 'echo "SUBSYSTEM==\"usb\", ATTRS{idVendor}==\"2e3c\", ATTRS{idProduct}==\"5558\", MODE=\"0666\"" > /etc/udev/rules.d/99-fnirsi.rules'
-sudo udevadm control --reload-rules
-sudo udevadm trigger
-```
-
-### Software Configuration
-
-The energy monitoring utility is already included in the repository:
+Two backends are supported:
+- **FNIRSI** - USB power meters (FNB48, FNB58, C1) for physical measurements
+- **CodeCarbon** - Software estimation via Intel RAPL (used automatically in local mode)
 
 ```bash
-# Check if the device is properly detected
-python3 libcoap-bench/energy_monitor.py --list-devices
-python3 libcoap-bench/energy_monitor.py --identify
+# With automated benchmarks
+./libcoap-bench/run_benchmarks.sh -n 10 -energy -security pki -resources time
+
+# Manual measurement (FNIRSI)
+python3 libcoap-bench/energy_monitor.py --backend fnirsi --duration 30 --output ./test
+
+# Manual measurement (CodeCarbon)
+python3 libcoap-bench/energy_monitor.py --backend codecarbon --duration 30 --output ./test
 ```
 
-### Running Measurements
-
-Use the automated benchmark runner with the `-energy` flag to enable energy measurements:
-
-```bash
-./libcoap-bench/run_benchmarks.sh -n 10 -energy -security pki -resources time -cert-filter DILITHIUM_LEVEL3 -algorithms "KYBER_LEVEL1,KYBER_LEVEL3"
-```
-
-For manual control:
-
-```bash
-# Start a measurement for 30 seconds
-python3 libcoap-bench/energy_monitor.py --duration 30 --output ./bench-data/my_test
-
-# Merge energy data with benchmark results
-python3 libcoap-bench/energy_monitor.py --merge ./bench-data/energy_data.csv --benchmark ./bench-data/benchmark_results.csv
-```
+For FNIRSI hardware setup and detailed options, see [libcoap-bench/energy/README.md](./libcoap-bench/energy/README.md).
 
 ## Data Visualization
 
