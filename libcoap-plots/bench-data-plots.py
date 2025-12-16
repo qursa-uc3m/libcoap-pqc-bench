@@ -643,7 +643,7 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
     s_suffix = f"_s{s}" if s else ""
     p_suffix = f"_{p}" if p else ""
     scenario_suffix = f"_scenario{scenario}"
-    rasp_prefix = "rasp" if rasp else ""
+    rasp_prefix = "rasp" if rasp else "local"
     filtered = "_filtered" if filtering else ""
 
     # Data structures to hold values for each algorithm and certificate type
@@ -900,7 +900,7 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
     # Common file pattern parts
     s_suffix = f"_s{s}" if s else ""
     p_suffix = f"_{p}" if p else ""
-    rasp_prefix = "rasp" if rasp else ""
+    rasp_prefix = "rasp" if rasp else "local"
     filtered = "_filtered" if filtering else ""
     
     # Data collection with proper tracking
