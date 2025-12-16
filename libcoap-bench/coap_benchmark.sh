@@ -74,6 +74,61 @@ cleanup() {
     exit 1
 }
 
+# Function to check if perf is available and working
+check_perf_availability() {
+    local perf_cmd="${PERF_CMD:-perf}"
+    local perf_available=false
+    local perf_warning=""
+    
+    # Check if perf command exists
+    if ! command -v "$perf_cmd" &>/dev/null; then
+        perf_warning="perf command not found"
+    else
+        # Test if perf can actually run (needs sudo for the benchmark)
+        if sudo "$perf_cmd" stat -e cycles true 2>/dev/null; then
+            perf_available=true
+        else
+            # Check for common issues
+            local perf_output=$(sudo "$perf_cmd" --version 2>&1)
+            if echo "$perf_output" | grep -q "not found for kernel"; then
+                perf_warning="perf not installed for current kernel ($(uname -r))"
+                perf_warning+="\n\nTo fix this issue, run:"
+                perf_warning+="\n  WORKING_PERF=\$(ls /usr/lib/linux-tools-*/perf 2>/dev/null | head -1)"
+                perf_warning+="\n  sudo ln -sf \"\$WORKING_PERF\" /usr/lib/linux-tools/\$(uname -r)/perf"
+                perf_warning+="\n\nSee README.md section 'Perf Tool (CPU Cycles)' for more details."
+            else
+                perf_warning="perf command exists but failed to capture cycles"
+                perf_warning+="\nError: $perf_output"
+            fi
+        fi
+    fi
+    
+    if [ "$perf_available" = false ]; then
+        echo "============================================================================="
+        echo "WARNING: CPU cycle measurement is not available!"
+        echo "============================================================================="
+        echo -e "$perf_warning"
+        echo ""
+        echo "The benchmark will continue but CPU cycles will NOT be captured."
+        echo "All cpu_cycles values will be recorded as 0."
+        echo "============================================================================="
+        echo ""
+        
+        # Prompt user to continue
+        read -p "Do you want to continue without CPU cycle measurement? [y/N] " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "Benchmark aborted. Please fix perf and try again."
+            exit 1
+        fi
+        echo "Continuing without CPU cycle measurement..."
+        echo ""
+        return 1
+    fi
+    
+    return 0
+}
+
 # Filenames generation function
 generate_filenames() {
     local prefix="$1"
@@ -402,8 +457,9 @@ get_cpu_cycles() {
         cpu_cycles=$(awk '/cycles/ {print $1}' "${BENCH_DIR}/bench-data/auxiliary_server.txt" 2>/dev/null || echo "0")
     fi
     
-    # Remove dots/periods used as thousands separators and whitespace
-    cpu_cycles=$(echo "$cpu_cycles" | sed 's/\.//g' | tr -d ' ')
+    # Remove commas, dots/periods used as thousands separators and whitespace
+    # perf stat uses commas (US locale) or dots (EU locale) as thousands separators
+    cpu_cycles=$(echo "$cpu_cycles" | tr -d ',' | sed 's/\.//g' | tr -d ' ')
     
     if [ -z "$cpu_cycles" ] || [ "$cpu_cycles" = "0" ]; then
         echo "Warning: Could not retrieve CPU cycles from server. Using default value of 0."
@@ -797,6 +853,9 @@ echo "  parallelization : $parallelization_mode"
 [ "$sec_mode" == "pki" ] && echo "  cert-config : $cert_config"
 
 echo "-----------------------------------------------------------------------------------------"
+
+# Check perf availability before starting benchmark
+check_perf_availability
 
 # Setup network and start server
 setup_network_and_server
