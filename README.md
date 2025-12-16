@@ -4,6 +4,7 @@ A benchmarking tool for post-quantum cryptographic algorithms in CoAP using libo
 
 ## Table of Contents
 - [Quick Start (Local Mode)](#quick-start-local-mode)
+- [Repository Structure](#repository-structure)
 - [System Permissions Setup](#system-permissions-setup)
 - [Installation](#installation)
   - [PQC Dependencies](#pqc-dependencies)
@@ -66,6 +67,20 @@ sudo chmod -R a+r /sys/devices/virtual/powercap/
 # 6. Run a simple benchmark
 ./libcoap-bench/run_benchmarks.sh -n 5 -security psk -resources time -y
 ```
+
+## Repository Structure
+
+### Key Directories
+
+- **`libcoap-bench/`** - Benchmarking suite
+  - **`libcoap-patches/`** - Modified libcoap sources with timing instrumentation. Copied over upstream during installation to enable automated RTT measurement.
+  - **`energy/`** - Energy monitoring backends (FNIRSI USB meter, CodeCarbon)
+  - **`data/`** - Benchmark results (raw, aggregated, plots, summaries)
+- **`scripts/`** - Installation and setup scripts
+- **`certs/`** - Certificate management for PKI mode
+- **`pskeys/`** - PSK key management
+- **`wolfssl/`** - WolfSSL library with PQC support
+- **`libcoap/`** - CoAP protocol implementation
 
 ## System Permissions Setup
 
