@@ -586,16 +586,17 @@ def setup_output_dirs(data_dir, custom_suffix=None):
     Setup input and output directories based on custom suffix.
     
     Args:
-        custom_suffix (str or None): Optional suffix for data and plot directories.
+        data_dir (str): Base directory for data (e.g., libcoap-bench/data).
+        custom_suffix (str or None): Session ID for data and plot directories.
         
     Returns:
         tuple: (data_dir, plots_dir) directory names.
     """
     if custom_suffix:
-        data_dir_ = f"{data_dir}/bench-data-{custom_suffix}"
-        plots_dir = f"{data_dir}/plots-{custom_suffix}"
+        data_dir_ = f"{data_dir}/aggregated/{custom_suffix}"
+        plots_dir = f"{data_dir}/plots/{custom_suffix}"
     else:
-        data_dir_ = f"{data_dir}/bench-data"
+        data_dir_ = f"{data_dir}/aggregated"
         plots_dir = f"{data_dir}/plots"
     
     return data_dir_, plots_dir

@@ -60,130 +60,63 @@ cd libcoap-plots
 chmod +x plots_wrapper.sh
 ```
 
-### Directory Structure Examples
+### Directory Structure
 
-**Typical Multi-Network Setup:**
+**Benchmark data location:** `libcoap-bench/data/`
 ```
-bench-data-pll-15/           # Root data directory
-├── bench-data-fiducial/     # Baseline network data
-│   ├── udp_rasp_conv_stats_KYBER_LEVEL1_RSA_2048_n25_pki_scenarioA.csv
-│   ├── udp_rasp_conv_stats_n25_psk_scenarioA.csv
+libcoap-bench/data/
+├── raw/                          # Raw iteration data
+│   ├── local_1205_w7-1/
 │   └── ...
-├── bench-data-smarthome/    # Smart home network data
-│   ├── udp_rasp_conv_stats_KYBER_LEVEL1_RSA_2048_n25_pki_scenarioA.csv
-│   └── ...
-├── plots-fiducial/          # Generated plots for fiducial
-│   ├── scatter_rasp_duration_n25_scenarioA.pdf
-│   └── ...
-└── plots-smarthome/         # Generated plots for smarthome
-    ├── scatter_rasp_duration_n25_scenarioA.pdf
-    └── ...
+├── aggregated/                   # Aggregated statistics
+│   └── local_1205_w7/
+│       └── *.csv
+├── plots/                        # Generated plots
+│   └── local_1205_w7/
+├── summaries/                    # Session summaries
+└── sessions.txt                  # Session tracking
 ```
 
 ## 📖 Usage Guide
 
-### Basic Single-Network Analysis
+### Basic Analysis
 
 ```bash
-# Generate scatter plot for duration vs energy (uses default: ./bench-data/ -> ./plots/)
-python bench-data-plots.py "duration" 25 --scatter --scenarios A --rasp
+# From libcoap-plots directory
+python bench-data-plots.py "duration" 1 --scatter --scenarios A \
+    --data-dir ../libcoap-bench/data --custom-suffix "local_1205_w7" --p "parallel"
 
-# Generate bar plot comparing security modes
-python bench-data-plots.py "Energy (Wh)" 25 --barplot --scenarios A,C --rasp
-
-# Box plot for variability analysis
-python bench-data-plots.py "cpu_cycles" 25 --boxplot --scenarios A --rasp
-
-# Discrete metrics candlestick plot
-python bench-data-plots.py "total_frames" 25 --candlestick --scenarios A --rasp
+# Bar plot comparing scenarios
+python bench-data-plots.py "Energy (Wh)" 1 --barplot --scenarios A,C \
+    --data-dir ../libcoap-bench/data --custom-suffix "local_1205_w7" --p "parallel"
 ```
 
-The `--data-dir` and `--custom-suffix` parameters control where the script looks for input data and saves output plots:
+### Path Parameters
 
 ```bash
-# DEFAULT BEHAVIOR (no custom suffix):
-# Input:  ./bench-data/*.csv
-# Output: ./plots/*.pdf
+# WITH SESSION ID:
+# Input:  {data-dir}/aggregated/{session}/*.csv  
+# Output: {data-dir}/plots/{session}/*.pdf
 
-# WITH CUSTOM SUFFIX:
-# Input:  ./bench-data/bench-data-{suffix}/*.csv  
-# Output: ./bench-data/plots-{suffix}/*.pdf
-
-# Examples:
-python bench-data-plots.py "duration" 25 --scatter --scenarios A --rasp \
-    --custom-suffix "smarthome"
-# Input:  ./bench-data/bench-data-smarthome/*.csv
-# Output: ./bench-data/plots-smarthome/*.pdf
-
-python bench-data-plots.py "duration" 25 --scatter --scenarios A --rasp \
-    --custom-suffix "fiducial" 
-# Input:  ./bench-data/bench-data-fiducial/*.csv
-# Output: ./bench-data/plots-fiducial/*.pdf
-
-# CUSTOM DATA DIRECTORY:
-python bench-data-plots.py "duration" 25 --scatter --scenarios A --rasp \
-    --data-dir "experiment-results" --custom-suffix "run1"
-# Input:  ./experiment-results/bench-data-run1/*.csv
-# Output: ./experiment-results/plots-run1/*.pdf
-
-# NO SUFFIX + CUSTOM DIR:
-python bench-data-plots.py "duration" 25 --scatter --scenarios A --rasp \
-    --data-dir "my-experiments"
-# Input:  ./my-experiments/bench-data/*.csv  
-# Output: ./my-experiments/plots/*.pdf
-```
-
-There are additional flags for selecting subsets of configurations (`--algorithms`, `--cert-types`) where you can pass a string with the desired elements for the analysis.
-
-### Network Comparison Analysis
-
-```bash
-# Load and analyze cross-network data
-python bench-data-compare.py
-
-# This script automatically:
-# - Loads data from bench-data-pll-15/ directory
-# - Generates summary CSVs for continuous and discrete metrics
-# - Creates trade-off plots (duration vs energy, cpu_cycles vs energy)
-# - Produces spider plots showing network impact
-# - Performs statistical significance testing
-```
-
-### Data Filtering
-
-Clean up your datasets from outliers.
-
-```bash
-# Filter single file
-python bench-data-filter.py data.csv
-
-# Filter entire directory
-python bench-data-filter.py bench-data/ --file-pattern "*.csv"
-
-# Custom CV threshold
-python bench-data-filter.py data.csv --cv-threshold 2.5
+# Example:
+python bench-data-plots.py "duration" 1 --scatter --scenarios A \
+    --data-dir ../libcoap-bench/data --custom-suffix "local_1205_w7"
+# Input:  ../libcoap-bench/data/aggregated/local_1205_w7/*.csv
+# Output: ../libcoap-bench/data/plots/local_1205_w7/*.pdf
 ```
 
 ### Batch Processing
 
-We include an additional utility for plotting multiple metrics for all the available network datasets. 
-
 ```bash
-# Process multiple metrics across networks
-./plots_wrapper.sh "duration,Energy (Wh),cpu_cycles" scatter A
-
-# With filtering enabled
-./plots_wrapper.sh "duration,Energy (Wh)" barplot A "--filtered"
-
-# Multiple scenarios
-./plots_wrapper.sh "total_frames,total_bytes" candlestick "A,C"
+# Process multiple metrics with wrapper script
+./plots_wrapper.sh "duration,Energy (Wh)" scatter A --session local_1205_w7
 ```
 
 ## 📊 Data Format
 
 ### Expected CSV Structure
 
-The final csv files will contain the summary statistics for each experiment iteration, and the aggregated statistics for the full experiment. The benchmark suite is designed for plotting files with this structure:
+The CSV files contain summary statistics for each iteration and aggregated statistics:
 
 ```
 var_name_col1, var_name_col2, ...

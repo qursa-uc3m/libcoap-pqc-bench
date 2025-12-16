@@ -328,7 +328,7 @@ setup_network_and_server() {
         echo "Cleaning up any existing coap-server processes on $server_ip..."
         ssh root@$server_ip "pkill -9 -f 'coap-server' || true"
         
-        # Small delay to ensure ports are fully released
+        # Small delay to ensure ports are fully released (longer for Pi due to SSH latency)
         sleep 1
 
         # Start the server on the Raspberry Pi
@@ -347,8 +347,8 @@ setup_network_and_server() {
         echo "Cleaning up any existing coap-server processes..."
         pkill -9 -f 'coap-server' || true
         
-        # Small delay to ensure ports are fully released
-        sleep 1
+        # Small delay to ensure ports are fully released (shorter for local)
+        sleep 0.2
 
         # Start the local server
         echo "-----------------------------------------------------------------------------------------"
@@ -357,9 +357,13 @@ setup_network_and_server() {
         SERVER_PID=$!
     fi
     
-    # Give the server time to start
+    # Give the server time to start (shorter for local mode)
     echo "Give a moment for the server to start..."
-    sleep 3
+    if [ "$LOCAL_MODE" = "true" ]; then
+        sleep 1
+    else
+        sleep 3
+    fi
 }
 
 # Function to stop server and cleanup
@@ -369,8 +373,12 @@ stop_server_and_cleanup() {
     # Kill tshark
     kill -9 $(pidof tshark) 2>/dev/null
     
-    # Allow time for tshark to finish capturing
-    sleep 2
+    # Allow time for tshark to finish capturing (shorter for local mode)
+    if [ "$LOCAL_MODE" = "true" ]; then
+        sleep 1
+    else
+        sleep 2
+    fi
     
     if [ -n "$rasp_param" ]; then
         # Stop remote server gracefully
@@ -383,7 +391,12 @@ stop_server_and_cleanup() {
         [ -n "$server_PID" ] && sudo kill -2 "$server_PID" 2>/dev/null
     fi
     
-    sleep 3
+    # Wait after stopping server (shorter for local mode)
+    if [ "$LOCAL_MODE" = "true" ]; then
+        sleep 0.5
+    else
+        sleep 3
+    fi
     echo "-----------------------------------------------------------------------------------------"
 }
 

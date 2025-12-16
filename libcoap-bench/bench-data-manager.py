@@ -553,7 +553,7 @@ class BenchmarkDataManager:
     """Manages the processing, merging, and aggregation of benchmark data"""
     
     def __init__(self, base_dir: str = None):
-        self.base_dir = base_dir or os.path.join(os.getcwd(), "bench-data")
+        self.base_dir = base_dir or os.path.join(os.getcwd(), "raw")
         
     def process_benchmark(self, time_file: str = None, cycles_file: str = None,
                          stats_file: str = None, energy_file: str = None,
@@ -753,7 +753,11 @@ class BenchmarkDataManager:
             Boolean indicating success or failure
         """
         base_data_dir = data_dir or os.getcwd()
-        output_dir = output_dir or os.path.join(base_data_dir, f"bench-data-agg-{session_id}")
+        
+        # Determine input (raw) and output (aggregated) directories
+        raw_dir = os.path.join(base_data_dir, "raw") if os.path.isdir(os.path.join(base_data_dir, "raw")) else base_data_dir
+        agg_base = os.path.join(base_data_dir, "aggregated") if os.path.isdir(os.path.join(base_data_dir, "raw")) else base_data_dir
+        output_dir = output_dir or os.path.join(agg_base, session_id)
         
         # Make sure output directory exists
         os.makedirs(output_dir, exist_ok=True)
@@ -764,7 +768,7 @@ class BenchmarkDataManager:
         
         # Find and group files from each iteration
         for i in range(1, iterations + 1):
-            iteration_dir = os.path.join(base_data_dir, f"bench-data-{session_id}-{i}")
+            iteration_dir = os.path.join(raw_dir, f"{session_id}-{i}")
             
             if not os.path.exists(iteration_dir):
                 print(f"Warning: Iteration directory {iteration_dir} not found")
@@ -1052,8 +1056,8 @@ class BenchmarkDataManager:
             os.makedirs(iterations_dir, exist_ok=True)
             
             for i in iterations_found:
-                src_dir = os.path.join(base_data_dir, f"bench-data-{session_id}-{i}")
-                dst_dir = os.path.join(iterations_dir, f"bench-data-{session_id}-{i}")
+                src_dir = os.path.join(raw_dir, f"{session_id}-{i}")
+                dst_dir = os.path.join(iterations_dir, f"{session_id}-{i}")
                 
                 if os.path.exists(src_dir):
                     try:

@@ -10,12 +10,22 @@ config.local.env
 .old
 .bench-env
 
-bench-data
-.bench-data
+# Runtime coordination and state files
+algorithm.txt
+pskeys/active_psk.txt
+libcoap-bench/data/sessions.txt
+
+# Benchmark data (keep structure via .gitkeep, ignore contents)
+libcoap-bench/data/raw/*
+libcoap-bench/data/aggregated/*
+libcoap-bench/data/plots/*
+libcoap-bench/data/summaries/*
+libcoap-bench/data/current/
+!libcoap-bench/data/**/.gitkeep
+
 .pcapng
 *.csv
 *.pcapng
-*.txt
 *.log
 *.png
 *.pdf

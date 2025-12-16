@@ -36,7 +36,12 @@ NUM_CLIENTS=""
 OBSERVE_TIME=""
 PARALLELIZATION=""
 CLIENT_AUTH="no"
-PAUSE_BETWEEN_RUNS=10
+# Shorter pause for local mode (no network/SSH latency)
+if [ "$LOCAL_MODE" = "true" ]; then
+    PAUSE_BETWEEN_RUNS=2
+else
+    PAUSE_BETWEEN_RUNS=10
+fi
 RASP_SERVER="false"
 MEASURE_ENERGY="false"
 CERT_CONFIGS_FILTER=""
@@ -50,8 +55,10 @@ ITERATIONS=1            # Default to 1 iteration (no iteration mode)
 SESSION_ID=""           # Unique identifier for this benchmark session
 ALGORITHM_LIST="KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5"  # Default algorithms
 
-# Benchmark data directories
-BENCH_DATA_DIR="${REPO_ROOT}/libcoap-bench/bench-data"
+# Benchmark data directories - all data stored under data/
+DATA_BASE="${SCRIPT_DIR}/data"
+RAW_DATA_DIR="${DATA_BASE}/raw"
+BENCH_DATA_DIR="${DATA_BASE}/current"
 
 # ==============================================
 # Function declarations
@@ -249,8 +256,10 @@ parse_resource() {
 setup_iteration_directory() {
     local iteration=$1
     
-    # Create fresh bench-data directory for the new iteration
-    # If it exists but has content, warn the user
+    # Ensure base directories exist
+    mkdir -p "$RAW_DATA_DIR"
+    
+    # Create fresh current directory for new iteration
     if [ -d "$BENCH_DATA_DIR" ] && [ "$(ls -A $BENCH_DATA_DIR)" ]; then
         log "WARNING" "Bench data directory already contains files. These will be included in iteration ${iteration}."
     else
@@ -288,7 +297,7 @@ organize_energy_data() {
 # Finalize an iteration by renaming the directory
 finalize_iteration_directory() {
     local iteration=$1
-    local target_dir="${BENCH_DATA_DIR}-${SESSION_ID}-${iteration}"
+    local target_dir="${RAW_DATA_DIR}/${SESSION_ID}-${iteration}"
 
     # First organize energy data into subdirectory
     if [ "$MEASURE_ENERGY" == "true" ]; then
@@ -376,7 +385,12 @@ run_benchmark() {
     while [ $retry_count -lt $max_retries ]; do
         if [ $retry_count -gt 0 ]; then
             log "WARNING" "Retry attempt $retry_count of $max_retries"
-            sleep 5  # Short pause before retry
+            # Shorter retry pause for local mode
+            if [ "$LOCAL_MODE" = "true" ]; then
+                sleep 2
+            else
+                sleep 5
+            fi
         fi
         
         log "INFO" "Executing: ${REPO_ROOT}/libcoap-bench/coap_benchmark.sh $cmd_args"
@@ -431,7 +445,8 @@ run_benchmark() {
 
 # Create a summary report of all benchmark results
 create_summary_report() {
-    local output_file="${REPO_ROOT}/libcoap-bench/benchmark_summary_${SESSION_ID}.txt"
+    local output_file="${DATA_BASE}/summaries/summary_${SESSION_ID}.txt"
+    mkdir -p "${DATA_BASE}/summaries"
     
     log "HEADER" "Creating benchmark summary"
     
@@ -458,7 +473,7 @@ create_summary_report() {
         echo "- Iterations per test: $ITERATIONS" >> "$output_file"
         echo "- Iteration directories:" >> "$output_file"
         for ((i=1; i<=ITERATIONS; i++)); do
-            echo "  - ${BENCH_DATA_DIR}-${SESSION_ID}-${i}" >> "$output_file"
+            echo "  - raw/${SESSION_ID}-${i}" >> "$output_file"
         done
     fi
     echo "" >> "$output_file"
@@ -530,14 +545,14 @@ create_summary_report() {
 
 # Function to create a summary file with all iteration directories
 create_iteration_summary() {
-    local summary_file="${REPO_ROOT}/libcoap-bench/bench-sessions.txt"
+    local summary_file="${DATA_BASE}/sessions.txt"
     
     echo "Session: ${SESSION_ID}" >> "$summary_file"
     echo "Timestamp: $(date)" >> "$summary_file"
     echo "Iterations: ${ITERATIONS}" >> "$summary_file"
     echo "Directories:" >> "$summary_file"
     for ((i=1; i<=ITERATIONS; i++)); do
-        echo "  - ${BENCH_DATA_DIR}-${SESSION_ID}-${i}" >> "$summary_file"
+        echo "  - raw/${SESSION_ID}-${i}" >> "$summary_file"
     done
     echo "-------------------------------------" >> "$summary_file"
     
