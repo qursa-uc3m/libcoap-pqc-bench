@@ -23,6 +23,12 @@ fi
 LOCAL_MODE="${LOCAL_MODE:-false}"
 ENERGY_MONITOR_TYPE="${ENERGY_MONITOR_TYPE:-fnirsi}"
 
+# Set timing defaults (can be overridden in config.env or config.local.env)
+TIMING_RETRY_LOCAL="${TIMING_RETRY_LOCAL:-2.0}"
+TIMING_RETRY_REMOTE="${TIMING_RETRY_REMOTE:-5.0}"
+TIMING_PAUSE_BETWEEN_RUNS_LOCAL="${TIMING_PAUSE_BETWEEN_RUNS_LOCAL:-2}"
+TIMING_PAUSE_BETWEEN_RUNS_REMOTE="${TIMING_PAUSE_BETWEEN_RUNS_REMOTE:-10}"
+
 # Color codes for output formatting
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -36,11 +42,11 @@ NUM_CLIENTS=""
 OBSERVE_TIME=""
 PARALLELIZATION=""
 CLIENT_AUTH="no"
-# Shorter pause for local mode (no network/SSH latency)
+# Pause between benchmark runs (uses config values, can be overridden with -pause)
 if [ "$LOCAL_MODE" = "true" ]; then
-    PAUSE_BETWEEN_RUNS=2
+    PAUSE_BETWEEN_RUNS=$TIMING_PAUSE_BETWEEN_RUNS_LOCAL
 else
-    PAUSE_BETWEEN_RUNS=10
+    PAUSE_BETWEEN_RUNS=$TIMING_PAUSE_BETWEEN_RUNS_REMOTE
 fi
 RASP_SERVER="false"
 MEASURE_ENERGY="false"
@@ -385,11 +391,11 @@ run_benchmark() {
     while [ $retry_count -lt $max_retries ]; do
         if [ $retry_count -gt 0 ]; then
             log "WARNING" "Retry attempt $retry_count of $max_retries"
-            # Shorter retry pause for local mode
+            # Use configurable retry timing
             if [ "$LOCAL_MODE" = "true" ]; then
-                sleep 2
+                sleep $TIMING_RETRY_LOCAL
             else
-                sleep 5
+                sleep $TIMING_RETRY_REMOTE
             fi
         fi
         

@@ -18,6 +18,21 @@ ENERGY_MONITOR_TYPE="${ENERGY_MONITOR_TYPE:-fnirsi}"
 LOCAL_SERVER_ADDRESS="${LOCAL_SERVER_ADDRESS:-::1}"
 LOCAL_CAPTURE_INTERFACE="${LOCAL_CAPTURE_INTERFACE:-lo}"
 
+# Set timing defaults (can be overridden in config.env or config.local.env)
+# These are selected based on LOCAL_MODE later in the script
+TIMING_PORT_RELEASE_LOCAL="${TIMING_PORT_RELEASE_LOCAL:-0.2}"
+TIMING_PORT_RELEASE_REMOTE="${TIMING_PORT_RELEASE_REMOTE:-1.0}"
+TIMING_SERVER_START_LOCAL="${TIMING_SERVER_START_LOCAL:-1.0}"
+TIMING_SERVER_START_REMOTE="${TIMING_SERVER_START_REMOTE:-3.0}"
+TIMING_TSHARK_FLUSH_LOCAL="${TIMING_TSHARK_FLUSH_LOCAL:-1.0}"
+TIMING_TSHARK_FLUSH_REMOTE="${TIMING_TSHARK_FLUSH_REMOTE:-2.0}"
+TIMING_SERVER_STOP_LOCAL="${TIMING_SERVER_STOP_LOCAL:-0.5}"
+TIMING_SERVER_STOP_REMOTE="${TIMING_SERVER_STOP_REMOTE:-3.0}"
+TIMING_ENERGY_SIGNAL="${TIMING_ENERGY_SIGNAL:-0.5}"
+TIMING_ENERGY_FLUSH="${TIMING_ENERGY_FLUSH:-1.0}"
+TIMING_CLIENT_DELAY="${TIMING_CLIENT_DELAY:-0.5}"
+TIMING_CLIENT_POLL="${TIMING_CLIENT_POLL:-0.1}"
+
 BENCH_DIR="${REPO_ROOT}/libcoap-bench"
 COAP_BIN="${REPO_ROOT}/libcoap/build/bin"
 PSK_DIR="${REPO_ROOT}/pskeys"
@@ -72,6 +87,87 @@ cleanup() {
     [ -n "$tshark_pid" ] && kill -9 "$tshark_pid" 2>/dev/null
     rm -f "${BENCH_DIR}/bench-data/udp_conversations.pcapng" 2>/dev/null
     exit 1
+}
+
+# Smart check functions for waiting on conditions (local and remote)
+# These replace fixed sleeps with active polling for faster benchmarks
+
+# Function to wait for port to be free (replaces fixed sleep)
+# Usage: wait_for_port_free <port> <max_wait_seconds> [remote_host]
+wait_for_port_free() {
+    local port=$1
+    local max_wait=${2:-5}
+    local remote_host=${3:-}
+    local waited=0
+    
+    while [ $waited -lt $max_wait ]; do
+        if [ -n "$remote_host" ]; then
+            # Remote check via SSH
+            if ! ssh root@"$remote_host" "ss -tuln | grep -q ':${port} '" 2>/dev/null; then
+                return 0  # Port is free
+            fi
+        else
+            # Local check
+            if ! ss -tuln | grep -q ":${port} "; then
+                return 0  # Port is free
+            fi
+        fi
+        sleep 0.1
+        waited=$(echo "$waited + 0.1" | bc)
+    done
+    return 1  # Timeout
+}
+
+# Function to wait for port to be listening (server ready)
+# Usage: wait_for_port_listen <port> <max_wait_seconds> [remote_host]
+wait_for_port_listen() {
+    local port=$1
+    local max_wait=${2:-5}
+    local remote_host=${3:-}
+    local waited=0
+    
+    while [ $waited -lt $max_wait ]; do
+        if [ -n "$remote_host" ]; then
+            # Remote check via SSH
+            if ssh root@"$remote_host" "ss -tuln | grep -q ':${port} '" 2>/dev/null; then
+                return 0  # Port is listening
+            fi
+        else
+            # Local check
+            if ss -tuln | grep -q ":${port} "; then
+                return 0  # Port is listening
+            fi
+        fi
+        sleep 0.1
+        waited=$(echo "$waited + 0.1" | bc)
+    done
+    return 1  # Timeout
+}
+
+# Function to wait for process to exit
+# Usage: wait_for_process_exit <process_pattern> <max_wait_seconds> [remote_host]
+wait_for_process_exit() {
+    local pattern=$1
+    local max_wait=${2:-5}
+    local remote_host=${3:-}
+    local waited=0
+    
+    while [ $waited -lt $max_wait ]; do
+        if [ -n "$remote_host" ]; then
+            # Remote check via SSH
+            if ! ssh root@"$remote_host" "pgrep -f '$pattern'" > /dev/null 2>&1; then
+                return 0  # Process exited
+            fi
+        else
+            # Local check
+            if ! pgrep -f "$pattern" > /dev/null 2>&1; then
+                return 0  # Process exited
+            fi
+        fi
+        sleep 0.1
+        waited=$(echo "$waited + 0.1" | bc)
+    done
+    return 1  # Timeout
 }
 
 # Function to check if perf is available and working
@@ -250,7 +346,7 @@ stop_energy_monitoring() {
     kill -USR1 $ENERGY_PID 2>/dev/null
     
     # Give it a moment to process the signal and open the pipe
-    sleep 0.5
+    sleep $TIMING_ENERGY_SIGNAL
     
     # Wait for completion signal from energy monitor
     if [ -p "$stop_sock" ]; then
@@ -275,8 +371,9 @@ stop_energy_monitoring() {
     rm -f ${BENCH_DIR}/.energy_monitor_pid
     
     # Wait a moment for energy data to be processed
-    sleep 1
+    sleep $TIMING_ENERGY_FLUSH
 }
+
 
 # Function to handle example_data resource updates in observer mode
 handle_example_data_updates() {
@@ -375,14 +472,23 @@ setup_network_and_server() {
         echo "Cleaning up any existing coap-server processes on $server_ip..."
         ssh root@$server_ip "pkill -9 -f 'coap-server' || true"
         
-        # Small delay to ensure ports are fully released (longer for Pi due to SSH latency)
-        sleep 1
+        # Wait for port to be free on remote (with timeout fallback)
+        if ! wait_for_port_free "$coap_port" "$TIMING_PORT_RELEASE_REMOTE" "$server_ip"; then
+            echo "Warning: Port $coap_port on $server_ip may still be in use, continuing anyway..."
+        fi
 
         # Start the server on the Raspberry Pi
         echo "-----------------------------------------------------------------------------------------"
         echo "Starting server on $server_ip..."
         ssh root@$server_ip "cd ~/libcoap-pqc-bench && ./libcoap-bench/coap_benchmark_server.sh -sec-mode $sec_mode -rasp -cert-config $cert_config -client-auth $client_auth" &
         SERVER_SSH_PID=$!
+        
+        # Wait for server to be ready on remote (check port is listening)
+        echo "Waiting for remote server to be ready..."
+        if ! wait_for_port_listen "$coap_port" "$TIMING_SERVER_START_REMOTE" "$server_ip"; then
+            echo "Warning: Server on $server_ip may not be ready (port $coap_port not listening), waiting a bit more..."
+            sleep 1.0
+        fi
     else
         # Local setup
         address="[::1]"
@@ -394,22 +500,23 @@ setup_network_and_server() {
         echo "Cleaning up any existing coap-server processes..."
         pkill -9 -f 'coap-server' || true
         
-        # Small delay to ensure ports are fully released (shorter for local)
-        sleep 0.2
+        # Wait for port to be free (with timeout fallback)
+        if ! wait_for_port_free "$coap_port" "$TIMING_PORT_RELEASE_LOCAL"; then
+            echo "Warning: Port $coap_port may still be in use, continuing anyway..."
+        fi
 
         # Start the local server
         echo "-----------------------------------------------------------------------------------------"
         echo "Starting local server..."
         ${REPO_ROOT}/libcoap-bench/coap_benchmark_server.sh -sec-mode $sec_mode -cert-config $cert_config -client-auth $client_auth &
         SERVER_PID=$!
-    fi
-    
-    # Give the server time to start (shorter for local mode)
-    echo "Give a moment for the server to start..."
-    if [ "$LOCAL_MODE" = "true" ]; then
-        sleep 1
-    else
-        sleep 3
+        
+        # Wait for server to be ready (check port is listening)
+        echo "Waiting for server to be ready..."
+        if ! wait_for_port_listen "$coap_port" "$TIMING_SERVER_START_LOCAL"; then
+            echo "Warning: Server may not be ready (port $coap_port not listening), waiting a bit more..."
+            sleep 0.5
+        fi
     fi
 }
 
@@ -417,32 +524,36 @@ setup_network_and_server() {
 stop_server_and_cleanup() {
     echo "Stopping all processes..."
     
-    # Kill tshark
-    kill -9 $(pidof tshark) 2>/dev/null
+    # Kill tshark - it writes on SIGTERM, so give it a moment
+    kill -15 $(pidof tshark) 2>/dev/null
     
-    # Allow time for tshark to finish capturing (shorter for local mode)
-    if [ "$LOCAL_MODE" = "true" ]; then
-        sleep 1
-    else
-        sleep 2
+    # Wait for tshark to exit (it needs to flush the pcap file)
+    # tshark is always local (runs on the client machine)
+    if ! wait_for_process_exit "tshark" "$TIMING_TSHARK_FLUSH_LOCAL"; then
+        echo "Warning: tshark didn't exit cleanly, forcing..."
+        kill -9 $(pidof tshark) 2>/dev/null
+        sleep 0.2
     fi
     
     if [ -n "$rasp_param" ]; then
         # Stop remote server gracefully
         echo "Automatically stopping the server on the Raspberry Pi..."
         ssh root@$server_ip "pkill -2 coap-server || pkill -2 -f coap-server" || echo "Warning: Failed to stop server"
+        
+        # Wait for server process to exit on remote
+        if ! wait_for_process_exit "coap-server" "$TIMING_SERVER_STOP_REMOTE" "$server_ip"; then
+            echo "Warning: Remote server didn't exit cleanly"
+        fi
     else
         # Stop local server gracefully
         echo "Stopping local server..."
         server_PID=$(ps -e -f | grep "coap-se" | tail -2 | head -1 | awk '{print $2}')
         [ -n "$server_PID" ] && sudo kill -2 "$server_PID" 2>/dev/null
-    fi
-    
-    # Wait after stopping server (shorter for local mode)
-    if [ "$LOCAL_MODE" = "true" ]; then
-        sleep 0.5
-    else
-        sleep 3
+        
+        # Wait for server process to exit
+        if ! wait_for_process_exit "coap-server" "$TIMING_SERVER_STOP_LOCAL"; then
+            echo "Warning: Server didn't exit cleanly"
+        fi
     fi
     echo "-----------------------------------------------------------------------------------------"
 }
@@ -560,7 +671,7 @@ execute_client_commands() {
                 background_pids+=($!)
             done
 
-            sleep 0.5
+            sleep $TIMING_CLIENT_DELAY
 
             # Special handling for example_data resource with observer mode
             if [ "$r_param" == "example_data" ]; then
@@ -585,7 +696,7 @@ execute_client_commands() {
             parallel -j$n ::: "${dynamic_commands[@]}" &
             parallel_pid=$!
 
-            sleep 0.5
+            sleep $TIMING_CLIENT_DELAY
 
             # Special handling for example_data resource with observer mode
             if [ "$r_param" == "example_data" ]; then
@@ -644,7 +755,7 @@ execute_client_commands() {
             echo "Executing $n clients sequentially..."
             for ((i = 1; i < $n; i++)); do
                 COAP_WOLFSSL_GROUPS="$varalg" eval "$client_cmd"
-                sleep 0.1
+                sleep $TIMING_CLIENT_POLL
             done
             # Final execution (avoid sleep after last one)
             COAP_WOLFSSL_GROUPS="$varalg" eval "$client_cmd"
