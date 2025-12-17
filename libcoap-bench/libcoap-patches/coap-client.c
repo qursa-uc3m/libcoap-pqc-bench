@@ -36,10 +36,16 @@ uint64_t get_current_time_ns(void) {
 void append_time_to_file(unsigned long long total_time_ns) {
      // Get the repository root from environment
      char *repo_root = getenv("REPO_ROOT");
+     // Check for BENCH_DATA_DIR environment variable first (set by benchmark scripts)
+     char *bench_data_dir = getenv("BENCH_DATA_DIR");
      char filepath[512];
      
-     if (repo_root != NULL) {
-         snprintf(filepath, sizeof(filepath), "%s/libcoap-bench/bench-data/time_output.txt", repo_root);
+     if (bench_data_dir != NULL) {
+         // Use BENCH_DATA_DIR if set (allows flexible output directory)
+         snprintf(filepath, sizeof(filepath), "%s/time_output.txt", bench_data_dir);
+     } else if (repo_root != NULL) {
+         // Fallback to default data/current directory
+         snprintf(filepath, sizeof(filepath), "%s/libcoap-bench/data/current/time_output.txt", repo_root);
      } else {
          // Fallback to current directory
          strcpy(filepath, "time_output.txt");

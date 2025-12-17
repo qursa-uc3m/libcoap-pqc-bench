@@ -42,6 +42,7 @@ ACTIVE_PSK="${PSK_DIR}/active_psk.txt"
 # Data directory for benchmark output (can be overridden by environment variable)
 # Default: data/current (consistent with run_benchmarks.sh)
 DATA_DIR="${BENCH_DATA_DIR:-${BENCH_DIR}/data/current}"
+export BENCH_DATA_DIR="$DATA_DIR"
 
 # Global variables and defaults (using config values)
 bridge_interface="${BRIDGE_INTERFACE:-br0}"
@@ -275,8 +276,8 @@ generate_filenames() {
 
 # Function to start energy monitoring with guaranteed initialization using a named pipe
 start_energy_monitoring() {
-    energy_filename=$(generate_filenames "" false)
-    energy_name="energy_$energy_filename"
+    energy_filename=$(generate_filenames "energy" false)
+    energy_name="$energy_filename"
     start_sock="${BENCH_DIR}/.energy_monitor_start.sock"
     stop_sock="${BENCH_DIR}/.energy_monitor_stop.sock"
     
