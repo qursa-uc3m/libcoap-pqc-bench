@@ -310,12 +310,12 @@ setup_iteration_directory() {
     # Ensure base directories exist
     mkdir -p "$RAW_DATA_DIR"
     
-    # Create fresh current directory for new iteration
+    # Clean and recreate current directory for new iteration to avoid mixing data
     if [ -d "$BENCH_DATA_DIR" ] && [ "$(ls -A $BENCH_DATA_DIR)" ]; then
-        log "WARNING" "Bench data directory already contains files. These will be included in iteration ${iteration}."
-    else
-        mkdir -p "$BENCH_DATA_DIR"
+        log "WARNING" "Cleaning existing data in ${BENCH_DATA_DIR} before starting iteration ${iteration}"
+        rm -rf "$BENCH_DATA_DIR"/*
     fi
+    mkdir -p "$BENCH_DATA_DIR"
     
     # Create a marker file to indicate which iteration this is
     echo "Session: ${SESSION_ID}" > "${BENCH_DATA_DIR}/iteration.txt"
@@ -484,7 +484,7 @@ run_benchmark() {
     
     # Add extra pause after async tests or if there was a failure
     if [ "$resource" == "async" ] || [ $exit_code -ne 0 ]; then
-        local extra_pause=$((PAUSE_BETWEEN_RUNS * 2))
+        local extra_pause=$(echo "$PAUSE_BETWEEN_RUNS * 2" | bc -l)
         log "INFO" "Adding extra pause ($extra_pause seconds) after async test or failure..."
         sleep $extra_pause
     else
@@ -947,11 +947,9 @@ for ((iteration=1; iteration<=ITERATIONS; iteration++)); do
         fi
     done
     
-    # Finalize this iteration's directory
-    if [ $ITERATIONS -gt 1 ]; then
-        log "SUCCESS" "Completed iteration $iteration of $ITERATIONS"
-        finalize_iteration_directory $iteration
-    fi
+    # Finalize this iteration's directory - always archive to raw/
+    log "SUCCESS" "Completed iteration $iteration of $ITERATIONS"
+    finalize_iteration_directory $iteration
 done
 
 # Create iteration summary if multiple iterations were run
