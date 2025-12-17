@@ -164,9 +164,11 @@ python3 libcoap-bench/energy_monitor.py --backend codecarbon --list-devices
 
 ## Command Reference
 
-```
+```bash
 ./libcoap-bench/run_benchmarks.sh -n NUM_CLIENTS [OPTIONS]
+```
 
+```text
 Required:
   -n NUM_CLIENTS        Number of clients
 
@@ -190,6 +192,36 @@ Options:
   -y                    Skip confirmation prompts
   -v                    Verbose output
 ```
+
+## Benchmark Scenarios
+
+The benchmark supports three test scenarios with different CoAP message patterns:
+
+### Scenario A: Synchronous Request-Response (Confirmable)
+
+- **Resource**: `time`
+- **Message Type**: Confirmable (CON)
+- **Pattern**: Client sends GET request → Server responds immediately
+- **Use Case**: Reliable communication with acknowledgments
+
+### Scenario B: Asynchronous/Observer Mode
+
+- **Resource**: `async` or `example_data`
+- **Message Type**: Confirmable (CON)
+- **Pattern**:
+  - `async`: Server-side delayed response (default **4 seconds** delay, configurable via query e.g., `async?2`)
+  - `example_data`: CoAP Observe pattern (client subscribes, server pushes updates)
+- **Observer Flag**: `-s TIME` sets observation duration in seconds
+- **Use Case**: Testing delayed responses and publish-subscribe patterns
+
+**Note**: The `async` resource has a built-in server-side delay of 4 seconds (configurable), so ScenarioB tests will inherently take longer than ScenarioA/C. This is intentional—it measures how PQC algorithms perform under asynchronous communication patterns.
+
+### Scenario C: Synchronous Request-Response (Non-Confirmable)
+
+- **Resource**: `time`
+- **Message Type**: Non-confirmable (NON)
+- **Pattern**: Client sends GET request → Server responds immediately (no ACK)
+- **Use Case**: Best-effort communication without acknowledgments
 
 ## Related Documentation
 
