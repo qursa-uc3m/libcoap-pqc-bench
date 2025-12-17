@@ -77,19 +77,19 @@ Run for each network condition:
 ```bash
 # 1. FIDUCIAL NETWORK
 sudo ./network_emulation/net_config.sh set fiducial
-./libcoap-bench/run_benchmarks.sh -n 25 -algorithms "KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5" -parallelization parallel -security "pki,psk,nosec" -iterations 5 -energy -y
+./libcoap-bench/run_benchmarks.sh -n 25 -groups all -signatures all -parallelization parallel -security "pki,psk,nosec" -iterations 5 -energy -y
 
 # 2. SMART HOME NETWORK
 sudo ./network_emulation/net_config.sh set smart-home
-./libcoap-bench/run_benchmarks.sh -n 25 -algorithms "KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5" -parallelization parallel -security "pki,psk,nosec" -iterations 5 -energy -y
+./libcoap-bench/run_benchmarks.sh -n 25 -groups all -signatures all -parallelization parallel -security "pki,psk,nosec" -iterations 5 -energy -y
 
 # 3. SMART FACTORY NETWORK
 sudo ./network_emulation/net_config.sh set smart-factory
-./libcoap-bench/run_benchmarks.sh -n 25 -algorithms "KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5" -parallelization parallel -security "pki,psk,nosec" -iterations 5 -energy -y
+./libcoap-bench/run_benchmarks.sh -n 25 -groups all -signatures all -parallelization parallel -security "pki,psk,nosec" -iterations 5 -energy -y
 
 # 4. PUBLIC TRANSPORT NETWORK
 sudo ./network_emulation/net_config.sh set public-transport
-./libcoap-bench/run_benchmarks.sh -n 25 -algorithms "KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5" -parallelization parallel -security "pki,psk,nosec" -iterations 5 -energy -y
+./libcoap-bench/run_benchmarks.sh -n 25 -groups all -signatures all -parallelization parallel -security "pki,psk,nosec" -iterations 5 -energy -y
 
 # Reset network after each set
 sudo ./network_emulation/net_config.sh reset
@@ -171,7 +171,13 @@ Required:
   -n NUM_CLIENTS        Number of clients
 
 Options:
-  -algorithms ALGOS     Comma-separated: KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5,...
+  -groups GROUPS        Comma-separated KEM groups or 'all' (default: KYBER_LEVEL3)
+                        Available: KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5,
+                                   P256_KYBER_LEVEL1,P384_KYBER_LEVEL3,P521_KYBER_LEVEL5,
+                                   P256,P384,P521,X25519
+  -signatures SIGS      Comma-separated signatures or 'all' (default: DILITHIUM_LEVEL3)
+                        Available: RSA_2048,EC_P256,EC_ED25519,DILITHIUM_LEVEL2,
+                                   DILITHIUM_LEVEL3,DILITHIUM_LEVEL5,FALCON_LEVEL1,FALCON_LEVEL5
   -security MODES       Comma-separated: pki,psk,nosec
   -resources RES        time (scenario A/C), async (scenario B), example_data
   -s TIME               Observer mode duration (seconds)
@@ -179,7 +185,7 @@ Options:
   -parallelization MODE background or parallel
   -energy               Enable energy measurements
   -rasp                 Server runs on Raspberry Pi
-  -cert-filter PATTERN  Only run matching cert configs (PKI mode)
+  -cert-filter PATTERN  [DEPRECATED] Use -signatures instead
   -client-auth yes|no   Enable client certificate auth (PKI mode)
   -y                    Skip confirmation prompts
   -v                    Verbose output

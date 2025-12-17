@@ -59,7 +59,14 @@ RESOURCES="time,async"  # Default resources to test
 ASYNC_DELAY=""          # Optional delay parameter for async resource
 ITERATIONS=1            # Default to 1 iteration (no iteration mode)
 SESSION_ID=""           # Unique identifier for this benchmark session
-ALGORITHM_LIST="KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5"  # Default algorithms
+
+# Algorithm configuration (new flags: -groups and -signatures)
+GROUPS_LIST="KYBER_LEVEL3"  # Default KEM group
+SIGNATURES_LIST="DILITHIUM_LEVEL3"  # Default signature algorithm
+
+# Available algorithm lists for "all" option
+ALL_GROUPS="KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5,P256_KYBER_LEVEL1,P384_KYBER_LEVEL3,P521_KYBER_LEVEL5,P256,P384,P521,X25519"
+ALL_SIGNATURES="RSA_2048,EC_P256,EC_ED25519,DILITHIUM_LEVEL2,DILITHIUM_LEVEL3,DILITHIUM_LEVEL5,FALCON_LEVEL1,FALCON_LEVEL5"
 
 # Benchmark data directories - all data stored under data/
 DATA_BASE="${SCRIPT_DIR}/data"
@@ -94,7 +101,12 @@ show_help() {
     echo "                        For async, you can specify delay with async?N where N is seconds"
     echo "  -async-delay SECONDS  Set delay for async resource (alternative to async?N syntax)"
     echo "  -iterations N         Run each test configuration N times (enables iteration mode)"
-    echo "  -algorithms ALGOS     Comma-separated list of algorithms to test (default: KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5)"
+    echo "  -groups GROUPS        Comma-separated list of KEM groups to test (default: KYBER_LEVEL3)"
+    echo "                        Use 'all' for: KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5,P256_KYBER_LEVEL1,"
+    echo "                                       P384_KYBER_LEVEL3,P521_KYBER_LEVEL5,P256,P384,P521,X25519"
+    echo "  -signatures SIGS      Comma-separated list or 'all' to filter certificates by signature algorithm (default: DILITHIUM_LEVEL3)"
+    echo "                        Use 'all' for: RSA_2048,EC_P256,EC_ED25519,DILITHIUM_LEVEL2,"
+    echo "                                       DILITHIUM_LEVEL3,DILITHIUM_LEVEL5,FALCON_LEVEL1,FALCON_LEVEL5"
     echo "  -y                    Skip confirmation prompts"
     echo "  -v                    Verbose output"
     echo "  -h, --help            Show this help message"
@@ -102,11 +114,13 @@ show_help() {
     echo "Examples:"
     echo "  $0 -n 100"
     echo "  $0 -n 50 -s 30 -parallelization parallel -client-auth yes"
-    echo "  $0 -n 20 -cert-filter DILITHIUM -security pki,psk -energy"
+    echo "  $0 -n 20 -signatures DILITHIUM_LEVEL3,FALCON_LEVEL1 -security pki,psk -energy"
     echo "  $0 -n 10 -resources time -v"
     echo "  $0 -n 5 -resources async?3 -pause 30"
-    echo "  $0 -n 25 -iterations 10 -security psk -resources async -cert-filter KYBER_LEVEL3"
-    echo "  $0 -n 15 -algorithms KYBER_LEVEL1,P256_KYBER_LEVEL1 -security psk"
+    echo "  $0 -n 25 -iterations 10 -security psk -resources async"
+    echo "  $0 -n 15 -groups KYBER_LEVEL1,P256_KYBER_LEVEL1 -signatures all -security pki"
+    echo "  $0 -n 20 -groups all -signatures DILITHIUM_LEVEL2,FALCON_LEVEL5 -iterations 5"
+    echo "  $0 -n 30 -groups P256,P384,X25519 -signatures RSA_2048,EC_P256 -security pki"
     echo
 }
 
@@ -240,6 +254,37 @@ get_available_cert_configs() {
     echo "${cert_configs[@]}"
 }
 
+# Filter certificate configurations by signature algorithm
+# Usage: filter_certs_by_signature <cert_configs> <signatures_list>
+filter_certs_by_signature() {
+    local cert_configs="$1"
+    local signatures="$2"
+    
+    # If no signature filter specified, return all certs
+    if [ -z "$signatures" ]; then
+        echo "$cert_configs"
+        return
+    fi
+    
+    local filtered_certs=()
+    
+    # Convert signature list to array
+    IFS=',' read -ra SIG_ARRAY <<< "$signatures"
+    
+    # Iterate through each cert config
+    for cert in $cert_configs; do
+        # Check if cert matches any signature
+        for sig in "${SIG_ARRAY[@]}"; do
+            if [[ "$cert" == *"$sig"* ]]; then
+                filtered_certs+=("$cert")
+                break
+            fi
+        done
+    done
+    
+    echo "${filtered_certs[@]}"
+}
+
 # Parse resource string to extract resource and parameters
 parse_resource() {
     local resource_str="$1"
@@ -311,7 +356,7 @@ finalize_iteration_directory() {
         organize_energy_data "$BENCH_DATA_DIR"
     fi
     
-    # If bench-data exists and has content, move it to the iteration-specific directory
+    # If data/current exists and has content, move it to the iteration-specific directory
     if [ -d "$BENCH_DATA_DIR" ] && [ "$(ls -A $BENCH_DATA_DIR)" ]; then
         log "INFO" "Moving iteration ${iteration} data to ${target_dir}"
         mv "$BENCH_DATA_DIR" "$target_dir"
@@ -321,7 +366,7 @@ finalize_iteration_directory() {
         mkdir -p "$target_dir"
     fi
     
-    # Create a fresh empty bench-data directory for the next iteration or future use
+    # Create a fresh empty data/current directory for the next iteration or future use
     mkdir -p "$BENCH_DATA_DIR"
 }
 
@@ -474,7 +519,8 @@ create_summary_report() {
     [ -n "$ASYNC_DELAY" ] && echo "- Async delay: $ASYNC_DELAY seconds" >> "$output_file"
     echo "- Client authentication: $CLIENT_AUTH" >> "$output_file"
     echo "- Energy measurements: $MEASURE_ENERGY" >> "$output_file"
-    echo "- Algorithms tested: $ALGORITHM_LIST" >> "$output_file"
+    echo "- KEM groups tested: $GROUPS_LIST" >> "$output_file"
+    echo "- Signature algorithms: $SIGNATURES_LIST" >> "$output_file"
     if [ $ITERATIONS -gt 1 ]; then 
         echo "- Iterations per test: $ITERATIONS" >> "$output_file"
         echo "- Iteration directories:" >> "$output_file"
@@ -620,8 +666,20 @@ while [[ $# -gt 0 ]]; do
             ITERATIONS="$2"
             shift 2
             ;;
-        -algorithms)
-            ALGORITHM_LIST="$2"
+        -groups)
+            if [ "$2" = "all" ]; then
+                GROUPS_LIST="$ALL_GROUPS"
+            else
+                GROUPS_LIST="$2"
+            fi
+            shift 2
+            ;;
+        -signatures)
+            if [ "$2" = "all" ]; then
+                SIGNATURES_LIST="$ALL_SIGNATURES"
+            else
+                SIGNATURES_LIST="$2"
+            fi
             shift 2
             ;;
         -y)
@@ -721,11 +779,12 @@ log "INFO" "Resources to test: $RESOURCES"
 log "INFO" "Server mode: $([ "$RASP_SERVER" == "true" ] && echo "Raspberry Pi (remote)" || echo "Local")"
 log "INFO" "Local mode config: $LOCAL_MODE"
 log "INFO" "Parallelization mode: $PARALLELIZATION"
-log "INFO" "Algorithms to test: $ALGORITHM_LIST"
+log "INFO" "KEM groups to test: $GROUPS_LIST"
+log "INFO" "Signature filter: $SIGNATURES_LIST"
 [ -n "$ASYNC_DELAY" ] && log "INFO" "Async delay parameter: $ASYNC_DELAY seconds"
 
 if [ -n "$CERT_CONFIGS_FILTER" ]; then
-    log "INFO" "Certificate filter: $CERT_CONFIGS_FILTER"
+    log "INFO" "Certificate filter (legacy): $CERT_CONFIGS_FILTER"
 fi
 
 if [ -n "$OBSERVE_TIME" ]; then
@@ -774,13 +833,20 @@ BENCHMARK_START_TIME=$(date +%s)
 # Convert comma-separated resources to array
 IFS=',' read -ra RESOURCE_ARRAY <<< "$RESOURCES"
 
-# Convert comma-separated algorithms to array
-IFS=',' read -ra ALGORITHMS_ARRAY <<< "$ALGORITHM_LIST"
+# Convert comma-separated groups (KEM algorithms) to array
+IFS=',' read -ra GROUPS_ARRAY <<< "$GROUPS_LIST"
 
 # Get available certificate configurations for PKI mode if needed
 if [[ "$SECURITY_MODES" == *"pki"* ]]; then
     cert_configs=$(get_available_cert_configs)
-    log "INFO" "Available certificate configurations: ${cert_configs[*]}"
+    
+    # Apply signature filter if specified
+    if [ -n "$SIGNATURES_LIST" ]; then
+        cert_configs=$(filter_certs_by_signature "$cert_configs" "$SIGNATURES_LIST")
+        log "INFO" "Filtered certificate configurations by signature: ${cert_configs[*]}"
+    else
+        log "INFO" "Available certificate configurations: ${cert_configs[*]}"
+    fi
 fi
 
 # Generate one session ID for the entire benchmark run
@@ -803,12 +869,12 @@ for ((iteration=1; iteration<=ITERATIONS; iteration++)); do
             # PKI mode: iterate through algorithms
             log "HEADER" "Starting PKI mode benchmarks (Iteration $iteration)"
             
-            # Iterate through each algorithm for PKI mode
-            for algorithm in "${ALGORITHMS_ARRAY[@]}"; do
-                log "INFO" "Setting algorithm to: $algorithm for PKI mode"
-                echo "$algorithm" > "${REPO_ROOT}/algorithm.txt"
+            # Iterate through each KEM group for PKI mode
+            for group in "${GROUPS_ARRAY[@]}"; do
+                log "INFO" "Setting KEM group to: $group for PKI mode"
+                echo "$group" > "${REPO_ROOT}/algorithm.txt"
                 
-                log "HEADER" "Starting PKI benchmarks for algorithm $algorithm (Iteration $iteration)"
+                log "HEADER" "Starting PKI benchmarks for KEM group $group (Iteration $iteration)"
                 
                 # Iterate through certificate configurations
                 for cert_config in $cert_configs; do
@@ -840,7 +906,7 @@ for ((iteration=1; iteration<=ITERATIONS; iteration++)); do
                     done
                 done
                 
-                log "SUCCESS" "Completed PKI benchmarks for algorithm $algorithm (Iteration $iteration)"
+                log "SUCCESS" "Completed PKI benchmarks for KEM group $group (Iteration $iteration)"
             done
         else
             # PSK and NOSEC modes: NO algorithm iteration

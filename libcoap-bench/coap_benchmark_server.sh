@@ -2,7 +2,8 @@
 
 # Import certificate configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$(pwd)/certs/config_certs.sh"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+source "${REPO_ROOT}/certs/config_certs.sh"
 
 # Load environment configuration
 if [ -f "${REPO_ROOT}/config.local.env" ]; then
@@ -15,6 +16,10 @@ BENCH_DIR="${REPO_ROOT}/libcoap-bench"
 COAP_BIN="${REPO_ROOT}/libcoap/build/bin"
 PSK_DIR="${REPO_ROOT}/pskeys"
 ACTIVE_PSK="${PSK_DIR}/active_psk.txt"
+
+# Data directory for benchmark output (can be overridden by environment variable)
+# Default: data/current (consistent with run_benchmarks.sh and coap_benchmark.sh)
+DATA_DIR="${BENCH_DATA_DIR:-${BENCH_DIR}/data/current}"
 
 rasp_option=""
 cert_config="DEFAULT"
@@ -150,8 +155,8 @@ if [ -n "$rasp_option" ]; then
   echo "Rasp option is enabled."
 fi
 
-echo "Creating benchmark data directory in ${BENCH_DIR}/bench-data ..."
-mkdir -p ${BENCH_DIR}/bench-data
+echo "Creating benchmark data directory in ${DATA_DIR} ..."
+mkdir -p ${DATA_DIR}
 
 # Determine if client authentication is disabled (add -n flag if yes)
 client_auth_flag=""
@@ -171,13 +176,13 @@ fi
 # Determine the command based on the value of -sec-mode
 case "$SEC_MODE" in
   pki)
-    CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH $PERF stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -A ${SERVER_ADDR} -c ${cert_file} -j ${key_file} ${client_auth_flag}"
+    CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH $PERF stat -o ${DATA_DIR}/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -A ${SERVER_ADDR} -c ${cert_file} -j ${key_file} ${client_auth_flag}"
     ;;
   psk)
-    CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH $PERF stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -k $(cat ${ACTIVE_PSK}) -h uc3m -A ${SERVER_ADDR}"
+    CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH $PERF stat -o ${DATA_DIR}/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -k $(cat ${ACTIVE_PSK}) -h uc3m -A ${SERVER_ADDR}"
     ;;
   nosec)
-    CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH $PERF stat -o ${BENCH_DIR}/bench-data/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -A ${SERVER_ADDR}"
+    CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH $PERF stat -o ${DATA_DIR}/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -A ${SERVER_ADDR}"
     ;;
   *)
     echo "Invalid -sec-mode value: $SEC_MODE"

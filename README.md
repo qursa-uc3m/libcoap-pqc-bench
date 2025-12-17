@@ -119,18 +119,24 @@ Baseline CoAP over UDP without encryption. No setup is required.
 
 ## Supported Algorithms
 
-You can benchmark the following algorithms (controlled via `-algorithms` flag in `run_benchmarks.sh`):
+You can benchmark the following algorithms (controlled via `-groups` and `-signatures` flags in `run_benchmarks.sh`):
 
-**Key Exchange (KEM):**
+**Key Exchange (KEM) - via `-groups` flag:**
 
-- `KYBER_LEVEL1`, `KYBER_LEVEL3`, `KYBER_LEVEL5`
-- Hybrid: `P256_KYBER_LEVEL1`, `P384_KYBER_LEVEL3`, `P521_KYBER_LEVEL5`
+- Post-Quantum: `KYBER_LEVEL1`, `KYBER_LEVEL3`, `KYBER_LEVEL5`
+- Hybrid PQ: `P256_KYBER_LEVEL1`, `P384_KYBER_LEVEL3`, `P521_KYBER_LEVEL5`
+- Traditional: `P256`, `P384`, `P521`, `X25519`
 
-**Signatures (PKI Certificates):**
+**Signatures (PKI Certificates) - via `-signatures` flag:**
 
-- `DILITHIUM_LEVEL2`, `DILITHIUM_LEVEL3`, `DILITHIUM_LEVEL5`
-- `FALCON_LEVEL1`, `FALCON_LEVEL5`
 - Classical: `RSA_2048`, `EC_P256`, `EC_ED25519`
+- Post-Quantum: `DILITHIUM_LEVEL2`, `DILITHIUM_LEVEL3`, `DILITHIUM_LEVEL5`, `FALCON_LEVEL1`, `FALCON_LEVEL5`
+
+**Defaults:**
+
+- KEM group: `KYBER_LEVEL3`
+- Signature: `DILITHIUM_LEVEL3`
+- Use `all` to test all available algorithms in each category
 
 ## Advanced Features
 

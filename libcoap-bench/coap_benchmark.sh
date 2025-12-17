@@ -2,7 +2,8 @@
 
 # Import certificate configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$(pwd)/certs/config_certs.sh"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+source "${REPO_ROOT}/certs/config_certs.sh"
 export REPO_ROOT
 
 # Load environment configuration
@@ -37,6 +38,10 @@ BENCH_DIR="${REPO_ROOT}/libcoap-bench"
 COAP_BIN="${REPO_ROOT}/libcoap/build/bin"
 PSK_DIR="${REPO_ROOT}/pskeys"
 ACTIVE_PSK="${PSK_DIR}/active_psk.txt"
+
+# Data directory for benchmark output (can be overridden by environment variable)
+# Default: data/current (consistent with run_benchmarks.sh)
+DATA_DIR="${BENCH_DATA_DIR:-${BENCH_DIR}/data/current}"
 
 # Global variables and defaults (using config values)
 bridge_interface="${BRIDGE_INTERFACE:-br0}"
@@ -85,7 +90,7 @@ usage() {
 cleanup() {
     echo "Script interrupted. Cleaning up..."
     [ -n "$tshark_pid" ] && kill -9 "$tshark_pid" 2>/dev/null
-    rm -f "${BENCH_DIR}/bench-data/udp_conversations.pcapng" 2>/dev/null
+    rm -f "${DATA_DIR}/udp_conversations.pcapng" 2>/dev/null
     exit 1
 }
 
@@ -295,7 +300,7 @@ start_energy_monitoring() {
     fi
     
     "$python_cmd" "${BENCH_DIR}/energy_monitor.py" --backend "$backend" --force-reset \
-           --output "${BENCH_DIR}/bench-data/$energy_name" \
+           --output "${DATA_DIR}/$energy_name" \
            --start-pipe "$start_sock" \
            --stop-pipe "$stop_sock" &
     
@@ -379,7 +384,7 @@ stop_energy_monitoring() {
 handle_example_data_updates() {
     local observation_time=$1
     local put_cmd_base=$2
-    local output_file="${BENCH_DIR}/bench-data/put_auxiliary.txt"
+    local output_file="${DATA_DIR}/put_auxiliary.txt"
     
     echo "Observer mode with example_data resource. Will send periodic updates..."
     
@@ -414,7 +419,7 @@ handle_example_data_updates() {
             echo "Sending update: $DATA"
             
             # Create a temporary file for this specific run
-            local tmp_file="${BENCH_DIR}/bench-data/put_temp_$i.txt"
+            local tmp_file="${DATA_DIR}/put_temp_$i.txt"
             
             # Build the command - without redirection in the command string
             local full_cmd="${put_cmd_base} -e \"$DATA\" ${protocol}://${address}/${r_param}"
@@ -464,7 +469,7 @@ setup_network_and_server() {
         echo "Client IP: $client_ip"
         echo "Server IP: $server_ip"
 
-        tshark -i $bridge_interface -f "udp port $coap_port and host $bridge_ip" -w "${BENCH_DIR}/bench-data/udp_conversations.pcapng" -z conv,udp &
+        tshark -i $bridge_interface -f "udp port $coap_port and host $bridge_ip" -w "${DATA_DIR}/udp_conversations.pcapng" -z conv,udp &
         tshark_pid=$!
         
         # Clean up any lingering coap-server processes first
@@ -492,7 +497,7 @@ setup_network_and_server() {
     else
         # Local setup
         address="[::1]"
-        tshark -i lo -w "${BENCH_DIR}/bench-data/udp_conversations.pcapng" -z conv,udp &
+        tshark -i lo -w "${DATA_DIR}/udp_conversations.pcapng" -z conv,udp &
         tshark_pid=$!
         
         # Clean up any lingering coap-server processes first
@@ -562,10 +567,10 @@ stop_server_and_cleanup() {
 get_cpu_cycles() {
     if [ -n "$rasp_param" ]; then
         # Get CPU cycles from remote server
-        cpu_cycles=$(ssh root@$server_ip "awk '/cycles/ {print \$1}' ~/libcoap-pqc-bench/libcoap-bench/bench-data/auxiliary_server.txt")
+        cpu_cycles=$(ssh root@$server_ip "awk '/cycles/ {print \$1}' ~/libcoap-pqc-bench/libcoap-bench/data/current/auxiliary_server.txt")
     else
         # Get CPU cycles from local server
-        cpu_cycles=$(awk '/cycles/ {print $1}' "${BENCH_DIR}/bench-data/auxiliary_server.txt" 2>/dev/null || echo "0")
+        cpu_cycles=$(awk '/cycles/ {print $1}' "${DATA_DIR}/auxiliary_server.txt" 2>/dev/null || echo "0")
     fi
     
     # Remove commas, dots/periods used as thousands separators and whitespace
@@ -578,7 +583,7 @@ get_cpu_cycles() {
     else
         cpu_cycles=$((cpu_cycles))
     fi
-    echo $cpu_cycles > "${BENCH_DIR}/bench-data/cycles_output.txt"
+    echo $cpu_cycles > "${DATA_DIR}/cycles_output.txt"
 }
 
 # Function to process results
@@ -589,16 +594,16 @@ process_results() {
         echo "Finished at: $final_time"
         elapsed=$(echo "$final_time - $initial_time" | bc)
         echo "Elapsed time: ${elapsed} s"
-    } > "${BENCH_DIR}/bench-data/initial_and_final_time.txt"
+    } > "${DATA_DIR}/initial_and_final_time.txt"
     
     # Write captured conversations
-    rm -f "${BENCH_DIR}/bench-data/${filename}.txt"
+    rm -f "${DATA_DIR}/${filename}.txt"
     if [ -n "$rasp_param" ]; then
         # Raspberry Pi case
-        tshark -r "${BENCH_DIR}/bench-data/udp_conversations.pcapng" -z conv,udp | grep "<-> $server_ip" > "${BENCH_DIR}/bench-data/${filename}.txt"
+        tshark -r "${DATA_DIR}/udp_conversations.pcapng" -z conv,udp | grep "<-> $server_ip" > "${DATA_DIR}/${filename}.txt"
     else
         # Local case
-        tshark -r "${BENCH_DIR}/bench-data/udp_conversations.pcapng" -z conv,udp | grep "::1:" > "${BENCH_DIR}/bench-data/${filename}.txt"
+        tshark -r "${DATA_DIR}/udp_conversations.pcapng" -z conv,udp | grep "::1:" > "${DATA_DIR}/${filename}.txt"
     fi
     
     # Get CPU cycles
@@ -606,20 +611,20 @@ process_results() {
     
     # Process metrics with the unified benchmark data manager
     python3 "${BENCH_DIR}/bench-data-manager.py" process \
-        --stats-file "${BENCH_DIR}/bench-data/${filename}.txt" \
-        --time-file "${BENCH_DIR}/bench-data/time_output.txt" \
-        --cycles-file "${BENCH_DIR}/bench-data/cycles_output.txt" \
-        --output-file "${BENCH_DIR}/bench-data/${filename}.csv"
+        --stats-file "${DATA_DIR}/${filename}.txt" \
+        --time-file "${DATA_DIR}/time_output.txt" \
+        --cycles-file "${DATA_DIR}/cycles_output.txt" \
+        --output-file "${DATA_DIR}/${filename}.csv"
 
     # Add energy data to the CSV file if energy monitoring was enabled
-    if [ "${MEASURE_ENERGY:-false}" == "true" ] && [ -e "${BENCH_DIR}/bench-data/${filename}.csv" ]; then
+    if [ "${MEASURE_ENERGY:-false}" == "true" ] && [ -e "${DATA_DIR}/${filename}.csv" ]; then
         # Find the energy measurements file
-        energy_file="${BENCH_DIR}/bench-data/energy_${energy_filename}.csv"
+        energy_file="${DATA_DIR}/energy_${energy_filename}.csv"
         if [ -e "$energy_file" ]; then
-            echo "Adding energy data from $energy_file to ${BENCH_DIR}/bench-data/${filename}.csv"
+            echo "Adding energy data from $energy_file to ${DATA_DIR}/${filename}.csv"
             python3 "${BENCH_DIR}/bench-data-manager.py" merge \
                 --energy-file "$energy_file" \
-                --benchmark-file "${BENCH_DIR}/bench-data/${filename}.csv"
+                --benchmark-file "${DATA_DIR}/${filename}.csv"
         else
             echo "Warning: Energy file $energy_file not found"
         fi
@@ -627,8 +632,8 @@ process_results() {
     
     # Clean up temporary files
     echo "Cleaning up temporary files..."
-    if [ -f "${BENCH_DIR}/bench-data/udp_conversations.pcapng" ]; then
-        sudo rm "${BENCH_DIR}/bench-data/udp_conversations.pcapng"
+    if [ -f "${DATA_DIR}/udp_conversations.pcapng" ]; then
+        sudo rm "${DATA_DIR}/udp_conversations.pcapng"
     fi
 }
 
@@ -720,7 +725,7 @@ execute_client_commands() {
         fi
 
         if [ "$r_param" = "example_data" ]; then
-            sed -i '1d' "${BENCH_DIR}/bench-data/auxiliary.txt"
+            sed -i '1d' "${DATA_DIR}/auxiliary.txt"
         fi
     else
         # Non-observer mode execution
@@ -766,12 +771,12 @@ execute_client_commands() {
 # Trap interrupt signal (Ctrl+C) to perform cleanup
 trap cleanup INT
 
-echo "Creating benchmark data directory in ${BENCH_DIR}/bench-data ..."
-mkdir -p ${BENCH_DIR}/bench-data
+echo "Creating benchmark data directory in ${DATA_DIR} ..."
+mkdir -p ${DATA_DIR}
 
 # Cleanup temp files
-rm -f "${BENCH_DIR}/bench-data/time_output.txt"
-rm -f "${BENCH_DIR}/bench-data/auxiliary.txt"
+rm -f "${DATA_DIR}/time_output.txt"
+rm -f "${DATA_DIR}/auxiliary.txt"
 
 # Parse command line arguments
 while [ "$#" -gt 0 ]; do
@@ -1009,7 +1014,7 @@ esac
 client_cmd="$client_cmd ${protocol}://${address}/${r_param}"
 
 # Add log output redirection
-client_cmd="$client_cmd >> ${BENCH_DIR}/bench-data/auxiliary.txt"
+client_cmd="$client_cmd >> ${DATA_DIR}/auxiliary.txt"
 
 # Capture initial time
 initial_time=$(date +%s.%N)
