@@ -215,3 +215,9 @@ To analyze PQC traffic using the OQS-enabled Wireshark docker image:
 ```bash
 sudo ./scripts/oqs_wireshark.sh
 ```
+
+and filter by
+
+```text
+udp.port==5684 || udp.port==5683
+```
