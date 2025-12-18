@@ -308,6 +308,43 @@ parse_resource() {
     echo "${resource_name};${delay_param}"
 }
 
+# Run all selected scenarios for a given security mode and certificate config
+# Arguments: sec_mode, cert_config (can be empty), iteration
+run_scenarios_for_config() {
+    local sec_mode="$1"
+    local cert_config="$2"
+    local iteration="$3"
+    
+    for resource_item in "${RESOURCE_ARRAY[@]}"; do
+        # Parse resource to extract name and parameters
+        local parsed=$(parse_resource "$resource_item")
+        local resource=$(echo "$parsed" | cut -d';' -f1)
+        local delay=$(echo "$parsed" | cut -d';' -f2)
+        
+        # Use ASYNC_DELAY if specified and no specific delay in resource
+        if [ "$resource" == "async" ] && [ -z "$delay" ] && [ -n "$ASYNC_DELAY" ]; then
+            delay="$ASYNC_DELAY"
+        fi
+        
+        # Run scenarios based on resource type
+        case "$resource" in
+            time)
+                # Scenario A: time + confirmable
+                [[ "$SCENARIOS" == *"A"* ]] && run_benchmark "$sec_mode" "$resource" "con" "$cert_config" "$delay" "$iteration"
+                # Scenario C: time + non-confirmable
+                [[ "$SCENARIOS" == *"C"* ]] && run_benchmark "$sec_mode" "$resource" "non" "$cert_config" "$delay" "$iteration"
+                ;;
+            async|example_data)
+                # Scenario B: async/observe
+                [[ "$SCENARIOS" == *"B"* ]] && run_benchmark "$sec_mode" "$resource" "" "$cert_config" "$delay" "$iteration"
+                ;;
+            *)
+                log "WARNING" "Unknown resource type: $resource, skipping"
+                ;;
+        esac
+    done
+}
+
 # Setup directory for a new iteration
 setup_iteration_directory() {
     local iteration=$1
@@ -891,101 +928,30 @@ for ((iteration=1; iteration<=ITERATIONS; iteration++)); do
     
     # Iterate through security modes
     for sec_mode in $SECURITY_MODES; do
+        log "HEADER" "Starting $sec_mode mode benchmarks (Iteration $iteration)"
+        
         if [ "$sec_mode" == "pki" ]; then
-            # PKI mode: iterate through algorithms
-            log "HEADER" "Starting PKI mode benchmarks (Iteration $iteration)"
-            
-            # Iterate through each KEM group for PKI mode
+            # PKI mode: iterate through KEM groups and certificate configurations
             for group in "${GROUPS_ARRAY[@]}"; do
-                log "INFO" "Setting KEM group to: $group for PKI mode"
+                log "INFO" "Setting KEM group to: $group"
                 echo "$group" > "${REPO_ROOT}/algorithm.txt"
                 
-                log "HEADER" "Starting PKI benchmarks for KEM group $group (Iteration $iteration)"
-                
-                # Iterate through certificate configurations
                 for cert_config in $cert_configs; do
-                    # Iterate through requested resources
-                    for resource_item in "${RESOURCE_ARRAY[@]}"; do
-                        # Parse resource to extract name and parameters
-                        parsed=$(parse_resource "$resource_item")
-                        resource=$(echo "$parsed" | cut -d';' -f1)
-                        delay=$(echo "$parsed" | cut -d';' -f2)
-                        
-                        # Use ASYNC_DELAY if specified and no specific delay in resource
-                        if [ "$resource" == "async" ] && [ -z "$delay" ] && [ -n "$ASYNC_DELAY" ]; then
-                            delay="$ASYNC_DELAY"
-                        fi
-                        
-                        # Run appropriate tests based on resource type and selected scenarios
-                        if [ "$resource" == "time" ]; then
-                            # Run scenarioA if selected
-                            if [[ "$SCENARIOS" == *"A"* ]]; then
-                                run_benchmark "$sec_mode" "$resource" "con" "$cert_config" "$delay" "$iteration"
-                            fi
-                            
-                            # Run scenarioC if selected
-                            if [[ "$SCENARIOS" == *"C"* ]]; then
-                                run_benchmark "$sec_mode" "$resource" "non" "$cert_config" "$delay" "$iteration"
-                            fi
-                        elif [ "$resource" == "async" ] || [ "$resource" == "example_data" ]; then
-                            # Run scenarioB if selected
-                            if [[ "$SCENARIOS" == *"B"* ]]; then
-                                run_benchmark "$sec_mode" "$resource" "" "$cert_config" "$delay" "$iteration"
-                            fi
-                        else
-                            log "WARNING" "Unknown resource type: $resource, skipping"
-                        fi
-                    done
+                    run_scenarios_for_config "$sec_mode" "$cert_config" "$iteration"
                 done
                 
-                log "SUCCESS" "Completed PKI benchmarks for KEM group $group (Iteration $iteration)"
+                log "SUCCESS" "Completed PKI benchmarks for KEM group $group"
             done
         else
-            # PSK and NOSEC modes: NO algorithm iteration
-            log "HEADER" "Starting $sec_mode mode benchmarks (Iteration $iteration)"
-            
-            # Set algorithm to N/A for non-PKI modes
+            # PSK and NOSEC modes: no algorithm iteration needed
             echo "N/A" > "${REPO_ROOT}/algorithm.txt"
-            log "INFO" "Set algorithm to N/A for $sec_mode mode"
-            
-            # Iterate through requested resources
-            for resource_item in "${RESOURCE_ARRAY[@]}"; do
-                # Parse resource to extract name and parameters
-                parsed=$(parse_resource "$resource_item")
-                resource=$(echo "$parsed" | cut -d';' -f1)
-                delay=$(echo "$parsed" | cut -d';' -f2)
-                
-                # Use ASYNC_DELAY if specified and no specific delay in resource
-                if [ "$resource" == "async" ] && [ -z "$delay" ] && [ -n "$ASYNC_DELAY" ]; then
-                    delay="$ASYNC_DELAY"
-                fi
-                
-                # Run appropriate tests based on resource type and selected scenarios
-                if [ "$resource" == "time" ]; then
-                    # Run scenarioA if selected
-                    if [[ "$SCENARIOS" == *"A"* ]]; then
-                        run_benchmark "$sec_mode" "$resource" "con" "" "$delay" "$iteration"
-                    fi
-                    
-                    # Run scenarioC if selected
-                    if [[ "$SCENARIOS" == *"C"* ]]; then
-                        run_benchmark "$sec_mode" "$resource" "non" "" "$delay" "$iteration"
-                    fi
-                elif [ "$resource" == "async" ] || [ "$resource" == "example_data" ]; then
-                    # Run scenarioB if selected
-                    if [[ "$SCENARIOS" == *"B"* ]]; then
-                        run_benchmark "$sec_mode" "$resource" "" "" "$delay" "$iteration"
-                    fi
-                else
-                    log "WARNING" "Unknown resource type: $resource, skipping"
-                fi
-            done
-            
-            log "SUCCESS" "Completed $sec_mode mode benchmarks (Iteration $iteration)"
+            run_scenarios_for_config "$sec_mode" "" "$iteration"
         fi
+        
+        log "SUCCESS" "Completed $sec_mode mode benchmarks (Iteration $iteration)"
     done
     
-    # Finalize this iteration's directory - always archive to raw/
+    # Finalize this iteration's directory
     log "SUCCESS" "Completed iteration $iteration of $ITERATIONS"
     finalize_iteration_directory $iteration
 done
