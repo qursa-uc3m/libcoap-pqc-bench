@@ -78,11 +78,13 @@ Generate a Pre-Shared Key for the simplest security mode.
 
 ### 5. Run a Benchmark
 
-Run a simple test with 5 clients using PSK security.
+Run a simple test with 5 clients using PSK security and recommended PQC scenarios.
 
 ```bash
-./libcoap-bench/run_benchmarks.sh -n 5 -security psk -resources time -y
+./libcoap-bench/run_benchmarks.sh -n 5 -security psk -scenarios A,C -y
 ```
+
+**Note**: The `-scenarios A,C` flag runs only Scenarios A and C, which are recommended for PQC evaluation as they focus on cryptographic performance. Scenario B has artificial delays that mask PQC overhead.
 
 **→ For detailed benchmark instructions, see [libcoap-bench/README.md](./libcoap-bench/README.md)**
 

@@ -59,6 +59,7 @@ RESOURCES="time,async"  # Default resources to test
 ASYNC_DELAY=""          # Optional delay parameter for async resource
 ITERATIONS=1            # Default to 1 iteration (no iteration mode)
 SESSION_ID=""           # Unique identifier for this benchmark session
+SCENARIOS="A,B,C"       # Default scenarios to run (A=time+con, B=async, C=time+non)
 
 # Algorithm configuration (new flags: -groups and -signatures)
 GROUPS_LIST="KYBER_LEVEL3"  # Default KEM group
@@ -100,6 +101,9 @@ show_help() {
     echo "  -resources RES        Resources to test (comma-separated: time,async or async?2,example_data)"
     echo "                        For async, you can specify delay with async?N where N is seconds"
     echo "  -async-delay SECONDS  Set delay for async resource (alternative to async?N syntax)"
+    echo "  -scenarios SCENARIOS  Scenarios to run (comma-separated: A,B,C or any combination)"
+    echo "                        A = time+con (handshake test), B = async (separate response),"
+    echo "                        C = time+non (observe mode). Default: A,B,C"
     echo "  -iterations N         Run each test configuration N times (enables iteration mode)"
     echo "  -groups GROUPS        Comma-separated list of KEM groups to test (default: KYBER_LEVEL3)"
     echo "                        Use 'all' for: KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5,P256_KYBER_LEVEL1,"
@@ -121,6 +125,7 @@ show_help() {
     echo "  $0 -n 15 -groups KYBER_LEVEL1,P256_KYBER_LEVEL1 -signatures all -security pki"
     echo "  $0 -n 20 -groups all -signatures DILITHIUM_LEVEL2,FALCON_LEVEL5 -iterations 5"
     echo "  $0 -n 30 -groups P256,P384,X25519 -signatures RSA_2048,EC_P256 -security pki"
+    echo "  $0 -n 10 -scenarios A,C -security pki -signatures DILITHIUM_LEVEL3"
     echo
 }
 
@@ -666,6 +671,10 @@ while [[ $# -gt 0 ]]; do
             ITERATIONS="$2"
             shift 2
             ;;
+        -scenarios)
+            SCENARIOS="$2"
+            shift 2
+            ;;
         -groups)
             if [ "$2" = "all" ]; then
                 GROUPS_LIST="$ALL_GROUPS"
@@ -743,6 +752,22 @@ if ! [[ "$ITERATIONS" =~ ^[0-9]+$ ]] || [ "$ITERATIONS" -lt 1 ]; then
     exit 1
 fi
 
+# Validate and normalize SCENARIOS
+if [ -n "$SCENARIOS" ]; then
+    # Convert to uppercase and remove spaces
+    SCENARIOS=$(echo "$SCENARIOS" | tr '[:lower:]' '[:upper:]' | tr -d ' ')
+    # Validate that only A, B, C are present
+    if ! [[ "$SCENARIOS" =~ ^[A-C,]+$ ]]; then
+        log "ERROR" "Invalid scenarios specified. Use comma-separated list of A, B, and/or C"
+        log "ERROR" "  A = time+con (handshake test)"
+        log "ERROR" "  B = async (separate response)"
+        log "ERROR" "  C = time+non (observe mode)"
+        exit 1
+    fi
+    # Remove duplicates and sort
+    SCENARIOS=$(echo "$SCENARIOS" | tr ',' '\n' | sort -u | tr '\n' ',' | sed 's/,$//')
+fi
+
 # Validate resources
 # Check if async?N format is used, and extract the delay parameter
 async_with_delay=$(echo "$RESOURCES" | grep -oE 'async\?[0-9]+')
@@ -781,6 +806,7 @@ log "INFO" "Local mode config: $LOCAL_MODE"
 log "INFO" "Parallelization mode: $PARALLELIZATION"
 log "INFO" "KEM groups to test: $GROUPS_LIST"
 log "INFO" "Signature filter: $SIGNATURES_LIST"
+log "INFO" "Scenarios to run: $SCENARIOS (A=time+con, B=async, C=time+non)"
 [ -n "$ASYNC_DELAY" ] && log "INFO" "Async delay parameter: $ASYNC_DELAY seconds"
 
 if [ -n "$CERT_CONFIGS_FILTER" ]; then
@@ -890,16 +916,22 @@ for ((iteration=1; iteration<=ITERATIONS; iteration++)); do
                             delay="$ASYNC_DELAY"
                         fi
                         
-                        # Run appropriate tests based on resource type
+                        # Run appropriate tests based on resource type and selected scenarios
                         if [ "$resource" == "time" ]; then
-                            # Run scenarioA 
-                            run_benchmark "$sec_mode" "$resource" "con" "$cert_config" "$delay" "$iteration"
+                            # Run scenarioA if selected
+                            if [[ "$SCENARIOS" == *"A"* ]]; then
+                                run_benchmark "$sec_mode" "$resource" "con" "$cert_config" "$delay" "$iteration"
+                            fi
                             
-                            # Run scenarioC 
-                            run_benchmark "$sec_mode" "$resource" "non" "$cert_config" "$delay" "$iteration"
+                            # Run scenarioC if selected
+                            if [[ "$SCENARIOS" == *"C"* ]]; then
+                                run_benchmark "$sec_mode" "$resource" "non" "$cert_config" "$delay" "$iteration"
+                            fi
                         elif [ "$resource" == "async" ] || [ "$resource" == "example_data" ]; then
-                            # Run scenarioB 
-                            run_benchmark "$sec_mode" "$resource" "" "$cert_config" "$delay" "$iteration"
+                            # Run scenarioB if selected
+                            if [[ "$SCENARIOS" == *"B"* ]]; then
+                                run_benchmark "$sec_mode" "$resource" "" "$cert_config" "$delay" "$iteration"
+                            fi
                         else
                             log "WARNING" "Unknown resource type: $resource, skipping"
                         fi
@@ -928,16 +960,22 @@ for ((iteration=1; iteration<=ITERATIONS; iteration++)); do
                     delay="$ASYNC_DELAY"
                 fi
                 
-                # Run appropriate tests based on resource type
+                # Run appropriate tests based on resource type and selected scenarios
                 if [ "$resource" == "time" ]; then
-                    # Run scenarioA 
-                    run_benchmark "$sec_mode" "$resource" "con" "" "$delay" "$iteration"
+                    # Run scenarioA if selected
+                    if [[ "$SCENARIOS" == *"A"* ]]; then
+                        run_benchmark "$sec_mode" "$resource" "con" "" "$delay" "$iteration"
+                    fi
                     
-                    # Run scenarioC 
-                    run_benchmark "$sec_mode" "$resource" "non" "" "$delay" "$iteration"
+                    # Run scenarioC if selected
+                    if [[ "$SCENARIOS" == *"C"* ]]; then
+                        run_benchmark "$sec_mode" "$resource" "non" "" "$delay" "$iteration"
+                    fi
                 elif [ "$resource" == "async" ] || [ "$resource" == "example_data" ]; then
-                    # Run scenarioB 
-                    run_benchmark "$sec_mode" "$resource" "" "" "$delay" "$iteration"
+                    # Run scenarioB if selected
+                    if [[ "$SCENARIOS" == *"B"* ]]; then
+                        run_benchmark "$sec_mode" "$resource" "" "" "$delay" "$iteration"
+                    fi
                 else
                     log "WARNING" "Unknown resource type: $resource, skipping"
                 fi

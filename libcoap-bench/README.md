@@ -60,36 +60,36 @@ From the repository root folder:
 ### Basic Examples
 
 ```bash
-# Simple benchmark (25 clients, PSK mode)
-./libcoap-bench/run_benchmarks.sh -n 25 -security psk -resources time -y
+# Simple benchmark (25 clients, PSK mode, scenarios A and C only - recommended for PQC)
+./libcoap-bench/run_benchmarks.sh -n 25 -security psk -scenarios A,C -y
 
 # Observer mode (60 seconds)
 ./libcoap-bench/run_benchmarks.sh -n 25 -s 60 -security psk -resources example_data -y
 
-# Parallel execution with energy monitoring
-./libcoap-bench/run_benchmarks.sh -n 25 -parallelization parallel -energy -security pki,psk,nosec -resources time -iterations 5 -y
+# Parallel execution with energy monitoring (PQC-focused scenarios)
+./libcoap-bench/run_benchmarks.sh -n 25 -parallelization parallel -energy -security pki,psk,nosec -scenarios A,C -iterations 5 -y
 ```
 
 ### Complete Benchmark Suite
 
-Run for each network condition:
+Run for each network condition (using recommended PQC scenarios):
 
 ```bash
 # 1. FIDUCIAL NETWORK
 sudo ./network_emulation/net_config.sh set fiducial
-./libcoap-bench/run_benchmarks.sh -n 25 -groups all -signatures all -parallelization parallel -security "pki,psk,nosec" -iterations 5 -energy -y
+./libcoap-bench/run_benchmarks.sh -n 25 -groups all -signatures all -parallelization parallel -security "pki,psk,nosec" -scenarios A,C -iterations 5 -energy -y
 
 # 2. SMART HOME NETWORK
 sudo ./network_emulation/net_config.sh set smart-home
-./libcoap-bench/run_benchmarks.sh -n 25 -groups all -signatures all -parallelization parallel -security "pki,psk,nosec" -iterations 5 -energy -y
+./libcoap-bench/run_benchmarks.sh -n 25 -groups all -signatures all -parallelization parallel -security "pki,psk,nosec" -scenarios A,C -iterations 5 -energy -y
 
 # 3. SMART FACTORY NETWORK
 sudo ./network_emulation/net_config.sh set smart-factory
-./libcoap-bench/run_benchmarks.sh -n 25 -groups all -signatures all -parallelization parallel -security "pki,psk,nosec" -iterations 5 -energy -y
+./libcoap-bench/run_benchmarks.sh -n 25 -groups all -signatures all -parallelization parallel -security "pki,psk,nosec" -scenarios A,C -iterations 5 -energy -y
 
 # 4. PUBLIC TRANSPORT NETWORK
 sudo ./network_emulation/net_config.sh set public-transport
-./libcoap-bench/run_benchmarks.sh -n 25 -groups all -signatures all -parallelization parallel -security "pki,psk,nosec" -iterations 5 -energy -y
+./libcoap-bench/run_benchmarks.sh -n 25 -groups all -signatures all -parallelization parallel -security "pki,psk,nosec" -scenarios A,C -iterations 5 -energy -y
 
 # Reset network after each set
 sudo ./network_emulation/net_config.sh reset
@@ -203,6 +203,7 @@ The benchmark supports three test scenarios with different CoAP message patterns
 - **Message Type**: Confirmable (CON)
 - **Pattern**: Client sends GET request → Server responds immediately
 - **Use Case**: Reliable communication with acknowledgments
+- **Recommended for**: **PQC handshake overhead measurement**
 
 ### Scenario B: Asynchronous/Observer Mode
 
@@ -214,7 +215,7 @@ The benchmark supports three test scenarios with different CoAP message patterns
 - **Observer Flag**: `-s TIME` sets observation duration in seconds
 - **Use Case**: Testing delayed responses and publish-subscribe patterns
 
-**Note**: The `async` resource has a built-in server-side delay of 4 seconds (configurable), so ScenarioB tests will inherently take longer than ScenarioA/C. This is intentional—it measures how PQC algorithms perform under asynchronous communication patterns.
+⚠️ **Important Note for PQC Benchmarking**: The `async` resource has a built-in server-side delay (default 4 seconds) and limited thread pool (3 threads), which causes significant queueing with multiple clients. This delay dominates the measurements and masks PQC cryptographic overhead. **For PQC evaluation, use Scenarios A and C instead.** Scenario B is primarily useful for testing server load and async protocol behavior, not for comparing cryptographic performance.
 
 ### Scenario C: Synchronous Request-Response (Non-Confirmable)
 
@@ -222,6 +223,24 @@ The benchmark supports three test scenarios with different CoAP message patterns
 - **Message Type**: Non-confirmable (NON)
 - **Pattern**: Client sends GET request → Server responds immediately (no ACK)
 - **Use Case**: Best-effort communication without acknowledgments
+- **Recommended for**: **PQC session maintenance and throughput measurement**
+
+### Selecting Scenarios
+
+By default, `run_benchmarks.sh` runs all three scenarios (A, B, C). You can control which scenarios to run using the `-scenarios` flag:
+
+```bash
+# Run only Scenarios A and C (recommended for PQC evaluation)
+./run_benchmarks.sh -n 10 -security pki -scenarios A,C
+
+# Run only Scenario A
+./run_benchmarks.sh -n 25 -security pki -scenarios A
+
+# Run all scenarios (default)
+./run_benchmarks.sh -n 10 -security pki -scenarios A,B,C
+```
+
+**Recommendation for PQC Benchmarking**: Use `-scenarios A,C` to focus on meaningful cryptographic performance metrics and avoid the artificial delays and queueing effects of Scenario B.
 
 ## Related Documentation
 
