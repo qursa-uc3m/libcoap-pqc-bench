@@ -185,6 +185,30 @@ show_current() {
     fi
 }
 
+# Function to get current scenario name (for scripting/automation)
+# Returns: fiducial, smart-factory, smart-home, public-transport, or unknown
+get_current_scenario() {
+    local iface=$(get_interface)
+    local result=$(exec_cmd "tc qdisc show dev ${iface}" 2>&1)
+    
+    if echo "$result" | grep -q "netem"; then
+        local delay=$(echo "$result" | grep -oP 'delay \K[0-9.]+' | head -1)
+        local loss=$(echo "$result" | grep -oP 'loss \K[0-9.]+' | head -1)
+        
+        if [[ "$delay" == "20"* ]] && [[ "$loss" == "1"* ]]; then
+            echo "smart-factory"
+        elif [[ "$delay" == "5"* ]] && [[ "$loss" == "0.1"* ]]; then
+            echo "smart-home"
+        elif [[ "$delay" == "50"* ]] && [[ "$loss" == "2"* ]]; then
+            echo "public-transport"
+        else
+            echo "unknown"
+        fi
+    else
+        echo "fiducial"
+    fi
+}
+
 # Function to reset to original configuration
 reset_config() {
     local iface=$(get_interface)
@@ -306,7 +330,7 @@ while [[ $# -gt 0 ]]; do
             usage
             exit 0
             ;;
-        show|test|reset)
+        show|test|reset|get-current)
             COMMAND="$1"
             shift
             ;;
@@ -346,6 +370,11 @@ case "$COMMAND" in
         if test_connection; then
             show_current
         fi
+        ;;
+    
+    "get-current")
+        # Silent mode - just output the scenario name for scripting
+        get_current_scenario
         ;;
         
     "reset")

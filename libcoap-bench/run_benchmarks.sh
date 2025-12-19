@@ -6,10 +6,10 @@
 # ==============================================
 
 # Script directory and repository root
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+BENCHMARK_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$BENCHMARK_SCRIPT_DIR")"
 
-# Source certificate configuration
+# Source certificate configuration (note: this will overwrite SCRIPT_DIR, so we use BENCHMARK_SCRIPT_DIR)
 source "${REPO_ROOT}/certs/config_certs.sh"
 
 # Load environment configuration
@@ -60,6 +60,7 @@ ASYNC_DELAY=""          # Optional delay parameter for async resource
 ITERATIONS=1            # Default to 1 iteration (no iteration mode)
 SESSION_ID=""           # Unique identifier for this benchmark session
 SCENARIOS="A,B,C"       # Default scenarios to run (A=time+con, B=async, C=time+non)
+NETWORK_CONDITION=""    # Network condition label for data organization
 
 # Algorithm configuration (new flags: -groups and -signatures)
 GROUPS_LIST="KYBER_LEVEL3"  # Default KEM group
@@ -69,10 +70,11 @@ SIGNATURES_LIST="DILITHIUM_LEVEL3"  # Default signature algorithm
 ALL_GROUPS="KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5,P256_KYBER_LEVEL1,P384_KYBER_LEVEL3,P521_KYBER_LEVEL5,P256,P384,P521,X25519"
 ALL_SIGNATURES="RSA_2048,EC_P256,EC_ED25519,DILITHIUM_LEVEL2,DILITHIUM_LEVEL3,DILITHIUM_LEVEL5,FALCON_LEVEL1,FALCON_LEVEL5"
 
-# Benchmark data directories - all data stored under data/
-DATA_BASE="${SCRIPT_DIR}/data"
+# Benchmark data directories - all data stored under libcoap-bench/data/
+DATA_BASE="${BENCHMARK_SCRIPT_DIR}/data"
 RAW_DATA_DIR="${DATA_BASE}/raw"
 BENCH_DATA_DIR="${DATA_BASE}/current"
+export BENCH_DATA_DIR  # Export so coap_benchmark.sh can see it
 
 # ==============================================
 # Function declarations
@@ -105,6 +107,8 @@ show_help() {
     echo "                        A = time+con (handshake test), B = async (separate response),"
     echo "                        C = time+non (observe mode). Default: A,B,C"
     echo "  -iterations N         Run each test configuration N times (enables iteration mode)"
+    echo "  -network CONDITION    Network condition label (e.g., fiducial, smart-home, smart-factory, public-transport)"
+    echo "                        REQUIRED: This label is used in the session ID to identify data"
     echo "  -groups GROUPS        Comma-separated list of KEM groups to test (default: KYBER_LEVEL3)"
     echo "                        Use 'all' for: KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5,P256_KYBER_LEVEL1,"
     echo "                                       P384_KYBER_LEVEL3,P521_KYBER_LEVEL5,P256,P384,P521,X25519"
@@ -387,10 +391,10 @@ organize_energy_data() {
     fi
 }
 
-# Finalize an iteration by renaming the directory
+# Finalize an iteration by moving data to the session's iteration folder
 finalize_iteration_directory() {
     local iteration=$1
-    local target_dir="${RAW_DATA_DIR}/${SESSION_ID}-${iteration}"
+    local target_dir="${SESSION_DIR}/iter_${iteration}"
 
     # First organize energy data into subdirectory
     if [ "$MEASURE_ENERGY" == "true" ]; then
@@ -401,14 +405,19 @@ finalize_iteration_directory() {
     # If data/current exists and has content, move it to the iteration-specific directory
     if [ -d "$BENCH_DATA_DIR" ] && [ "$(ls -A $BENCH_DATA_DIR)" ]; then
         log "INFO" "Moving iteration ${iteration} data to ${target_dir}"
-        mv "$BENCH_DATA_DIR" "$target_dir"
+        mkdir -p "$target_dir"
+        # Move all contents from current to iter_N folder
+        mv "$BENCH_DATA_DIR"/* "$target_dir/" 2>/dev/null || true
+        # Also move hidden files if any
+        mv "$BENCH_DATA_DIR"/.[!.]* "$target_dir/" 2>/dev/null || true
     else
         log "WARNING" "No data found in ${BENCH_DATA_DIR} for iteration ${iteration}"
         # Create empty directory as placeholder
         mkdir -p "$target_dir"
     fi
     
-    # Create a fresh empty data/current directory for the next iteration or future use
+    # Clean up data/current for the next iteration
+    rm -rf "$BENCH_DATA_DIR"/*
     mkdir -p "$BENCH_DATA_DIR"
 }
 
@@ -642,15 +651,23 @@ create_iteration_summary() {
     local summary_file="${DATA_BASE}/sessions.txt"
     
     echo "Session: ${SESSION_ID}" >> "$summary_file"
+    echo "Network Condition: ${NETWORK_CONDITION}" >> "$summary_file"
     echo "Timestamp: $(date)" >> "$summary_file"
     echo "Iterations: ${ITERATIONS}" >> "$summary_file"
-    echo "Directories:" >> "$summary_file"
+    echo "Directory: raw/${SESSION_ID}/" >> "$summary_file"
+    echo "Iteration folders:" >> "$summary_file"
     for ((i=1; i<=ITERATIONS; i++)); do
-        echo "  - raw/${SESSION_ID}-${i}" >> "$summary_file"
+        echo "  - iter_${i}/" >> "$summary_file"
     done
     echo "-------------------------------------" >> "$summary_file"
     
     log "INFO" "Created session summary in ${summary_file}"
+    
+    # Also update session metadata with end time
+    if [ -f "$METADATA_FILE" ]; then
+        echo "End Time: $(date -Iseconds)" >> "$METADATA_FILE"
+        echo "Total Iterations Completed: $ITERATIONS" >> "$METADATA_FILE"
+    fi
 }
 
 # ==============================================
@@ -706,6 +723,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -iterations)
             ITERATIONS="$2"
+            shift 2
+            ;;
+        -network)
+            NETWORK_CONDITION="$2"
             shift 2
             ;;
         -scenarios)
@@ -913,9 +934,50 @@ if [[ "$SECURITY_MODES" == *"pki"* ]]; then
 fi
 
 # Generate one session ID for the entire benchmark run
+# Auto-detect network condition from net_config.sh
+NET_CONFIG_SCRIPT="${REPO_ROOT}/network_emulation/net_config.sh"
+if [ -x "$NET_CONFIG_SCRIPT" ]; then
+    NETWORK_CONDITION=$("$NET_CONFIG_SCRIPT" get-current 2>/dev/null)
+    if [ -z "$NETWORK_CONDITION" ] || [ "$NETWORK_CONDITION" == "unknown" ]; then
+        log "WARNING" "Could not detect network condition, defaulting to 'fiducial'"
+        NETWORK_CONDITION="fiducial"
+    fi
+else
+    log "WARNING" "Network config script not found, defaulting to 'fiducial'"
+    NETWORK_CONDITION="fiducial"
+fi
+
+# Generate session ID: local_MMDD_NETCOND_RANDOM
+# Folder structure: raw/local_1219_fiducial_ab/iter_1/, iter_2/, etc.
 RANDOM_STR=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 2 | head -n 1)
-SESSION_ID="$([ "$RASP_SERVER" == "true" ] && echo "rasp" || echo "local")_$(date +%m%d)_${RANDOM_STR}"
+SESSION_PREFIX="$([ "$RASP_SERVER" == "true" ] && echo "rasp" || echo "local")"
+SESSION_ID="${SESSION_PREFIX}_$(date +%m%d)_${NETWORK_CONDITION}_${RANDOM_STR}"
+SESSION_DIR="${RAW_DATA_DIR}/${SESSION_ID}"
+
 log "INFO" "Session ID: $SESSION_ID"
+log "INFO" "Network condition: $NETWORK_CONDITION (auto-detected)"
+log "INFO" "Session directory: $SESSION_DIR"
+
+# Create session directory structure
+mkdir -p "$SESSION_DIR"
+
+# Create metadata file for this session
+METADATA_FILE="${SESSION_DIR}/session_metadata.txt"
+{
+    echo "Session ID: $SESSION_ID"
+    echo "Network Condition: $NETWORK_CONDITION"
+    echo "Start Time: $(date -Iseconds)"
+    echo "Number of Clients: $NUM_CLIENTS"
+    echo "Security Modes: $SECURITY_MODES"
+    echo "Scenarios: $SCENARIOS"
+    echo "Iterations: $ITERATIONS"
+    echo "Groups: $GROUPS_LIST"
+    echo "Signatures: $SIGNATURES_LIST"
+    echo "Parallelization: $PARALLELIZATION_MODE"
+    echo "Energy Measurement: $MEASURE_ENERGY"
+    echo "RASP Server: $RASP_SERVER"
+} > "$METADATA_FILE"
+log "INFO" "Session metadata saved to: $METADATA_FILE"
 
 # Iterate through each iteration
 for ((iteration=1; iteration<=ITERATIONS; iteration++)); do
@@ -971,12 +1033,15 @@ SECONDS=$((BENCHMARK_DURATION % 60))
 log "HEADER" "Benchmark Suite Completed"
 log "SUCCESS" "Total duration: ${HOURS}h ${MINUTES}m ${SECONDS}s"
 
-# Create summary report for the last algorithm (or single algorithm run)
-create_summary_report
-
+# Create summary report (skip detailed summary for multi-iteration runs)
 if [ $ITERATIONS -gt 1 ]; then
-    log "INFO" "Multiple iterations completed. Results stored in algorithm-specific directories."
-    log "INFO" "Use bench-data-manager.py --aggregate --session <SESSION_ID> to aggregate results across iterations."
+    log "INFO" "Multiple iterations completed. Results stored in: ${SESSION_DIR}/"
+    log "INFO" "  - Iterations: iter_1/ through iter_${ITERATIONS}/"
+    log "INFO" "Session metadata available at: ${SESSION_DIR}/session_metadata.txt"
+    log "INFO" "Use bench-data-manager.py --aggregate --session ${SESSION_ID} to aggregate results across iterations."
+else
+    # Single iteration - create detailed summary
+    create_summary_report
 fi
 
 log "SUCCESS" "All benchmarks completed successfully!"

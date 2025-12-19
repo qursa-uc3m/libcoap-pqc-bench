@@ -63,19 +63,29 @@ chmod +x plots_wrapper.sh
 ### Directory Structure
 
 **Benchmark data location:** `libcoap-bench/data/`
-```
+
+```text
 libcoap-bench/data/
-├── raw/                          # Raw iteration data
-│   ├── local_1205_w7-1/
-│   └── ...
-├── aggregated/                   # Aggregated statistics
-│   └── local_1205_w7/
+├── current/                      # Temporary working directory
+├── raw/                          # Raw iteration data (organized by session)
+│   └── local_1219_fiducial_x7/   # Session folder (local_MMDD_NETWORK_RANDOM)
+│       ├── session_metadata.txt  # Session metadata
+│       ├── iter_1/               # Iteration 1 data
+│       ├── iter_2/               # Iteration 2 data
+│       └── ...
+├── aggregated/                   # Aggregated statistics (one folder per session)
+│   └── local_1219_fiducial_x7/
 │       └── *.csv
 ├── plots/                        # Generated plots
-│   └── local_1205_w7/
+│   └── local_1219_fiducial_x7/
 ├── summaries/                    # Session summaries
-└── sessions.txt                  # Session tracking
+│   └── summary_local_1219_fiducial_x7.txt
+└── sessions.txt                  # Session tracking log
 ```
+
+**Session ID Format:** `{prefix}_{MMDD}_{network}_{random}`
+
+- Example: `local_1219_fiducial_x7` = Local server, December 19, fiducial network
 
 ## 📖 Usage Guide
 

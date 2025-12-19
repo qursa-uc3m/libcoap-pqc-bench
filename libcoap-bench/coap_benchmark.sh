@@ -633,9 +633,11 @@ process_results() {
     
     # Clean up temporary files
     echo "Cleaning up temporary files..."
-    if [ -f "${DATA_DIR}/udp_conversations.pcapng" ]; then
-        sudo rm "${DATA_DIR}/udp_conversations.pcapng"
-    fi
+    # Keep pcapng files for analysis - they will be moved to iteration folders
+    # Uncomment the following lines if you want to delete pcap files to save space:
+    # if [ -f "${DATA_DIR}/udp_conversations.pcapng" ]; then
+    #     sudo rm "${DATA_DIR}/udp_conversations.pcapng"
+    # fi
 }
 
 # Function to execute client commands

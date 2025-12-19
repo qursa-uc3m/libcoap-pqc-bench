@@ -735,7 +735,54 @@ class BenchmarkDataManager:
             print(f"Error merging energy data: {e}")
             return False
     
-    def aggregate_iterations(self, session_id: str, iterations: int, 
+    def detect_iterations(self, session_id: str, data_dir: str = None) -> int:
+        """
+        Auto-detect the number of iterations for a session.
+        
+        Searches for iteration directories in both new format (session_id/iter_N)
+        and old format (session_id-N).
+        
+        Args:
+            session_id: The session ID to search for
+            data_dir: Base directory containing iteration data
+            
+        Returns:
+            Number of iterations found, or 0 if none found
+        """
+        base_data_dir = data_dir or os.getcwd()
+        raw_dir = os.path.join(base_data_dir, "raw") if os.path.isdir(os.path.join(base_data_dir, "raw")) else base_data_dir
+        
+        iterations = 0
+        
+        # Try new format first: raw/{session_id}/iter_N/
+        session_dir = os.path.join(raw_dir, session_id)
+        if os.path.isdir(session_dir):
+            iter_dirs = glob.glob(os.path.join(session_dir, "iter_*"))
+            if iter_dirs:
+                # Extract iteration numbers and find max
+                for iter_dir in iter_dirs:
+                    try:
+                        iter_num = int(os.path.basename(iter_dir).replace("iter_", ""))
+                        iterations = max(iterations, iter_num)
+                    except ValueError:
+                        pass
+                print(f"Found {iterations} iterations in new format: {session_dir}/iter_N/")
+                return iterations
+        
+        # Fall back to old format: raw/{session_id}-N/
+        old_format_dirs = glob.glob(os.path.join(raw_dir, f"{session_id}-*"))
+        if old_format_dirs:
+            for dir_path in old_format_dirs:
+                try:
+                    iter_num = int(os.path.basename(dir_path).split("-")[-1])
+                    iterations = max(iterations, iter_num)
+                except ValueError:
+                    pass
+            print(f"Found {iterations} iterations in old format: {raw_dir}/{session_id}-N/")
+        
+        return iterations
+    
+    def aggregate_iterations(self, session_id: str, iterations: int = None, 
                         data_dir: str = None, output_dir: str = None) -> bool:
         """
         Aggregate metrics across multiple iterations of the same benchmark.
@@ -745,7 +792,7 @@ class BenchmarkDataManager:
         
         Args:
             session_id: Unique identifier for the benchmark session
-            iterations: Number of iterations to aggregate
+            iterations: Number of iterations to aggregate (auto-detected if None)
             data_dir: Base directory containing iteration data (default: current working directory)
             output_dir: Directory for output files (default: bench-data-agg-{session_id})
             
@@ -753,6 +800,14 @@ class BenchmarkDataManager:
             Boolean indicating success or failure
         """
         base_data_dir = data_dir or os.getcwd()
+        
+        # Auto-detect iterations if not provided
+        if iterations is None:
+            iterations = self.detect_iterations(session_id, base_data_dir)
+            if iterations == 0:
+                print(f"Error: Could not find any iterations for session {session_id}")
+                return False
+            print(f"Auto-detected {iterations} iterations for session {session_id}")
         
         # Determine input (raw) and output (aggregated) directories
         raw_dir = os.path.join(base_data_dir, "raw") if os.path.isdir(os.path.join(base_data_dir, "raw")) else base_data_dir
@@ -764,14 +819,22 @@ class BenchmarkDataManager:
         
         # Dictionary to store files grouped by name
         all_files = {}
-        iterations_found =[]
+        iterations_found = []
         
         # Find and group files from each iteration
+        # Support both new format (session_id/iter_N/) and old format (session_id-N/)
         for i in range(1, iterations + 1):
-            iteration_dir = os.path.join(raw_dir, f"{session_id}-{i}")
+            # Try new format first: raw/{session_id}/iter_{N}/
+            iteration_dir = os.path.join(raw_dir, session_id, f"iter_{i}")
+            
+            # Fall back to old format: raw/{session_id}-{N}/
+            if not os.path.exists(iteration_dir):
+                iteration_dir = os.path.join(raw_dir, f"{session_id}-{i}")
             
             if not os.path.exists(iteration_dir):
-                print(f"Warning: Iteration directory {iteration_dir} not found")
+                print(f"Warning: Iteration directory not found for iteration {i}")
+                print(f"  Tried: {os.path.join(raw_dir, session_id, f'iter_{i}')}")
+                print(f"  Tried: {os.path.join(raw_dir, f'{session_id}-{i}')}")
                 continue
             
             iterations_found.append(i)
@@ -1127,11 +1190,12 @@ def process_command(args):
     
     elif args.command == 'aggregate':
         # Aggregate metrics across iterations
-        if not args.session_id or not args.iterations:
-            print("Error: Both --session-id and --iterations are required for aggregate command")
+        if not args.session_id:
+            print("Error: --session-id is required for aggregate command")
             return 1
         
-        print(f"Aggregating metrics for session {args.session_id} across {args.iterations} iterations")
+        iterations_msg = f" across {args.iterations} iterations" if args.iterations else " (auto-detecting iterations)"
+        print(f"Aggregating metrics for session {args.session_id}{iterations_msg}")
         manager.aggregate_iterations(
             session_id=args.session_id,
             iterations=args.iterations,
@@ -1202,7 +1266,7 @@ def main():
         parents=[base_parser]
     )
     aggregate_parser.add_argument("--session-id", required=True, help="Benchmark session ID")
-    aggregate_parser.add_argument("--iterations", type=int, required=True, help="Number of iterations")
+    aggregate_parser.add_argument("--iterations", type=int, help="Number of iterations (auto-detected if not specified)")
     
     args = parser.parse_args()
     

@@ -102,8 +102,11 @@ sudo ./network_emulation/net_config.sh reset
 ```bash
 cd libcoap-bench/data
 
-# Aggregate specific session (replace SESSION_ID, e.g., local_1205_w7)
-python3 ../bench-data-manager.py aggregate --data-dir . --session-id SESSION_ID --iterations 5
+# Aggregate specific session (auto-detects iterations)
+python3 ../bench-data-manager.py aggregate --data-dir . --session-id local_1219_fiducial_x7
+
+# Or specify iterations explicitly
+python3 ../bench-data-manager.py aggregate --data-dir . --session-id local_1219_fiducial_x7 --iterations 5
 ```
 
 This creates `aggregated/<SESSION_ID>/` with aggregated metrics.
@@ -115,36 +118,53 @@ cd libcoap-plots
 
 # Single session scatter plot
 python3 bench-data-plots.py "duration" 1 --scatter --scenarios A \
-    --data-dir ../libcoap-bench/data --custom-suffix "SESSION_ID" --p "parallel"
+    --data-dir ../libcoap-bench/data --custom-suffix "local_1219_fiducial_x7" --p "parallel"
 
 # Bar plot comparing scenarios
 python3 bench-data-plots.py "Energy (Wh)" 1 --barplot --scenarios A,C \
-    --data-dir ../libcoap-bench/data --custom-suffix "SESSION_ID"
+    --data-dir ../libcoap-bench/data --custom-suffix "local_1219_fiducial_x7"
 
 # Or use the wrapper script
-./plots_wrapper.sh "duration,Energy (Wh)" scatter A --session SESSION_ID
+./plots_wrapper.sh "duration,Energy (Wh)" scatter A --session local_1219_fiducial_x7
 ```
 
 See [libcoap-plots/README.md](../libcoap-plots/README.md) for all visualization options.
 
 ## Data Organization
 
+The benchmark creates a hierarchical folder structure with clear session identification:
+
 ```text
 libcoap-bench/data/
-├── raw/                      # Raw iteration data
-│   ├── local_1205_w7-1/
-│   ├── local_1205_w7-2/
-│   └── ...
-├── aggregated/               # Aggregated statistics
-│   └── local_1205_w7/
-│       ├── iterations/       # Original raw data moved here
-│       └── *.csv
+├── current/                  # Temporary working directory
+├── raw/                      # Raw iteration data (organized by session)
+│   └── local_1219_fiducial_x7/     # Session folder (local_MMDD_NETWORK_RANDOM)
+│       ├── session_metadata.txt    # Session metadata (parameters, times, etc.)
+│       ├── iter_1/                 # Iteration 1 data
+│       │   ├── *.csv               # Benchmark results
+│       │   └── energy-data/        # Energy measurements (if enabled)
+│       ├── iter_2/                 # Iteration 2 data
+│       └── ...
+├── aggregated/               # Aggregated statistics (one folder per session)
+│   └── local_1219_fiducial_x7/
+│       └── *.csv             # Aggregated metrics across iterations
 ├── plots/                    # Generated plots
-│   └── local_1205_w7/
+│   └── local_1219_fiducial_x7/
 ├── summaries/                # Session summaries
-│   └── summary_local_1205_w7.txt
-└── sessions.txt              # Session tracking
+│   └── summary_local_1219_fiducial_x7.txt
+└── sessions.txt              # Session tracking log
 ```
+
+### Session ID Format
+
+The session ID follows the pattern: `{prefix}_{MMDD}_{network}_{random}`
+
+- **prefix**: `local` or `rasp` (based on server mode)
+- **MMDD**: Month and day of the benchmark
+- **network**: Network condition (fiducial, smart-home, smart-factory, public-transport)
+- **random**: 2-character random string for uniqueness
+
+Example: `local_1219_fiducial_x7` = Local server, December 19, fiducial network
 
 ## Troubleshooting
 
@@ -187,6 +207,8 @@ Options:
   -parallelization MODE background or parallel
   -energy               Enable energy measurements
   -rasp                 Server runs on Raspberry Pi
+  -network CONDITION    Network condition label (auto-detected from net_config.sh)
+                        Values: fiducial, smart-home, smart-factory, public-transport
   -cert-filter PATTERN  [DEPRECATED] Use -signatures instead
   -client-auth yes|no   Enable client certificate auth (PKI mode)
   -y                    Skip confirmation prompts
