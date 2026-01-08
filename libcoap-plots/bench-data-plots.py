@@ -586,7 +586,7 @@ def setup_output_dirs(data_dir, custom_suffix=None):
     Setup input and output directories based on custom suffix.
     
     Args:
-        data_dir (str): Base directory for data (e.g., libcoap-bench/data).
+        data_dir (str): Base directory for data (e.g., benchmark/data).
         custom_suffix (str or None): Session ID for data and plot directories.
         
     Returns:
@@ -601,7 +601,7 @@ def setup_output_dirs(data_dir, custom_suffix=None):
     
     return data_dir_, plots_dir
 
-def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='../libcoap-bench/data', custom_suffix=None, target_unit=None, filtering=False):
+def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='../benchmark/data', custom_suffix=None, target_unit=None, filtering=False):
     """
     Create scatter plots for the specified metric and algorithms under different security modes.
     
@@ -846,7 +846,7 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
     print(f"Plot saved to {output_file}")
     plt.show()
 
-def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp=False, s=None, p=None, data_dir='../libcoap-bench/data', custom_suffix=None, target_unit=None, filtering=False):
+def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp=False, s=None, p=None, data_dir='../benchmark/data', custom_suffix=None, target_unit=None, filtering=False):
     """
     Create bar plot for the specified metric and algorithms under different security modes and scenarios.
 
@@ -1121,7 +1121,7 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
     print(f"Plot saved to {output_file}")
     plt.show()
     
-def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='../libcoap-bench/data', custom_suffix=None, target_unit=None, filtering=False):
+def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='../benchmark/data', custom_suffix=None, target_unit=None, filtering=False):
     """
     Create a heat map visualization of a metric across algorithms and certificate types.
     
@@ -1262,7 +1262,7 @@ def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     print(f"Plot saved to {output_file}")
     plt.show()
     
-def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='../libcoap-bench/data', custom_suffix=None, target_unit=None, log_scale=True, filtering=False):
+def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='../benchmark/data', custom_suffix=None, target_unit=None, log_scale=True, filtering=False):
     """
     Create box plots to visualize variability in metrics across configurations.
     MODIFIED: Now correctly extracts iteration summary statistics (5 points per config)
@@ -1727,7 +1727,7 @@ def analyze_and_save_outliers(box_data, metric_name, scenario, plots_dir, n=None
     
     return outlier_summary
     
-def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='../libcoap-bench/data', custom_suffix=None, target_unit=None, filtering=False):
+def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='../benchmark/data', custom_suffix=None, target_unit=None, filtering=False):
     """
     Create candlestick-style plots for discrete metrics showing min-max range with mode.
     Improved version with:
@@ -2082,7 +2082,7 @@ def parse_args():
     parser.add_argument('--s', type=int, help='Optional s parameter')
     parser.add_argument('--p', help='Optional p parameter (parallelization mode)')
     parser.add_argument('--filtered', action='store_true', help='Use filtered dataset (reduced outliers)')
-    parser.add_argument('--data-dir', default='../libcoap-bench/data', help='Directory containing the data files')
+    parser.add_argument('--data-dir', default='../benchmark/data', help='Directory containing the data files')
     parser.add_argument('--custom-suffix', help='Suffix for data and plot directories')
     
     # Parse arguments
