@@ -138,7 +138,7 @@ sudo ./network_emulation/net_config.sh reset
 ### Aggregate Data from Iterations
 
 ```bash
-cd libcoap-bench/data
+cd benchmark/data
 
 # Aggregate specific session (auto-detects iterations)
 python3 ../bench-data-manager.py aggregate --data-dir . --session-id local_1219_fiducial_x7
@@ -173,7 +173,7 @@ See [libcoap-plots/README.md](../libcoap-plots/README.md) for all visualization 
 The benchmark creates a hierarchical folder structure with clear session identification:
 
 ```text
-libcoap-bench/data/
+benchmark/data/
 ├── current/                  # Temporary working directory
 ├── raw/                      # Raw iteration data (organized by session)
 │   └── local_1219_fiducial_x7/     # Session folder (local_MMDD_NETWORK_RANDOM)
@@ -217,7 +217,7 @@ sudo ./network_emulation/net_config.sh test
 pgrep -f 'libcoap' | xargs -r kill -9
 
 # Check energy monitor
-python3 libcoap-bench/energy_monitor.py --backend codecarbon --list-devices
+python3 benchmark/energy_monitor.py --backend codecarbon --list-devices
 ```
 
 ## Command Reference
