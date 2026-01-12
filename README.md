@@ -120,10 +120,14 @@ Run a simple CoAP test with 5 clients using PSK security and recommended PQC sce
 Run a simple MQTT-SN test with 5 clients using PKI security.
 
 ```bash
-./benchmark/run_benchmarks.sh -protocol mqttsn -n 5 -security pki -scenarios A,C -y
+./benchmark/run_benchmarks.sh -protocol mqttsn -n 5 -security pki -scenarios pub -y
 ```
 
-**Note**: The `-scenarios A,C` flag runs only Scenarios A and C, which are recommended for PQC evaluation as they focus on cryptographic performance. Scenario B has artificial delays that mask PQC overhead.
+**Note**: Each protocol has different scenarios:
+- **CoAP**: `A,B,C` (A=time+con, B=async, C=time+non)
+- **MQTT-SN**: `pub,sub` (pub=publisher, sub=subscriber)
+
+The `-scenarios A,C` flag for CoAP runs only Scenarios A and C, which focus on cryptographic performance. For MQTT-SN, use `-scenarios pub` or `-scenarios pub,sub`.
 
 **→ For detailed benchmark instructions, see [benchmark/README.md](./benchmark/README.md)**
 

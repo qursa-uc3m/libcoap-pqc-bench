@@ -12,7 +12,7 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
 GATEWAY_REPO="https://github.com/qursa-uc3m/paho.mqtt-sn.embedded-c.wolfssl-pq.git"
 GATEWAY_DIR="${REPO_ROOT}/paho-mqttsn-gateway"
-GATEWAY_BRANCH="main"
+GATEWAY_BRANCH="master"
 
 # Transport mode: dtls (default) or udp for nosec
 TRANSPORT="${1:-dtls}"
@@ -48,30 +48,42 @@ else
     git pull origin "$GATEWAY_BRANCH"
 fi
 
-cd "$GATEWAY_DIR/MQTTSNGateway"
+cd "$GATEWAY_DIR"
 
 # Build the gateway
 echo "Building MQTT-SN Gateway with ${TRANSPORT} transport..."
 
 # Clean previous builds
-rm -rf build.gateway bin/ 2>/dev/null || true
-mkdir -p bin
+rm -rf build.gateway MQTTSNGateway/bin/* 2>/dev/null || true
+mkdir -p MQTTSNGateway/bin
+mkdir -p build.gateway
+cd build.gateway
 
-# Use the gateway's build script
+# Use cmake directly (the build.sh script has issues with parameter passing)
 if [ "$TRANSPORT" == "dtls" ]; then
-    ./build.sh dtls "" "" wolfssl
+    cmake .. -DSENSORNET=dtls -DSSL_LIB=wolfssl
 elif [ "$TRANSPORT" == "udp" ]; then
-    ./build.sh udp
+    cmake .. -DSENSORNET=udp
 else
     echo -e "${RED}Unknown transport: ${TRANSPORT}${NC}"
     echo "Valid options: dtls, udp"
     exit 1
 fi
 
-# Copy binaries to bin directory
-cp build.gateway/MQTT-SNGateway bin/ 2>/dev/null || true
-cp build.gateway/MQTT-SNLogmonitor bin/ 2>/dev/null || true
-cp *.conf bin/ 2>/dev/null || true
+# Build all targets
+make -j$(nproc)
+
+# Copy our custom config templates (with dynamic certificate placeholders)
+CONFIG_TEMPLATES_DIR="${REPO_ROOT}/benchmark/mqttsn-gateway-config"
+if [ -d "$CONFIG_TEMPLATES_DIR" ]; then
+    echo "Copying custom gateway configuration templates..."
+    cp "${CONFIG_TEMPLATES_DIR}/gateway.conf" "${GATEWAY_DIR}/MQTTSNGateway/bin/" 2>/dev/null || true
+    cp "${CONFIG_TEMPLATES_DIR}/clients.conf" "${GATEWAY_DIR}/MQTTSNGateway/bin/" 2>/dev/null || true
+else
+    # Fallback to original config files
+    cd "$GATEWAY_DIR/MQTTSNGateway"
+    cp *.conf bin/ 2>/dev/null || true
+fi
 
 echo -e "${GREEN}MQTT-SN Gateway built successfully.${NC}"
 echo "Binaries located in: ${GATEWAY_DIR}/MQTTSNGateway/bin/"
@@ -79,3 +91,4 @@ echo ""
 echo "To run the gateway:"
 echo "  cd ${GATEWAY_DIR}/MQTTSNGateway/bin"
 echo "  ./MQTT-SNGateway"
+

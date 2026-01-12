@@ -61,7 +61,7 @@ RESOURCES="time,async"  # Default resources to test
 ASYNC_DELAY=""          # Optional delay parameter for async resource
 ITERATIONS=1            # Default to 1 iteration (no iteration mode)
 SESSION_ID=""           # Unique identifier for this benchmark session
-SCENARIOS="A,B,C"       # Default scenarios to run (A=time+con, B=async, C=time+non)
+SCENARIOS="A,B,C"       # Default scenarios: A,B,C for CoAP; pub,sub for MQTT-SN
 NETWORK_CONDITION=""    # Network condition label for data organization
 
 # Algorithm configuration (new flags: -groups and -signatures)
@@ -111,9 +111,10 @@ show_help() {
     echo "  -resources RES        Resources to test (comma-separated: time,async or async?2,example_data)"
     echo "                        For async, you can specify delay with async?N where N is seconds"
     echo "  -async-delay SECONDS  Set delay for async resource (alternative to async?N syntax)"
-    echo "  -scenarios SCENARIOS  Scenarios to run (comma-separated: A,B,C or any combination)"
-    echo "                        A = time+con (handshake test), B = async (separate response),"
-    echo "                        C = time+non (observe mode). Default: A,B,C"
+    echo "  -scenarios SCENARIOS  Scenarios to run (comma-separated):"
+    echo "                        CoAP: A,B,C (A=time+con, B=async, C=time+non)"
+    echo "                        MQTT-SN: pub,sub (pub=publisher, sub=subscriber)"
+    echo "                        Default: A,B,C (CoAP) or pub (MQTT-SN)"
     echo "  -iterations N         Run each test configuration N times (enables iteration mode)"
     echo "  -network CONDITION    Network condition label (e.g., fiducial, smart-home, smart-factory, public-transport)"
     echo "                        REQUIRED: This label is used in the session ID to identify data"
@@ -133,8 +134,8 @@ show_help() {
     echo "  $0 -n 20 -signatures DILITHIUM_LEVEL3,FALCON_LEVEL1 -security pki,psk -energy"
     echo
     echo "MQTT-SN Examples:"
-    echo "  $0 -n 100 -protocol mqttsn -security pki"
-    echo "  $0 -n 50 -protocol mqttsn -groups KYBER_LEVEL3 -signatures DILITHIUM_LEVEL3"
+    echo "  $0 -n 100 -protocol mqttsn -security pki -scenarios pub"
+    echo "  $0 -n 50 -protocol mqttsn -scenarios pub,sub -groups KYBER_LEVEL3"
     echo
 }
 
@@ -351,6 +352,15 @@ run_scenarios_for_config() {
     local cert_config="$2"
     local iteration="$3"
     
+    # MQTT-SN uses different scenarios (pub, sub) than CoAP (A, B, C)
+    if [ "$PROTOCOL" == "mqttsn" ]; then
+        # MQTT-SN scenarios: pub and sub
+        [[ "$SCENARIOS" == *"pub"* ]] && run_benchmark "$sec_mode" "pub" "" "$cert_config" "" "$iteration"
+        [[ "$SCENARIOS" == *"sub"* ]] && run_benchmark "$sec_mode" "sub" "" "$cert_config" "" "$iteration"
+        return
+    fi
+    
+    # CoAP scenarios: A, B, C
     for resource_item in "${RESOURCE_ARRAY[@]}"; do
         # Parse resource to extract name and parameters
         local parsed=$(parse_resource "$resource_item")
@@ -531,6 +541,9 @@ run_benchmark() {
         local benchmark_script
         if [ "$PROTOCOL" == "mqttsn" ]; then
             benchmark_script="${REPO_ROOT}/benchmark/mqttsn_benchmark.sh"
+            # For MQTT-SN, the resource parameter contains the role (pub/sub)
+            # Add the role to command args
+            cmd_args="$cmd_args -role $resource"
         else
             benchmark_script="${REPO_ROOT}/benchmark/coap_benchmark.sh"
         fi

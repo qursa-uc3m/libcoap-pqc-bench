@@ -1,34 +1,45 @@
 # MQTT-SN Clients Patches
 
-This directory contains patches to be applied to the [pq-mqtt-sn-clients](https://github.com/qursa-uc3m/pq-mqtt-sn-clients) repository for benchmark integration.
+This directory contains patched source files for the [pq-mqtt-sn-clients](https://github.com/qursa-uc3m/pq-mqtt-sn-clients) repository, adding benchmark timing measurement hooks for integration with the PQC benchmark pipeline.
 
-## Structure
+## Patched Files
 
-Similar to `libcoap-patches/`, patches here modify the MQTT-SN clients to add:
-- Timing measurement hooks
-- Benchmark-specific output formats
-- Integration with the benchmark pipeline
+### [sn-pub.c](sn-pub.c)
+Publisher client with timing measurement hooks:
+- `get_current_time_ns()` - captures nanosecond-precision timestamps
+- `append_time_to_file()` - writes timing data to `$BENCH_DATA_DIR/time_output.txt`
+- Timing starts at `sn_test()` entry, stops at exit
 
-## Applying Patches
+### [sn-sub.c](sn-sub.c)
+Subscriber client with identical timing hooks for consistent measurement across roles.
 
-Patches are automatically applied by `scripts/install_mqttsn_clients.sh` when building the clients.
+## Usage
 
-To manually apply a patch:
+Copy these files to replace the originals in `pq-mqtt-sn-clients/src/` before building:
 
 ```bash
-cd pq-mqtt-sn-clients
-git apply ../benchmark/mqttsn-clients-patches/your_patch.patch
+# Copy patched files
+cp benchmark/mqttsn-clients-patches/*.c pq-mqtt-sn-clients/src/
+
+# Rebuild clients
+cd pq-mqtt-sn-clients/build
+make
 ```
 
-## Creating New Patches
+Or run the install script which applies patches automatically:
+```bash
+./scripts/install_mqttsn_clients.sh
+```
 
-1. Make changes to the pq-mqtt-sn-clients code
-2. Generate a patch:
-   ```bash
-   cd pq-mqtt-sn-clients
-   git diff > ../benchmark/mqttsn-clients-patches/descriptive_name.patch
-   ```
+## Environment Variables
 
-## Current Patches
+The timing hooks respect:
+- `BENCH_DATA_DIR` - output directory for timing data (primary)
+- `REPO_ROOT` - fallback path to `benchmark/data/current/`
 
-No patches required yet - the base clients already support runtime KEM selection via `MQTT_WOLFSSL_GROUPS` environment variable.
+## Comparison with CoAP Patches
+
+These patches mirror the approach in `libcoap-patches/coap-client.c`:
+- Same timing function signatures
+- Same output format (seconds with 3 decimal places)
+- Compatible with `bench-data-manager.py` processing

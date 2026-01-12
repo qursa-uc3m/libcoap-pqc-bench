@@ -255,9 +255,11 @@ Options:
 
 ## Benchmark Scenarios
 
-The benchmark supports three test scenarios with different CoAP message patterns:
+Both protocols use the `-scenarios` flag to select which tests to run, but with protocol-specific options.
 
-### Scenario A: Synchronous Request-Response (Confirmable)
+### CoAP Scenarios (A, B, C)
+
+#### Scenario A: Synchronous Request-Response (Confirmable)
 
 - **Resource**: `time`
 - **Message Type**: Confirmable (CON)
@@ -265,7 +267,7 @@ The benchmark supports three test scenarios with different CoAP message patterns
 - **Use Case**: Reliable communication with acknowledgments
 - **Recommended for**: **PQC handshake overhead measurement**
 
-### Scenario B: Asynchronous/Observer Mode
+#### Scenario B: Asynchronous/Observer Mode
 
 - **Resource**: `async` or `example_data`
 - **Message Type**: Confirmable (CON)
@@ -277,7 +279,7 @@ The benchmark supports three test scenarios with different CoAP message patterns
 
 ⚠️ **Important Note for PQC Benchmarking**: The `async` resource has a built-in server-side delay (default 4 seconds) and limited thread pool (3 threads), which causes significant queueing with multiple clients. This delay dominates the measurements and masks PQC cryptographic overhead. **For PQC evaluation, use Scenarios A and C instead.** Scenario B is primarily useful for testing server load and async protocol behavior, not for comparing cryptographic performance.
 
-### Scenario C: Synchronous Request-Response (Non-Confirmable)
+#### Scenario C: Synchronous Request-Response (Non-Confirmable)
 
 - **Resource**: `time`
 - **Message Type**: Non-confirmable (NON)
@@ -285,22 +287,57 @@ The benchmark supports three test scenarios with different CoAP message patterns
 - **Use Case**: Best-effort communication without acknowledgments
 - **Recommended for**: **PQC session maintenance and throughput measurement**
 
+---
+
+### MQTT-SN Scenarios (pub, sub)
+
+#### Scenario pub: Publisher
+
+- **Client**: `sn-pub`
+- **Pattern**: Client connects → Registers topic → Publishes message → Disconnects
+- **Use Case**: Testing publish path including DTLS handshake with PQC
+- **Recommended for**: **PQC handshake and publish overhead measurement**
+
+#### Scenario sub: Subscriber
+
+- **Client**: `sn-sub`
+- **Pattern**: Client connects → Registers topic → Subscribes → Disconnects
+- **Use Case**: Testing subscribe path including DTLS handshake with PQC
+- **Recommended for**: **PQC handshake and subscribe overhead measurement**
+
+---
+
 ### Selecting Scenarios
 
-By default, `run_benchmarks.sh` runs all three scenarios (A, B, C). You can control which scenarios to run using the `-scenarios` flag:
+Use the `-scenarios` flag with protocol-appropriate values:
 
+**CoAP Examples:**
 ```bash
 # Run only Scenarios A and C (recommended for PQC evaluation)
-./run_benchmarks.sh -n 10 -security pki -scenarios A,C
+./run_benchmarks.sh -protocol coap -n 10 -security pki -scenarios A,C
 
 # Run only Scenario A
-./run_benchmarks.sh -n 25 -security pki -scenarios A
+./run_benchmarks.sh -protocol coap -n 25 -security pki -scenarios A
 
-# Run all scenarios (default)
-./run_benchmarks.sh -n 10 -security pki -scenarios A,B,C
+# Run all CoAP scenarios (default)
+./run_benchmarks.sh -protocol coap -n 10 -security pki -scenarios A,B,C
 ```
 
-**Recommendation for PQC Benchmarking**: Use `-scenarios A,C` to focus on meaningful cryptographic performance metrics and avoid the artificial delays and queueing effects of Scenario B.
+**MQTT-SN Examples:**
+```bash
+# Run publisher scenario only (default for MQTT-SN)
+./run_benchmarks.sh -protocol mqttsn -n 25 -security pki -scenarios pub
+
+# Run both publisher and subscriber scenarios
+./run_benchmarks.sh -protocol mqttsn -n 25 -security pki -scenarios pub,sub
+
+# Run subscriber scenario only
+./run_benchmarks.sh -protocol mqttsn -n 25 -security pki -scenarios sub
+```
+
+**Recommendation for PQC Benchmarking**:
+- **CoAP**: Use `-scenarios A,C` to focus on meaningful cryptographic performance metrics
+- **MQTT-SN**: Use `-scenarios pub` for typical IoT publish workflows
 
 ## Related Documentation
 
