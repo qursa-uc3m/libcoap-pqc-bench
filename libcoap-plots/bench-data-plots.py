@@ -840,11 +840,11 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
     # Create the directory if it doesn't exist
     os.makedirs(f'./{plots_dir}', exist_ok=True)
     
-    output_file = f'./{plots_dir}/scatter_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}{filtered}.pdf'
+    output_file = f'./{plots_dir}/scatter_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}{filtered}.png'
     
-    plt.savefig(output_file)
+    plt.savefig(output_file, dpi=300)
     print(f"Plot saved to {output_file}")
-    plt.show()
+    plt.close()
 
 def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp=False, s=None, p=None, data_dir='../libcoap-bench/data', custom_suffix=None, target_unit=None, filtering=False):
     """
@@ -1115,11 +1115,11 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
     # Create the plots directory if it doesn't exist
     os.makedirs(f'./{plots_dir}', exist_ok=True)
     
-    output_file = f'./{plots_dir}/barplot_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}_{scenarios_str}{filtered}.pdf'
+    output_file = f'./{plots_dir}/barplot_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}_{scenarios_str}{filtered}.png'
 
-    plt.savefig(output_file)
+    plt.savefig(output_file, dpi=300)
     print(f"Plot saved to {output_file}")
-    plt.show()
+    plt.close()
     
 def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='../libcoap-bench/data', custom_suffix=None, target_unit=None, filtering=False):
     """
@@ -1256,11 +1256,11 @@ def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     # Create the directory if it doesn't exist
     os.makedirs(f'./{plots_dir}', exist_ok=True)
     
-    output_file = f'./{plots_dir}/heatmap_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}.pdf'
+    output_file = f'./{plots_dir}/heatmap_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}.png'
     
-    plt.savefig(output_file)
+    plt.savefig(output_file, dpi=300)
     print(f"Plot saved to {output_file}")
-    plt.show()
+    plt.close()
     
 def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=False, s=None, p=None, data_dir='../libcoap-bench/data', custom_suffix=None, target_unit=None, log_scale=True, filtering=False):
     """
@@ -1585,7 +1585,7 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     # Create the directory if it doesn't exist
     os.makedirs(f'./{plots_dir}', exist_ok=True)
     
-    output_file = f'./{plots_dir}/boxplot_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}{filtered}.pdf'
+    output_file = f'./{plots_dir}/boxplot_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}{filtered}.png'
     
     plt.savefig(output_file)
     print(f"Plot saved to {output_file}")
@@ -1599,7 +1599,7 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
         n=n
     )
     
-    plt.show()
+    plt.close()
     
 def analyze_and_save_outliers(box_data, metric_name, scenario, plots_dir, n=None, multiplier=5.0):
     """
@@ -2039,12 +2039,12 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
     display_metric = get_display_metric_label(metric, target_unit)
     clean_metric = display_metric.replace(' ', '_').replace('(', '').replace(')', '')
     os.makedirs(f'./{plots_dir}', exist_ok=True)
-    output_file = f'./{plots_dir}/candlestick_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}{filtered}.pdf'
+    output_file = f'./{plots_dir}/candlestick_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}{filtered}.png'
     
     plt.tight_layout(rect=[0, 0.02, 0.95, 0.98])
     plt.savefig(output_file, bbox_inches='tight')
     print(f"Plot saved to {output_file}")
-    plt.show()
+    plt.close()
     
 def parse_args():
     """Parse command line arguments using argparse."""
@@ -2053,8 +2053,16 @@ def parse_args():
         formatter_class=argparse.RawTextHelpFormatter
     )
     
-    # Default values
-    default_algorithms = "KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5"
+    # Default values - all key establishment mechanisms
+    # Pure PQC, Classical ECDH, and Hybrid variants
+    default_algorithms = ",".join([
+        # Pure PQ KEMs
+        "KYBER_LEVEL1", "KYBER_LEVEL3", "KYBER_LEVEL5",
+        # Classical ECDH
+        "P256", "P384", "P521", "X25519",
+        # Hybrid KEMs (ECDH + Kyber)
+        "P256_KYBER_LEVEL1", "P384_KYBER_LEVEL3", "P521_KYBER_LEVEL5"
+    ])
     default_cert_types = "RSA_2048,EC_P256,EC_ED25519,DILITHIUM_LEVEL2,DILITHIUM_LEVEL3,DILITHIUM_LEVEL5,FALCON_LEVEL1,FALCON_LEVEL5"
     
     # Required arguments - now with defaults

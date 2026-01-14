@@ -11,14 +11,22 @@ from datetime import datetime
 
 # 1. CONFIGURATION
 ROOT_DIR = './libcoap-bench/data/aggregated'  # where session data folders live
-OUT_DIR = ROOT_DIR+'/compare_plots'
+OUT_DIR = './libcoap-bench/data/plots/compare'  # where comparison plots are saved
 
 # These will be set from command-line arguments
 NETWORK_SESSION_MAP = {}
 NETWORKS = []
 
 # Default algorithm & certificate lists
-default_algorithms = "KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5"
+# All key establishment mechanisms: Pure PQC, Classical ECDH, and Hybrid
+default_algorithms = ",".join([
+    # Pure PQ KEMs
+    "KYBER_LEVEL1", "KYBER_LEVEL3", "KYBER_LEVEL5",
+    # Classical ECDH
+    "P256", "P384", "P521", "X25519",
+    # Hybrid KEMs (ECDH + Kyber)
+    "P256_KYBER_LEVEL1", "P384_KYBER_LEVEL3", "P521_KYBER_LEVEL5"
+])
 default_cert_types = (
     "RSA_2048,EC_P256,EC_ED25519,"
     "DILITHIUM_LEVEL2,DILITHIUM_LEVEL3,DILITHIUM_LEVEL5,"
@@ -822,11 +830,21 @@ def plot_tradeoff(all_data, metric_x, metric_y, scenario, include_nosec=False, n
    # Define base colors for networks (solid colors)
    network_colors = {'fiducial': 'green', 'smarthome': 'blue', 'smartfactory': 'purple', 'publictransport': 'red'}
    
-   # Define markers for algorithms
+   # Define markers for algorithms (all 10 KEMs)
    alg_markers = {
+       # Pure PQ KEMs - filled shapes
        'KYBER_LEVEL1': 'o',    # Circle
        'KYBER_LEVEL3': 's',    # Square
-       'KYBER_LEVEL5': '^',    # Triangle
+       'KYBER_LEVEL5': '^',    # Triangle up
+       # Classical ECDH - outlined/different shapes
+       'P256': 'D',            # Diamond
+       'P384': 'p',            # Pentagon
+       'P521': 'h',            # Hexagon
+       'X25519': '*',          # Star
+       # Hybrid KEMs - compound shapes
+       'P256_KYBER_LEVEL1': 'v',  # Triangle down
+       'P384_KYBER_LEVEL3': '<',  # Triangle left
+       'P521_KYBER_LEVEL5': '>',  # Triangle right
        'none': 'P'             # Plus for nosec
    }
    
