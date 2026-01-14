@@ -856,6 +856,11 @@ class BenchmarkDataManager:
         
         # Process each set of files
         for file_name, file_paths in all_files.items():
+            # Skip energy files - they have a different format (only 5 rows)
+            # Energy data will be merged post-hoc from raw files into UDP files
+            if 'energy_conv_stats' in file_name:
+                continue
+            
             if len(file_paths) < 2:
                 # Just copy the file if only one iteration
                 if len(file_paths) == 1:
@@ -868,6 +873,7 @@ class BenchmarkDataManager:
                 
             # Process multiple iterations
             print(f"Aggregating {len(file_paths)} iterations for {file_name}")
+
             
             # Extract statistics from each file
             stats_data = []
@@ -1111,7 +1117,34 @@ class BenchmarkDataManager:
             output_path = os.path.join(output_dir, file_name)
             agg_df.to_csv(output_path, index=False, sep=';')
             print(f"Created aggregated file: {output_path}")
+            
+            # Post-hoc merge: Try to merge energy data from raw iteration files
+            # This handles cases where MEASURE_ENERGY was not set during benchmark
+            if 'udp_conv_stats' in file_name:
+                energy_file_name = file_name.replace('udp_conv_stats', 'energy_conv_stats')
+                
+                # Look for energy file in the first raw iteration
+                energy_merged = False
+                for i in range(1, iterations + 1):
+                    # Try new format first: raw/{session_id}/iter_{N}/
+                    energy_path = os.path.join(raw_dir, session_id, f"iter_{i}", energy_file_name)
+                    
+                    # Fall back to old format: raw/{session_id}-{N}/
+                    if not os.path.exists(energy_path):
+                        energy_path = os.path.join(raw_dir, f"{session_id}-{i}", energy_file_name)
+                    
+                    if os.path.exists(energy_path):
+                        print(f"  Merging energy data from iter_{i}/{energy_file_name}...")
+                        if self.merge_energy_data(energy_path, output_path):
+                            energy_merged = True
+                        break  # Use first available energy file
+                
+                if not energy_merged:
+                    print(f"  No energy file found in any iteration for {energy_file_name}")
+            
             success_count += 1
+
+
             
         if iterations_found:
             # Define a subfolder for the iteration data

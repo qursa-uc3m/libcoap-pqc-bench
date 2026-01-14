@@ -10,10 +10,12 @@ from adjustText import adjust_text
 from datetime import datetime
 
 # 1. CONFIGURATION
-ROOT_DIR = './bench-data-pll-15'  # where bench-data-fiducial/ etc. live
+ROOT_DIR = './libcoap-bench/data/aggregated'  # where session data folders live
 OUT_DIR = ROOT_DIR+'/compare_plots'
-#NETWORKS = ['fiducial', 'smarthome', 'smartfactory' , 'publictransport']
-NETWORKS = ['fiducial', 'smarthome']
+
+# These will be set from command-line arguments
+NETWORK_SESSION_MAP = {}
+NETWORKS = []
 
 # Default algorithm & certificate lists
 default_algorithms = "KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5"
@@ -32,6 +34,8 @@ cert_types = [c.strip() for c in default_cert_types.split(',') if c.strip()]
 METRIC_CTS = ['duration', 'cpu_cycles', 'Energy (Wh)', 'Power (W)', 'Max Power (W)']
 METRIC_DSC = ['total_frames','total_bytes','frames_sent','bytes_sent','frames_received','bytes_received']
 SCENARIOS = ['A', 'C']
+
+
 
 def setup_matplotlib_style(use_latex=True):
     """
@@ -156,6 +160,7 @@ def format_labels(metric):
 def parse_filename(fpath):
     """
     Parse filename to extract configuration details, now supporting filtered files.
+    Supports both old (udp_rasp_conv_stats_*) and new (udp_conv_stats_*) patterns.
     
     Args:
         fpath (str): File path to parse
@@ -173,15 +178,16 @@ def parse_filename(fpath):
         base = base.replace('_filtered', '')
     
     # Handle nosec case - no algorithm or cert
+    # Support both udp_rasp_conv_stats_* and udp_conv_stats_* patterns
     if 'nosec' in base:
-        nosec_re = re.compile(r"^udp_rasp_conv_stats_n25(_parallel)?_nosec_scenario(?P<scen>[AC])\.csv$")
+        nosec_re = re.compile(r"^udp(_rasp)?_conv_stats_n25(_parallel)?_nosec_scenario(?P<scen>[AC])\.csv$")
         m = nosec_re.match(base)
         if m:
             return None, None, 'nosec', m.group('scen'), is_filtered
     
     # Handle psk case - algorithm but no cert
     psk_re = re.compile(
-        r"^udp_rasp_conv_stats_"
+        r"^udp(_rasp)?_conv_stats_"
         r"(?P<alg>[A-Z0-9_]+)"
         r"_n25(_parallel)?_psk_scenario(?P<scen>[AC])\.csv$"
     )
@@ -191,7 +197,7 @@ def parse_filename(fpath):
     
     # Handle pki case - both algorithm and cert
     pki_re = re.compile(
-        r"^udp_rasp_conv_stats_"
+        r"^udp(_rasp)?_conv_stats_"
         r"(?P<alg>[A-Z0-9_]+)"
         r"_(?P<cert>RSA_2048|EC_P256|EC_ED25519|DILITHIUM_LEVEL[235]|FALCON_LEVEL[15])"
         r"_n25(_parallel)?_pki_scenario(?P<scen>[AC])\.csv$"
@@ -201,6 +207,7 @@ def parse_filename(fpath):
         return m.group('alg'), m.group('cert'), 'pki', m.group('scen'), is_filtered
     
     return None, None, None, None, is_filtered
+
 
 # 3. DATA PARSING AND LOADING
 def parse_benchmark_file(file_path):
@@ -308,13 +315,18 @@ def load_all(use_filtered=True):
     file_stats = {'original': 0, 'filtered': 0, 'missing': 0}
     
     for net in NETWORKS:
-        data_dir = os.path.join(ROOT_DIR, f'bench-data-{net}')
+        # Use session ID mapping if available, otherwise fall back to old format
+        session_id = NETWORK_SESSION_MAP.get(net, f'bench-data-{net}')
+        data_dir = os.path.join(ROOT_DIR, session_id)
         if not os.path.isdir(data_dir):
             print(f"Warning: '{data_dir}' not found, skipping.")
             continue
             
         # Get all CSV files in the directory (both original and filtered)
-        all_files = glob.glob(os.path.join(data_dir, 'udp_rasp_conv_stats_*.csv'))
+        # Support both old (udp_rasp_conv_stats_*) and new (udp_conv_stats_*) patterns
+        all_files = glob.glob(os.path.join(data_dir, 'udp_conv_stats_*.csv'))
+        if not all_files:
+            all_files = glob.glob(os.path.join(data_dir, 'udp_rasp_conv_stats_*.csv'))
         
         # Group files by their base configuration to avoid duplicates
         file_configs = {}
@@ -433,12 +445,14 @@ def load_all(use_filtered=True):
                             'actual_sample_size': parsed_data['actual_sample_size']
                         }
                         all_data.append(record)
-                    
-            for item in all_data:
-                if 'metric' in item:
-                    item['metric'] = pd.Categorical([item['metric']], 
-                                                categories=METRIC_CTS + METRIC_DSC, 
-                                                ordered=True)[0]
+
+    # Convert metrics to categorical ONCE after all data is loaded (outside network loop)
+    for item in all_data:
+        if 'metric' in item:
+            item['metric'] = pd.Categorical([item['metric']], 
+                                        categories=METRIC_CTS + METRIC_DSC, 
+                                        ordered=True)[0]
+
     
     # Print file statistics
     print(f"File Statistics:")
@@ -766,8 +780,23 @@ def plot_tradeoff(all_data, metric_x, metric_y, scenario, include_nosec=False, n
        for net in x_data.columns:
            if pd.notna(x_data.loc[idx, net]):
                x_values_all.append(x_data.loc[idx, net])
+   
+   for idx in y_data.index:
+       for net in y_data.columns:
            if pd.notna(y_data.loc[idx, net]):
                y_values_all.append(y_data.loc[idx, net])
+
+   # Early exit if no data for y metric
+   if not y_values_all:
+       print(f"Warning: No data found for metric '{metric_y}' in scenario {scenario}. Skipping plot.")
+       plt.close()
+       return
+   
+   if not x_values_all:
+       print(f"Warning: No data found for metric '{metric_x}' in scenario {scenario}. Skipping plot.")
+       plt.close()
+       return
+
    
    if normalize and x_values_all and y_values_all:
        x_min, x_max = min(x_values_all), max(x_values_all)
@@ -943,8 +972,8 @@ def plot_tradeoff(all_data, metric_x, metric_y, scenario, include_nosec=False, n
    
    # Ensure output directory exists
    os.makedirs(output_dir, exist_ok=True)
-   plt.savefig(f'{output_dir}/tradeoff_{metric_x}_{metric_y}_{scenario}{suffix}.pdf', bbox_inches='tight')
-   plt.show()
+   plt.savefig(f'{output_dir}/tradeoff_{metric_x}_{metric_y}_{scenario}{suffix}.png', bbox_inches='tight', dpi=300)
+   plt.close()
     
 def create_spider_plot(all_data, metrics, scenario, security_modes=['pki', 'psk', 'nosec'], 
                      algorithms=None, certificates=None, include_legend=True,
@@ -1405,7 +1434,7 @@ def create_spider_plot(all_data, metrics, scenario, security_modes=['pki', 'psk'
        security_str = "_".join(security_modes)
        filtered_suffix = '_filtered' if use_filtered else ''
        
-       filename = f"{output_dir}/spider_{scenario}_{security_str}_{normalization}_{metrics_str}{filtered_suffix}.pdf"
+       filename = f"{output_dir}/spider_{scenario}_{security_str}_{normalization}_{metrics_str}{filtered_suffix}.png"
        
        # Save figure
        plt.savefig(filename, bbox_inches='tight')
@@ -1928,7 +1957,7 @@ def create_network_difference_plot(all_data, metric, scenario,
     comp_str = '_'.join(comparison_networks)
     filtered_suffix = '_filtered' if use_filtered else ''
     metric_suffix = '_discrete' if metric_type == 'discrete' else '_continuous'
-    filename = f"{output_dir}/network_difference_{clean_metric}_{scenario}_{comp_str}_vs_{baseline_network}{filtered_suffix}{metric_suffix}.pdf"
+    filename = f"{output_dir}/network_difference_{clean_metric}_{scenario}_{comp_str}_vs_{baseline_network}{filtered_suffix}{metric_suffix}.png"
     
     # Save plot
     plt.savefig(filename, bbox_inches='tight')
@@ -1940,13 +1969,10 @@ def create_network_difference_plot(all_data, metric, scenario,
     )
     
     # Save report
-    report_file = filename.replace('.pdf', '_report.txt')
+    report_file = filename.replace('.png', '_report.txt')
     with open(report_file, 'w') as f:
         f.write(report)
     print(f"Statistical report saved to: {report_file}")
-    
-    # Show plot
-    plt.show()
     
     # Return results with enhanced information
     return {
@@ -2437,7 +2463,7 @@ def create_algorithm_difference_plot(all_data, metric, scenario,
     networks_str = '_'.join(networks)
     filtered_suffix = '_filtered' if use_filtered else ''
     metric_suffix = '_discrete' if metric_type == 'discrete' else '_continuous'
-    filename = f"{output_dir}/algorithm_difference_{clean_metric}_{scenario}_{comp_str}_vs_{baseline_algorithm}_{networks_str}{filtered_suffix}{metric_suffix}.pdf"
+    filename = f"{output_dir}/algorithm_difference_{clean_metric}_{scenario}_{comp_str}_vs_{baseline_algorithm}_{networks_str}{filtered_suffix}{metric_suffix}.png"
     
     plt.savefig(filename, bbox_inches='tight')
     print(f"Algorithm difference plot saved to: {filename}")
@@ -2447,12 +2473,12 @@ def create_algorithm_difference_plot(all_data, metric, scenario,
         all_differences, metric, scenario, baseline_algorithm, comparison_algorithms, alpha, use_filtered, metric_type
     )
     # Save report
-    report_file = filename.replace('.pdf', '_report.txt')
+    report_file = filename.replace('.png', '_report.txt')
     with open(report_file, 'w') as f:
         f.write(report)
     print(f"Statistical report saved to: {report_file}")
     
-    plt.show()
+    plt.close()
     
     return {
         'differences': all_differences,
@@ -2972,11 +2998,67 @@ FILTERED DATA CONSIDERATIONS
 
 # MAIN
 if __name__ == '__main__':
-    print("Enhanced CoAP Benchmark Comparison Tool")
+    import argparse
+    
+    parser = argparse.ArgumentParser(
+        description='Enhanced CoAP Benchmark Comparison Tool',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='''
+Examples:
+  # Compare 4 network conditions
+  python bench-data-compare.py --sessions \\
+      fiducial=local_1219_fiducial_pw \\
+      smarthome=local_1219_smart-home_st \\
+      smartfactory=local_1219_smart-factory_0w \\
+      publictransport=local_1222_public-transport_2e
+
+  # Compare 2 network conditions with custom root
+  python bench-data-compare.py --root-dir ./data/aggregated \\
+      --sessions fiducial=session_001 smarthome=session_002
+'''
+    )
+    parser.add_argument('--sessions', nargs='+', metavar='NETWORK=SESSION', required=True,
+                        help='Session mappings (required), e.g., fiducial=local_1219_fiducial_pw smarthome=local_1219_smart-home_st')
+    parser.add_argument('--root-dir', default=ROOT_DIR,
+                        help=f'Root directory containing session folders (default: {ROOT_DIR})')
+    parser.add_argument('--output-dir', default=OUT_DIR,
+                        help=f'Output directory for plots (default: {OUT_DIR})')
+    parser.add_argument('--no-filtered', action='store_true',
+                        help='Use only original (non-filtered) data files')
+    parser.add_argument('--use-latex', action='store_true',
+                        help='Enable LaTeX rendering for publication-quality text (slower)')
+
+    
+    args = parser.parse_args()
+    
+    # Update global config from args
+    ROOT_DIR = args.root_dir
+    OUT_DIR = args.output_dir
+    
+    # Parse session mappings
+    print("Using specified sessions:")
+    NETWORK_SESSION_MAP = {}
+    for mapping in args.sessions:
+        if '=' in mapping:
+            network, session = mapping.split('=', 1)
+            NETWORK_SESSION_MAP[network.strip()] = session.strip()
+            print(f"  {network} -> {session}")
+        else:
+            print(f"Warning: Invalid mapping '{mapping}', expected format NETWORK=SESSION")
+    NETWORKS = list(NETWORK_SESSION_MAP.keys())
+
+    
+    if not NETWORKS:
+        print("Error: No network sessions found or specified. Exiting.")
+        exit(1)
+    
+    print(f"\nNetworks to compare: {NETWORKS}")
+    
+    print("\nEnhanced CoAP Benchmark Comparison Tool")
     print("Loading data with filtered file support...")
     
     # Simple control: use filtered files when available, fall back to original
-    USE_FILTERED = True  # Set this to False to use only original files
+    USE_FILTERED = not args.no_filtered
     
     if USE_FILTERED:
         print("Using filtered data files when available (falling back to original for fiducial network)...")
@@ -2985,7 +3067,9 @@ if __name__ == '__main__':
     
     all_data = load_all(use_filtered=USE_FILTERED)
     
-    setup_matplotlib_style(use_latex=True)
+    setup_matplotlib_style(use_latex=args.use_latex)
+
+
     
     print(f"Loaded {len(all_data)} data records")
     
