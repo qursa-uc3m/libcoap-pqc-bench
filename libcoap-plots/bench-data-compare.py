@@ -729,7 +729,7 @@ def plot_tradeoff(all_data, metric_x, metric_y, scenario, include_nosec=False, n
    
    print(f"Creating tradeoff plot using {'filtered' if use_filtered else 'original'} data")
    
-   plt.figure(figsize=(12, 10))
+   plt.figure(figsize=(16, 12))  # Larger figure for better resolution
    ax = plt.gca()
    
    # Convert data to DataFrame for easier filtering
@@ -857,90 +857,124 @@ def plot_tradeoff(all_data, metric_x, metric_y, scenario, include_nosec=False, n
        'EC_P256': 'P256',
        'FALCON_LEVEL1': 'FAL1',
        'FALCON_LEVEL5': 'FAL5',
-       'RSA_2048': 'RSA'
+       'RSA_2048': 'RSA',
+       'none': 'PSK/NoSec'
    }
    
-   texts = []  # Store text objects for adjustment
-   plotted_labels = []  # Store (x, y, label) for text placement
+   # Define colors for signature algorithm clusters
+   cert_colors = {
+       'RSA_2048': '#e41a1c',       # Red
+       'EC_P256': '#377eb8',        # Blue
+       'EC_ED25519': '#4daf4a',     # Green
+       'DILITHIUM_LEVEL2': '#984ea3', # Purple
+       'DILITHIUM_LEVEL3': '#ff7f00', # Orange
+       'DILITHIUM_LEVEL5': '#a65628', # Brown
+       'FALCON_LEVEL1': '#f781bf',   # Pink
+       'FALCON_LEVEL5': '#999999',   # Gray
+       'none': '#17becf'             # Cyan for PSK/NoSec
+   }
    
-   # Plot each configuration
+   # Group all points by certificate (signature algorithm)
+   from scipy.spatial import ConvexHull
+   from matplotlib.patches import Polygon
+   import matplotlib.colors as mcolors
+   
+   cert_points = {}  # Dict: cert -> list of (x, y) points
+   
+   # Collect all points for each certificate type
    for idx in x_data_plot.index:
        alg, cert, mode = idx
        
-       # Create label based on security mode
-       if mode == 'nosec':
-           label = 'NoSec'
-       elif mode == 'psk':
-           label = 'PSK'  # Simplified label for PSK
-       else:  # pki
-           cert_label = cert_short.get(cert, cert[:4])
-           label = cert_label  # Just use cert type for PKI
+       cert_key = cert if cert else 'none'
+       if cert_key not in cert_points:
+           cert_points[cert_key] = []
        
-       # Collect points for the same configuration across networks
-       config_points = []
-       x_positions = []
-       y_positions = []
-       
-       for net in NETWORKS:  # Fixed order
+       for net in NETWORKS:
            if net in x_data_plot.columns and net in y_data_plot.columns:
                x = x_data_plot.loc[idx, net]
                y = y_data_plot.loc[idx, net]
                
-               if pd.isna(x) or pd.isna(y):
-                   continue
-               
-               config_points.append((x, y, net))
-               x_positions.append(x)
-               y_positions.append(y)
-               # Get color and marker
-               color = network_colors[net]
-               marker = alg_markers.get(alg, 'o')
-               
-               # Plot point
-               plt.scatter(x, y, color=color, marker=marker, s=120, 
-                          alpha=0.8, edgecolors='black', linewidth=0.5, zorder=3)
+               if pd.notna(x) and pd.notna(y):
+                   cert_points[cert_key].append((x, y))
+                   
+                   # Get color and marker
+                   color = network_colors.get(net, 'gray')
+                   marker = alg_markers.get(alg, 'o')
+                   
+                   # Plot individual points (smaller, less prominent)
+                   plt.scatter(x, y, color=color, marker=marker, s=80, 
+                              alpha=0.7, edgecolors='black', linewidth=0.3, zorder=3)
+   
+   # Draw convex hulls for each certificate cluster
+   legend_elements_cert = []
+   
+   for cert, points in cert_points.items():
+       if len(points) < 3:
+           # Not enough points for a convex hull, just mark centroid
+           if points:
+               centroid_x = np.mean([p[0] for p in points])
+               centroid_y = np.mean([p[1] for p in points])
+               cert_color = cert_colors.get(cert, 'gray')
+               cert_label = cert_short.get(cert, cert[:4] if cert else 'N/A')
+               # Position label to the right of the point(s)
+               label_x = centroid_x * 1.05  # Small offset to right
+               ax.text(label_x, centroid_y, cert_label, fontsize=10, fontweight='bold',
+                      color=cert_color, ha='left', va='center',
+                      bbox=dict(boxstyle="round,pad=0.3", facecolor='white', 
+                               edgecolor=cert_color, linewidth=1.5, alpha=0.9),
+                      zorder=5)
+               legend_elements_cert.append((cert, cert_color))
+           continue
        
-       # Connect points from the same configuration with thin lines
-       if len(config_points) > 1:
-           xs = [p[0] for p in config_points]
-           ys = [p[1] for p in config_points]
-           plt.plot(xs, ys, 'k-', alpha=0.5, linewidth=0.75, zorder=1)
+       points_array = np.array(points)
+       cert_color = cert_colors.get(cert, 'gray')
+       cert_label = cert_short.get(cert, cert[:4] if cert else 'N/A')
+       
+       try:
+           # Compute convex hull
+           hull = ConvexHull(points_array)
            
-       # Place label at the centroid of the configuration group
-       if x_positions and y_positions:
-           # Use geometric mean for log scale, arithmetic mean for linear scale
-           if not normalize and log_scale:
-               # For log scale, use geometric mean
-               x_label = np.exp(np.mean(np.log(x_positions)))
-               y_label = np.exp(np.mean(np.log(y_positions)))
-           else:
-               # For normalized/linear scale, use arithmetic mean
-               x_label = np.mean(x_positions)
-               y_label = np.mean(y_positions)
-               
-           plotted_labels.append((x_label, y_label, label))
+           # Get hull vertices
+           hull_points = points_array[hull.vertices]
+           
+           # Draw filled polygon with transparency
+           polygon = Polygon(hull_points, closed=True, 
+                            facecolor=mcolors.to_rgba(cert_color, alpha=0.15),
+                            edgecolor=cert_color, linewidth=2, linestyle='-',
+                            zorder=1)
+           ax.add_patch(polygon)
+           
+           # Place label at rightmost point of hull + offset to avoid covering data
+           rightmost_idx = np.argmax(hull_points[:, 0])
+           label_x = hull_points[rightmost_idx, 0]
+           label_y = hull_points[rightmost_idx, 1]
+           
+           # Add offset to move label outside the hull
+           x_range = np.max(hull_points[:, 0]) - np.min(hull_points[:, 0])
+           label_x += x_range * 0.15  # Offset 15% of hull width to the right
+           
+           ax.text(label_x, label_y, cert_label, fontsize=11, fontweight='bold',
+                  color='white', ha='left', va='center',
+                  bbox=dict(boxstyle="round,pad=0.4", facecolor=cert_color, 
+                           edgecolor='white', linewidth=1.5, alpha=0.9),
+                  zorder=5)
+           legend_elements_cert.append((cert, cert_color))
+           
+       except Exception as e:
+           # Fallback: draw centroid label only
+           centroid_x = np.mean(points_array[:, 0])
+           centroid_y = np.mean(points_array[:, 1])
+           ax.text(centroid_x, centroid_y, cert_label, fontsize=10, fontweight='bold',
+                  color=cert_color, ha='center', va='center',
+                  bbox=dict(boxstyle="round,pad=0.3", facecolor='white', 
+                           edgecolor=cert_color, linewidth=1.5, alpha=0.9),
+                  zorder=5)
+           legend_elements_cert.append((cert, cert_color))
    
    # Apply log scale only if not normalized
    if not normalize and log_scale:
        ax.set_xscale('log')
        ax.set_yscale('log')
-   
-   # Add labels at centroids
-   for x, y, label in plotted_labels:
-       txt = ax.text(x, y, label, fontsize=9, alpha=0.9,
-                    horizontalalignment='center', verticalalignment='center',
-                    bbox=dict(boxstyle="round,pad=0.3", facecolor='white', 
-                             edgecolor='gray', linewidth=0.5, alpha=0.8))
-       texts.append(txt)
-   
-   # Adjust text positions to minimize overlaps
-   if texts:
-       adjust_text(texts, 
-                   force_points=0.5,  # How much to push away from points
-                   force_text=0.5,    # How much to push away from other texts
-                   expand_points=(1.2, 1.2),  # Expand bounding box around points
-                   expand_text=(1.1, 1.1),    # Expand bounding box around texts
-                   arrowprops=dict(arrowstyle='-', color='gray', lw=0.5, alpha=0.5))
    
    plt.xlabel(xlabel)
    plt.ylabel(ylabel)
@@ -3136,7 +3170,7 @@ Examples:
     for scen in SCENARIOS:
         NORMALIZE = False
         plot_tradeoff(all_data, 'duration', 'Energy (Wh)', scen, normalize=NORMALIZE, output_dir=OUT_DIR)
-        plot_tradeoff(all_data, 'cpu_cycles', 'Energy (Wh)', scen, normalize=NORMALIZE, output_dir=OUT_DIR)
+        plot_tradeoff(all_data, 'cpu_cycles', 'Energy (Wh)', scen, normalize=NORMALIZE, log_scale=True, output_dir=OUT_DIR)
         plot_tradeoff(all_data, 'duration', 'cpu_cycles', scen, normalize=NORMALIZE, output_dir=OUT_DIR)
 
     # Spider plots
