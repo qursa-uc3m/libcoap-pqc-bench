@@ -50,6 +50,9 @@ fi
 
 cd "$GATEWAY_DIR"
 
+# Ensure gateway-relative cert paths (../../certs/...) resolve to repo certs/
+ln -sfn "${REPO_ROOT}/certs" "${GATEWAY_DIR}/certs"
+
 # Build the gateway
 echo "Building MQTT-SN Gateway with ${TRANSPORT} transport..."
 

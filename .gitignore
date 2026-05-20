@@ -1,5 +1,12 @@
 .vscode/
+
+# External code repositories (cloned by scripts/install_*.sh)
 libcoap/
+wolfssl/
+wolfMQTT/
+paho-mqttsn-gateway/
+pq-mqtt-sn-clients/
+
 check_*
 config.local.env
 __pycache__/
