@@ -549,6 +549,9 @@ def get_certificate_colors(cert_types_list):
     
     return cert_colors
 
+def scenario_file_suffix(scenario):
+    return f"_{scenario}" if scenario in ["pub", "sub"] else f"_scenario{scenario}"
+
 def get_file_patterns(algorithm, cert_type, n, s, p, scenario, rasp=False, filtering=False):
     """
     Generate file patterns for various security modes.
@@ -567,9 +570,19 @@ def get_file_patterns(algorithm, cert_type, n, s, p, scenario, rasp=False, filte
     """
     s_suffix = f"_s{s}" if s else ""
     p_suffix = f"_{p}" if p else ""
-    scenario_suffix = f"_scenario{scenario}"
+    protocol = "mqttsn" if scenario in ["pub", "sub"] else "coap"
+    scenario_suffix = scenario_file_suffix(scenario)
     rasp_prefix = "_rasp" if rasp else ""
     filtered = "_filtered" if filtering else ""
+
+    if protocol == "mqttsn":
+        return {
+            'pki': f"udp{rasp_prefix}_mqttsn_stats_{algorithm}_{cert_type}_n{n}{p_suffix}_pki{scenario_suffix}{filtered}.csv",
+            'pki_client_auth': f"udp{rasp_prefix}_mqttsn_stats_{algorithm}_{cert_type}_n{n}{p_suffix}_pki{scenario_suffix}{filtered}.csv",
+            'psk': f"__unsupported_mqttsn_psk__",
+            'nosec': f"udp{rasp_prefix}_mqttsn_stats_n{n}{p_suffix}_nosec{scenario_suffix}{filtered}.csv",
+            'nosec_flexible': f"udp{rasp_prefix}_mqttsn_stats*n{n}*_nosec*{scenario_suffix}{filtered}.csv"
+        }
     
     patterns = {
         'pki': f"udp{rasp_prefix}_conv_stats_{algorithm}_{cert_type}_n{n}{s_suffix}{p_suffix}_pki{scenario_suffix}{filtered}.csv",
@@ -642,7 +655,7 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
     # Construct the common file pattern parts
     s_suffix = f"_s{s}" if s else ""
     p_suffix = f"_{p}" if p else ""
-    scenario_suffix = f"_scenario{scenario}"
+    scenario_suffix = scenario_file_suffix(scenario)
     rasp_prefix = "rasp" if rasp else "local"
     filtered = "_filtered" if filtering else ""
 
@@ -667,25 +680,20 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
             'algorithms': []
         }
 
-    # Get PSK data for each algorithm
-    for algorithm in algorithms_list:
-        # Get file patterns
-        patterns = get_file_patterns(algorithm, "", n, s, p, scenario, rasp, filtering)
-        
-        # PSK file pattern
-        psk_pattern = patterns['psk']
-        psk_files = find_files(data_dir_path, psk_pattern)
-        
-        if psk_files:
-            psk_file_path = psk_files[0]
-            # Pass target_unit to read_csv for potential conversion
-            metric_value_psk, std_dev_psk = read_csv(psk_file_path, metric, n, target_unit)
-            if metric_value_psk is not None:
-                data['psk']['values'].append(metric_value_psk)
-                data['psk']['std_devs'].append(std_dev_psk)
-                data['psk']['algorithms'].append(algorithm)
-        else:
-            print(f"Warning: Could not find PSK file for algorithm {algorithm}")
+    if scenario not in ["pub", "sub"]:
+        for algorithm in algorithms_list:
+            patterns = get_file_patterns(algorithm, "", n, s, p, scenario, rasp, filtering)
+            psk_files = find_files(data_dir_path, patterns['psk'])
+
+            if psk_files:
+                psk_file_path = psk_files[0]
+                metric_value_psk, std_dev_psk = read_csv(psk_file_path, metric, n, target_unit)
+                if metric_value_psk is not None:
+                    data['psk']['values'].append(metric_value_psk)
+                    data['psk']['std_devs'].append(std_dev_psk)
+                    data['psk']['algorithms'].append(algorithm)
+            else:
+                print(f"Warning: Could not find PSK file for algorithm {algorithm}")
 
     # Get PKI data for each algorithm and certificate type
     for cert_type in cert_types_list:
@@ -910,7 +918,7 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
     # Process each algorithm and scenario combination
     for alg_idx, algorithm in enumerate(algorithms_list):
         for scen_idx, scenario in enumerate(scenarios):
-            scenario_suffix = f"_scenario{scenario}"
+            scenario_suffix = scenario_file_suffix(scenario)
             
             # Group bars for this algorithm-scenario combo
             group_bars = []
@@ -977,7 +985,7 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
     
     # Process NoSec for each scenario
     for scen_idx, scenario in enumerate(scenarios):
-        scenario_suffix = f"_scenario{scenario}"
+        scenario_suffix = scenario_file_suffix(scenario)
         
         patterns = get_file_patterns("", "", n, s, p, scenario, rasp, filtering)
         nosec_pattern = patterns['nosec']
@@ -1157,7 +1165,7 @@ def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     # Construct the common file pattern parts
     s_suffix = f"_s{s}" if s else ""
     p_suffix = f"_{p}" if p else ""
-    scenario_suffix = f"_scenario{scenario}"
+    scenario_suffix = scenario_file_suffix(scenario)
     rasp_prefix = "rasp" if rasp else "local"
     filtered = "_filtered" if filtering else ""
     
@@ -1305,7 +1313,7 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     # Construct the common file pattern parts
     s_suffix = f"_s{s}" if s else ""
     p_suffix = f"_{p}" if p else ""
-    scenario_suffix = f"_scenario{scenario}"
+    scenario_suffix = scenario_file_suffix(scenario)
     rasp_prefix = "rasp" if rasp else "local"
     filtered = "_filtered" if filtering else ""
     
@@ -1715,7 +1723,7 @@ def analyze_and_save_outliers(box_data, metric_name, scenario, plots_dir, n=None
     
     # Generate filename
     clean_metric = metric_name.replace(' ', '_').replace('(', '').replace(')', '')
-    filename = f"outliers_iterations_{clean_metric}_scenario{scenario}_magnitude{multiplier}x.csv"
+    filename = f"outliers_iterations_{clean_metric}{scenario_file_suffix(scenario)}_magnitude{multiplier}x.csv"
     filepath = f"./{plots_dir}/{filename}"
     
     # Ensure directory exists
@@ -1786,7 +1794,7 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
     # Construct the common file pattern parts
     s_suffix = f"_s{s}" if s else ""
     p_suffix = f"_{p}" if p else ""
-    scenario_suffix = f"_scenario{scenario}"
+    scenario_suffix = scenario_file_suffix(scenario)
     rasp_prefix = "rasp" if rasp else "local"
     filtered = "_filtering" if filtering else ""
     
@@ -2090,6 +2098,7 @@ def parse_args():
     parser.add_argument('--s', type=int, help='Optional s parameter')
     parser.add_argument('--p', help='Optional p parameter (parallelization mode)')
     parser.add_argument('--filtered', action='store_true', help='Use filtered dataset (reduced outliers)')
+    parser.add_argument('--no-latex', action='store_true', help='Disable LaTeX text rendering')
     parser.add_argument('--data-dir', default='../benchmark/data', help='Directory containing the data files')
     parser.add_argument('--custom-suffix', help='Suffix for data and plot directories')
     
@@ -2097,12 +2106,15 @@ def parse_args():
     args = parser.parse_args()
 
     # Process scenarios
-    scenarios = [scenario.strip().upper() for scenario in args.scenarios.split(',')]
+    scenarios = []
+    for scenario in args.scenarios.split(','):
+        scenario = scenario.strip()
+        scenarios.append(scenario.lower() if scenario.lower() in ['pub', 'sub'] else scenario.upper())
     
     # Validate scenarios
     for scenario in scenarios:
-        if scenario not in ['A', 'B', 'C']:
-            parser.error(f"Invalid scenario: {scenario}. Must be one of 'A', 'B', or 'C'.")
+        if scenario not in ['A', 'B', 'C', 'pub', 'sub']:
+            parser.error(f"Invalid scenario: {scenario}. Must be one of 'A', 'B', 'C', 'pub', or 'sub'.")
     
     # Process algorithms and certificate types
     algorithms = [alg.strip() for alg in args.algorithms.split(',')]
@@ -2118,7 +2130,7 @@ def main():
     base_metric, target_unit = parse_metric_with_unit(args.metric)
     
     # Setup matplotlib style with LaTeX unless disabled
-    setup_matplotlib_style(use_latex=True)
+    setup_matplotlib_style(use_latex=not args.no_latex)
     
     # Use only the first scenario for plots that don't support multiple scenarios
     scenario = scenarios[0]

@@ -205,6 +205,9 @@ class BenchmarkData:
         # NEW: Add min/max values storage
         self.min_values = {}
         self.max_values = {}
+        self.mode_values = {}
+        self.below_mode = {}
+        self.above_mode = {}
     
     def load_time_data(self, time_file: str, config_filename: str = "") -> bool:
         """
@@ -605,7 +608,7 @@ class BenchmarkDataManager:
         # Find Wireshark stats files
         stats_files = glob.glob(os.path.join(input_dir, "*.txt"))
         stats_files = [f for f in stats_files if "udp" in os.path.basename(f) and 
-                      "conv_stats" in os.path.basename(f)]
+                  ("conv_stats" in os.path.basename(f) or "mqttsn_stats" in os.path.basename(f))]
         
         # Find energy data files
         energy_files = glob.glob(os.path.join(input_dir, "energy_*.csv"))
@@ -858,7 +861,7 @@ class BenchmarkDataManager:
         for file_name, file_paths in all_files.items():
             # Skip energy files - they have a different format (only 5 rows)
             # Energy data will be merged post-hoc from raw files into UDP files
-            if 'energy_conv_stats' in file_name:
+            if file_name.startswith('energy_'):
                 continue
             
             if len(file_paths) < 2:
@@ -1033,13 +1036,18 @@ class BenchmarkDataManager:
             # Calculate overall standard deviation
             overall_std = np.sqrt(total_variance)
             
-            # 2) overall mode
-            # pandas.Series.mode() returns all equally‐frequent values; .iloc[0] picks one
-            overall_mode = modes_df.mode(numeric_only=True).iloc[0]
+            mode_result = modes_df.mode(numeric_only=True)
+            if mode_result.empty:
+                overall_mode = pd.Series(['--'] * len(column_names), index=column_names)
+            else:
+                overall_mode = mode_result.iloc[0]
             
-            # 3) average below/above per iteration, rounded to int
             overall_below = belows_df.mean(numeric_only=True).round()
             overall_above = aboves_df.mean(numeric_only=True).round()
+            if overall_below.empty:
+                overall_below = pd.Series(['--'] * len(column_names), index=column_names)
+            if overall_above.empty:
+                overall_above = pd.Series(['--'] * len(column_names), index=column_names)
             
             # Add separator row
             separator_row = pd.Series(["-" * 12] * len(column_names), index=column_names)
@@ -1120,24 +1128,29 @@ class BenchmarkDataManager:
             
             # Post-hoc merge: Try to merge energy data from raw iteration files
             # This handles cases where MEASURE_ENERGY was not set during benchmark
-            if 'udp_conv_stats' in file_name:
-                energy_file_name = file_name.replace('udp_conv_stats', 'energy_conv_stats')
+            if 'udp_conv_stats' in file_name or 'udp_mqttsn_stats' in file_name:
+                if 'udp_conv_stats' in file_name:
+                    energy_file_name = file_name.replace('udp_conv_stats', 'energy_conv_stats')
+                else:
+                    energy_file_name = file_name.replace('udp_mqttsn_stats', 'energy_mqttsn_stats')
                 
                 # Look for energy file in the first raw iteration
                 energy_merged = False
                 for i in range(1, iterations + 1):
-                    # Try new format first: raw/{session_id}/iter_{N}/
-                    energy_path = os.path.join(raw_dir, session_id, f"iter_{i}", energy_file_name)
-                    
-                    # Fall back to old format: raw/{session_id}-{N}/
-                    if not os.path.exists(energy_path):
-                        energy_path = os.path.join(raw_dir, f"{session_id}-{i}", energy_file_name)
-                    
-                    if os.path.exists(energy_path):
-                        print(f"  Merging energy data from iter_{i}/{energy_file_name}...")
-                        if self.merge_energy_data(energy_path, output_path):
-                            energy_merged = True
-                        break  # Use first available energy file
+                    candidates = [
+                        os.path.join(raw_dir, session_id, f"iter_{i}", energy_file_name),
+                        os.path.join(raw_dir, session_id, f"iter_{i}", "energy-data", energy_file_name),
+                        os.path.join(raw_dir, f"{session_id}-{i}", energy_file_name),
+                        os.path.join(raw_dir, f"{session_id}-{i}", "energy-data", energy_file_name),
+                    ]
+                    for energy_path in candidates:
+                        if os.path.exists(energy_path):
+                            print(f"  Merging energy data from iter_{i}/{os.path.relpath(energy_path, os.path.join(raw_dir, session_id, f'iter_{i}'))}...")
+                            if self.merge_energy_data(energy_path, output_path):
+                                energy_merged = True
+                            break
+                    if energy_merged:
+                        break
                 
                 if not energy_merged:
                     print(f"  No energy file found in any iteration for {energy_file_name}")
@@ -1219,7 +1232,8 @@ def process_command(args):
             return 1
         
         print(f"Merging energy data from {args.energy_file} into {args.benchmark_file}")
-        manager.merge_energy_data(args.energy_file, args.benchmark_file)
+        if not manager.merge_energy_data(args.energy_file, args.benchmark_file):
+            return 1
     
     elif args.command == 'aggregate':
         # Aggregate metrics across iterations
@@ -1229,12 +1243,13 @@ def process_command(args):
         
         iterations_msg = f" across {args.iterations} iterations" if args.iterations else " (auto-detecting iterations)"
         print(f"Aggregating metrics for session {args.session_id}{iterations_msg}")
-        manager.aggregate_iterations(
+        if not manager.aggregate_iterations(
             session_id=args.session_id,
             iterations=args.iterations,
             data_dir=args.data_dir,
             output_dir=args.output_dir
-        )
+        ):
+            return 1
     
     return 0
 

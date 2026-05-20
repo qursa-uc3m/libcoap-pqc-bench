@@ -34,6 +34,7 @@ TIMING_ENERGY_SIGNAL="${TIMING_ENERGY_SIGNAL:-0.5}"
 TIMING_ENERGY_FLUSH="${TIMING_ENERGY_FLUSH:-1.0}"
 TIMING_CLIENT_DELAY="${TIMING_CLIENT_DELAY:-0.5}"
 TIMING_CLIENT_POLL="${TIMING_CLIENT_POLL:-0.1}"
+MQTTSN_CLIENT_TIMEOUT="${MQTTSN_CLIENT_TIMEOUT:-120s}"
 
 BENCH_DIR="${REPO_ROOT}/benchmark"
 CLIENTS_DIR="${REPO_ROOT}/pq-mqtt-sn-clients"
@@ -211,23 +212,18 @@ stop_energy_monitoring() {
 generate_filenames() {
     local prefix="$1"
     local add_udp_prefix="$2"
-    
-    # Define filename_add based on role
     local filename_add="_${role}"
-
-    # Prepare base filename for results
     local filename=""
     if [ "$sec_mode" == "pki" ]; then
-        # PKI mode: include cert config
+        local kem_indicator="${kem_algorithm:-default}"
         cert_indicator="_${cert_config}"
         
         if [ -n "$parallelization_mode" ]; then 
-            filename="${prefix}${rasp_param:+_rasp}_mqttsn_stats${cert_indicator}_n${n}_${parallelization_mode}_${sec_mode}"
+            filename="${prefix}${rasp_param:+_rasp}_mqttsn_stats_${kem_indicator}${cert_indicator}_n${n}_${parallelization_mode}_${sec_mode}"
         else
-            filename="${prefix}${rasp_param:+_rasp}_mqttsn_stats${cert_indicator}_n${n}_${sec_mode}"
+            filename="${prefix}${rasp_param:+_rasp}_mqttsn_stats_${kem_indicator}${cert_indicator}_n${n}_${sec_mode}"
         fi
     else
-        # nosec mode: no algorithm in filename
         if [ -n "$parallelization_mode" ]; then 
             filename="${prefix}${rasp_param:+_rasp}_mqttsn_stats_n${n}_${parallelization_mode}_${sec_mode}"
         else
@@ -361,10 +357,12 @@ start_gateway() {
 stop_gateway() {
     if [ "$rasp_param" == "true" ]; then
         [ -n "$server_ip" ] && ssh "${RASPBERRY_PI_USER}@${server_ip}" "pkill -2 -f MQTT-SNGateway || pkill -2 -f mqttsn_benchmark_server.sh || true" 2>/dev/null || true
-        [ -n "$server_ssh_pid" ] && wait "$server_ssh_pid" 2>/dev/null || true
+        sleep "$TIMING_SERVER_STOP_REMOTE"
+        [ -n "$server_ip" ] && ssh "${RASPBERRY_PI_USER}@${server_ip}" "pkill -9 -f MQTT-SNGateway || pkill -9 -f mqttsn_benchmark_server.sh || true" 2>/dev/null || true
     else
         pkill -2 -f MQTT-SNGateway 2>/dev/null || true
-        [ -n "$server_pid" ] && wait "$server_pid" 2>/dev/null || true
+        sleep "$TIMING_SERVER_STOP_LOCAL"
+        pkill -9 -f MQTT-SNGateway 2>/dev/null || true
     fi
 }
 
@@ -397,6 +395,7 @@ echo "Parallelization: ${parallelization_mode:-sequential}"
 echo "KEM algorithm: ${kem_algorithm:-default}"
 echo "Local mode: $LOCAL_MODE"
 echo "Energy monitoring: ${MEASURE_ENERGY:-false}"
+echo "Client timeout: $MQTTSN_CLIENT_TIMEOUT"
 echo "=============================================="
 
 # Create data directory if needed
@@ -427,50 +426,61 @@ build_client_cmd() {
     cmd="$cmd -h ${GATEWAY_HOST} -p ${GATEWAY_PORT}"
     
     if [ "$sec_mode" == "pki" ]; then
-        cmd="$cmd -A ${ca_file}"  # CA certificate
+        cmd="$cmd -t -A ${ca_file}"
     fi
     
     echo "$cmd"
 }
 
+run_client_cmd() {
+    local client_cmd="$1"
+    MQTT_WOLFSSL_GROUPS="$kem_algorithm" timeout -k 5s "$MQTTSN_CLIENT_TIMEOUT" bash -c "$client_cmd"
+}
+
 # Record start time
 start_time=$(date +%s.%N)
+client_status=0
 
 # Run clients based on parallelization mode
 echo "Starting $n MQTT-SN $role clients..."
 
 case "$parallelization_mode" in
     "background")
-        # Run clients in background (same core)
+        client_pids=()
         for ((i=1; i<=n; i++)); do
             client_cmd=$(build_client_cmd $i)
-            MQTT_WOLFSSL_GROUPS="$kem_algorithm" eval "$client_cmd" &
+            run_client_cmd "$client_cmd" &
+            client_pids+=("$!")
         done
-        wait
+        for client_pid in "${client_pids[@]}"; do
+            wait "$client_pid" || client_status=$?
+        done
         ;;
     "parallel")
-        # Run clients in parallel using GNU parallel
         if command -v parallel &>/dev/null; then
             export -f build_client_cmd
-            export CLIENT_BIN GATEWAY_HOST GATEWAY_PORT sec_mode ca_file kem_algorithm
+            export CLIENT_BIN GATEWAY_HOST GATEWAY_PORT sec_mode ca_file kem_algorithm MQTTSN_CLIENT_TIMEOUT
             seq 1 $n | parallel -j $n "
                 client_cmd=\$(build_client_cmd {})
-                MQTT_WOLFSSL_GROUPS=\"$kem_algorithm\" eval \"\$client_cmd\"
-            "
+                MQTT_WOLFSSL_GROUPS=\"$kem_algorithm\" timeout -k 5s \"$MQTTSN_CLIENT_TIMEOUT\" bash -c \"\$client_cmd\"
+            " || client_status=$?
         else
             echo "Warning: GNU parallel not found, falling back to background mode"
+            client_pids=()
             for ((i=1; i<=n; i++)); do
                 client_cmd=$(build_client_cmd $i)
-                MQTT_WOLFSSL_GROUPS="$kem_algorithm" eval "$client_cmd" &
+                run_client_cmd "$client_cmd" &
+                client_pids+=("$!")
             done
-            wait
+            for client_pid in "${client_pids[@]}"; do
+                wait "$client_pid" || client_status=$?
+            done
         fi
         ;;
     *)
-        # Sequential execution
         for ((i=1; i<=n; i++)); do
             client_cmd=$(build_client_cmd $i)
-            MQTT_WOLFSSL_GROUPS="$kem_algorithm" eval "$client_cmd"
+            run_client_cmd "$client_cmd" || client_status=$?
         done
         ;;
 esac
@@ -481,6 +491,7 @@ duration=$(echo "$end_time - $start_time" | bc)
 
 echo "All clients completed."
 echo "Total duration: ${duration}s"
+[ "$client_status" -ne 0 ] && echo "Client execution failed with exit code $client_status"
 
 # Stop packet capture
 sleep 1  # Allow final packets to be captured
@@ -552,6 +563,10 @@ if [ -f "${DATA_DIR}/time_output.txt" ]; then
                 --benchmark-file "${DATA_DIR}/${filename}.csv" 2>/dev/null || true
         fi
     fi
+fi
+
+if [ "$client_status" -ne 0 ]; then
+    exit "$client_status"
 fi
 
 echo "Results saved to: $DATA_DIR"

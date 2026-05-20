@@ -54,6 +54,7 @@ SECURITY_MODES="pki psk nosec"
 SKIP_CONFIRM="false"
 VERBOSE="false"
 MAX_RETRIES=2
+BENCHMARK_FAILURES=0
 RESOURCES="time,async"  # Default resources to test
 ASYNC_DELAY=""          # Optional delay parameter for async resource
 ITERATIONS=1            # Default to 1 iteration (no iteration mode)
@@ -207,9 +208,19 @@ check_dependencies() {
             return 1
         fi
         
-        # Check that MQTT-SN Gateway is built
-        if [ ! -x "${REPO_ROOT}/paho-mqttsn-gateway/MQTTSNGateway/bin/MQTT-SNGateway" ]; then
-            log "ERROR" "MQTT-SN Gateway not found. Please run: ./scripts/install_paho_mqttsn_gateway.sh"
+        local gateway_root="${REPO_ROOT}/paho-mqttsn-gateway/MQTTSNGateway"
+        local has_dtls_gateway=false
+        local has_udp_gateway=false
+        [ -x "${gateway_root}/bin-dtls/MQTT-SNGateway" ] || [ -x "${gateway_root}/bin/MQTT-SNGateway" ] && has_dtls_gateway=true
+        [ -x "${gateway_root}/bin-udp/MQTT-SNGateway" ] && has_udp_gateway=true
+
+        if [[ "$SECURITY_MODES" == *"pki"* ]] && [ "$has_dtls_gateway" != "true" ]; then
+            log "ERROR" "MQTT-SN DTLS gateway not found. Please run: ./scripts/install_paho_mqttsn_gateway.sh both"
+            return 1
+        fi
+
+        if [[ "$SECURITY_MODES" == *"nosec"* ]] && [ "$has_udp_gateway" != "true" ]; then
+            log "ERROR" "MQTT-SN UDP gateway not found for nosec mode. Please run: ./scripts/install_paho_mqttsn_gateway.sh both"
             return 1
         fi
         
@@ -516,12 +527,8 @@ run_benchmark() {
         fi
     fi
     
-    # Set environment variables for energy measurements and local mode
-    if [ "$MEASURE_ENERGY" == "true" ]; then
-        export MEASURE_ENERGY=true
-    fi
-    
-    # Export local mode settings for child scripts
+    # Export benchmark mode settings for child scripts
+    export MEASURE_ENERGY
     export LOCAL_MODE
     export ENERGY_MONITOR_TYPE
     
@@ -572,6 +579,7 @@ run_benchmark() {
             # If this was the last attempt, fail
             if [ $retry_count -ge $max_retries ]; then
                 log "ERROR" "Maximum retry attempts reached. Moving to next benchmark."
+                BENCHMARK_FAILURES=$((BENCHMARK_FAILURES + 1))
                 # Save log file for debugging
                 local error_log_file="${BENCH_DATA_DIR}/error_log_${sec_mode}_${resource}_${confirm}_${cert_config}_iter${iteration}.log"
                 if [ -f "/tmp/benchmark_output.log" ]; then
@@ -612,12 +620,13 @@ create_summary_report() {
     log "HEADER" "Creating benchmark summary"
     
     echo "===============================================" > "$output_file"
-    echo "      libcoap PQC Benchmark Summary Report     " >> "$output_file"
+    echo "      PQC Protocol Benchmark Summary Report    " >> "$output_file"
     echo "===============================================" >> "$output_file"
     echo "Generated: $(date)" >> "$output_file"
     echo "Session ID: ${SESSION_ID}" >> "$output_file"
     echo "" >> "$output_file"
     echo "Benchmark Parameters:" >> "$output_file"
+    echo "- Protocol: $PROTOCOL" >> "$output_file"
     echo "- Number of clients: $NUM_CLIENTS" >> "$output_file"
     if [ -n "$OBSERVE_TIME" ]; then
         echo "- Observer mode: Yes ($OBSERVE_TIME seconds)" >> "$output_file"
@@ -635,13 +644,14 @@ create_summary_report() {
         echo "- Iterations per test: $ITERATIONS" >> "$output_file"
         echo "- Iteration directories:" >> "$output_file"
         for ((i=1; i<=ITERATIONS; i++)); do
-            echo "  - raw/${SESSION_ID}-${i}" >> "$output_file"
+            echo "  - raw/${SESSION_ID}/iter_${i}" >> "$output_file"
         done
     fi
     echo "" >> "$output_file"
     
     if [ $ITERATIONS -gt 1 ]; then
-        echo "For detailed results, please run the metrics_merge.py --aggregate --session <SESSION_ID>." >> "$output_file"
+        echo "For aggregated results, run:" >> "$output_file"
+        echo "  python3 benchmark/bench-data-manager.py aggregate --data-dir benchmark/data --session-id ${SESSION_ID}" >> "$output_file"
     else
         echo "Results Summary:" >> "$output_file"
         echo "----------------" >> "$output_file"
@@ -676,8 +686,6 @@ create_summary_report() {
             # Debug output
             log "INFO" "Processing result file: $filename"
             
-            # Extract metrics from the CSV file (second-to-last row has mean values)
-            # Use tail -2 to get the second-to-last row
             local duration=$(awk -F';' 'NR==2 {print $1}' <(tail -3 "$file") 2>/dev/null || echo "N/A")
             local cycles=$(awk -F';' 'NR==2 {print $2}' <(tail -3 "$file") 2>/dev/null || echo "N/A")
             local energy=""
@@ -693,7 +701,7 @@ create_summary_report() {
             fi
             
             # Extract test configuration from filename
-            local config=$(echo "$filename" | sed 's/udp_rasp_conv_stats_//; s/.csv//')
+            local config=$(echo "$filename" | sed 's/^udp_rasp_conv_stats_//; s/^udp_conv_stats_//; s/^udp_rasp_mqttsn_stats_//; s/^udp_mqttsn_stats_//; s/.csv$//')
             
             # Format the output
             echo "$config:" >> "$output_file"
@@ -1036,17 +1044,22 @@ if [[ "$SECURITY_MODES" == *"pki"* ]]; then
 fi
 
 # Generate one session ID for the entire benchmark run
-# Auto-detect network condition from net_config.sh
-NET_CONFIG_SCRIPT="${REPO_ROOT}/network_emulation/net_config.sh"
-if [ -x "$NET_CONFIG_SCRIPT" ]; then
-    NETWORK_CONDITION=$("$NET_CONFIG_SCRIPT" get-current 2>/dev/null)
-    if [ -z "$NETWORK_CONDITION" ] || [ "$NETWORK_CONDITION" == "unknown" ]; then
-        log "WARNING" "Could not detect network condition, defaulting to 'fiducial'"
+NETWORK_CONDITION_SOURCE="provided"
+if [ -z "$NETWORK_CONDITION" ]; then
+    NETWORK_CONDITION_SOURCE="auto-detected"
+    NET_CONFIG_SCRIPT="${REPO_ROOT}/network_emulation/net_config.sh"
+    if [ -x "$NET_CONFIG_SCRIPT" ]; then
+        NETWORK_CONDITION=$("$NET_CONFIG_SCRIPT" get-current 2>/dev/null)
+        if [ -z "$NETWORK_CONDITION" ] || [ "$NETWORK_CONDITION" == "unknown" ]; then
+            log "WARNING" "Could not detect network condition, defaulting to 'fiducial'"
+            NETWORK_CONDITION="fiducial"
+            NETWORK_CONDITION_SOURCE="default"
+        fi
+    else
+        log "WARNING" "Network config script not found, defaulting to 'fiducial'"
         NETWORK_CONDITION="fiducial"
+        NETWORK_CONDITION_SOURCE="default"
     fi
-else
-    log "WARNING" "Network config script not found, defaulting to 'fiducial'"
-    NETWORK_CONDITION="fiducial"
 fi
 
 # Generate session ID: local_MMDD_NETCOND_RANDOM
@@ -1057,7 +1070,7 @@ SESSION_ID="${SESSION_PREFIX}_$(date +%m%d)_${NETWORK_CONDITION}_${RANDOM_STR}"
 SESSION_DIR="${RAW_DATA_DIR}/${SESSION_ID}"
 
 log "INFO" "Session ID: $SESSION_ID"
-log "INFO" "Network condition: $NETWORK_CONDITION (auto-detected)"
+log "INFO" "Network condition: $NETWORK_CONDITION ($NETWORK_CONDITION_SOURCE)"
 log "INFO" "Session directory: $SESSION_DIR"
 
 # Create session directory structure
@@ -1144,6 +1157,11 @@ if [ $ITERATIONS -gt 1 ]; then
 else
     # Single iteration - create detailed summary
     create_summary_report
+fi
+
+if [ "$BENCHMARK_FAILURES" -gt 0 ]; then
+    log "ERROR" "$BENCHMARK_FAILURES benchmark run(s) failed after retries"
+    exit 1
 fi
 
 log "SUCCESS" "All benchmarks completed successfully!"

@@ -24,8 +24,13 @@ DATA_DIR="${BENCH_DATA_DIR:-${BENCH_DIR}/data/current}"
 rasp_option=""
 cert_config="DEFAULT"
 client_auth="no"  # Default to no client authentication
+SUDO_CMD="${BENCH_SUDO_CMD-sudo}"
 
-sudo rm -f "${REPO_ROOT}/cycles_output.txt"
+if [ -n "$SUDO_CMD" ]; then
+  $SUDO_CMD rm -f "${REPO_ROOT}/cycles_output.txt"
+else
+  rm -f "${REPO_ROOT}/cycles_output.txt"
+fi
 
 # Function to display usage/help
 show_usage() {
@@ -173,22 +178,46 @@ else
   SERVER_ADDR="${RASPBERRY_PI_IP}"
 fi
 
+USE_PERF="true"
+if ! command -v "$PERF" >/dev/null 2>&1; then
+  USE_PERF="false"
+elif [ -n "$SUDO_CMD" ]; then
+  $SUDO_CMD "$PERF" stat -e cycles true >/dev/null 2>&1 || USE_PERF="false"
+else
+  "$PERF" stat -e cycles true >/dev/null 2>&1 || USE_PERF="false"
+fi
+
+if [ "$USE_PERF" != "true" ]; then
+  echo "Warning: perf is not usable, running CoAP server without CPU cycle measurement."
+  echo "0" > "${DATA_DIR}/auxiliary_server.txt"
+fi
+
 # Determine the command based on the value of -sec-mode
 case "$SEC_MODE" in
   pki)
-    CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH $PERF stat -o ${DATA_DIR}/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -A ${SERVER_ADDR} -c ${cert_file} -j ${key_file} ${client_auth_flag}"
+    SERVER_ARGS="-A ${SERVER_ADDR} -c ${cert_file} -j ${key_file} ${client_auth_flag}"
     ;;
   psk)
-    CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH $PERF stat -o ${DATA_DIR}/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -k $(cat ${ACTIVE_PSK}) -h uc3m -A ${SERVER_ADDR}"
+    SERVER_ARGS="-k $(cat ${ACTIVE_PSK}) -h uc3m -A ${SERVER_ADDR}"
     ;;
   nosec)
-    CMD="sudo -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH $PERF stat -o ${DATA_DIR}/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server -A ${SERVER_ADDR}"
+    SERVER_ARGS="-A ${SERVER_ADDR}"
     ;;
   *)
     echo "Invalid -sec-mode value: $SEC_MODE"
     exit 1
     ;;
 esac
+
+if [ "$USE_PERF" = "true" ]; then
+  if [ -n "$SUDO_CMD" ]; then
+    CMD="$SUDO_CMD -E env LD_LIBRARY_PATH=$LD_LIBRARY_PATH $PERF stat -o ${DATA_DIR}/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server ${SERVER_ARGS}"
+  else
+    CMD="env LD_LIBRARY_PATH=$LD_LIBRARY_PATH $PERF stat -o ${DATA_DIR}/auxiliary_server.txt -e cycles ${COAP_BIN}/coap-server ${SERVER_ARGS}"
+  fi
+else
+  CMD="env LD_LIBRARY_PATH=$LD_LIBRARY_PATH ${COAP_BIN}/coap-server ${SERVER_ARGS}"
+fi
 
 # Run the determined command
 echo "Running command: $CMD"

@@ -38,9 +38,14 @@ source .bench-env/bin/activate
 ./scripts/install_wolfssl.sh
 ./scripts/install_wolfmqtt.sh
 ./scripts/install_mosquitto.sh
-./scripts/install_paho_mqttsn_gateway.sh dtls
+./scripts/install_paho_mqttsn_gateway.sh both
 ./scripts/install_mqttsn_clients.sh
 ```
+
+The MQTT-SN gateway installer builds separate binaries for secured and
+unsecured runs: `MQTTSNGateway/bin-dtls/MQTT-SNGateway` for PKI and
+`MQTTSNGateway/bin-udp/MQTT-SNGateway` for nosec. The benchmark wrapper
+selects the correct binary automatically.
 
 ## Step 2: Network Emulation (Optional)
 
@@ -121,7 +126,16 @@ From the repository root folder:
 
 # Parallel execution with energy monitoring
 ./benchmark/run_benchmarks.sh -protocol mqttsn -n 25 -parallelization parallel -energy -security pki,nosec -scenarios pub,sub -iterations 5 -y
+
+# Local smoke test without Raspberry Pi or sudo network detection
+BENCH_SUDO_CMD="" LOCAL_MODE=true ENERGY_MONITOR_TYPE=codecarbon \
+  ./benchmark/run_benchmarks.sh -protocol mqttsn -n 1 -security nosec \
+  -scenarios pub -energy -network fiducial -y -v -pause 0
 ```
+
+`MQTTSN_CLIENT_TIMEOUT` bounds each client run and defaults to `120s`. This
+keeps failed DTLS handshakes from hanging the suite and makes failures visible
+to `run_benchmarks.sh` after the configured retries.
 
 ### Complete Benchmark Suite
 
@@ -231,6 +245,12 @@ pgrep -f 'libcoap' | xargs -r kill -9
 
 # Check energy monitor
 python3 benchmark/energy_monitor.py --backend codecarbon --list-devices
+
+# Bound MQTT-SN PKI smoke tests while debugging DTLS handshakes
+BENCH_SUDO_CMD="" LOCAL_MODE=true MQTTSN_CLIENT_TIMEOUT=8s \
+  ./benchmark/run_benchmarks.sh -protocol mqttsn -n 1 -security pki \
+  -scenarios pub -network fiducial -groups KYBER_LEVEL3 \
+  -signatures DILITHIUM_LEVEL3 -cert-filter DILITHIUM_LEVEL3 -y -v -pause 0
 ```
 
 ## Command Reference
@@ -290,7 +310,7 @@ Both protocols use the `-scenarios` flag to select which tests to run, but with 
 - **Observer Flag**: `-s TIME` sets observation duration in seconds
 - **Use Case**: Testing delayed responses and publish-subscribe patterns
 
-⚠️ **Important Note for PQC Benchmarking**: The `async` resource has a built-in server-side delay (default 4 seconds) and limited thread pool (3 threads), which causes significant queueing with multiple clients. This delay dominates the measurements and masks PQC cryptographic overhead. **For PQC evaluation, use Scenarios A and C instead.** Scenario B is primarily useful for testing server load and async protocol behavior, not for comparing cryptographic performance.
+**Important note for PQC benchmarking**: The `async` resource has a built-in server-side delay (default 4 seconds) and limited thread pool (3 threads), which causes significant queueing with multiple clients. This delay dominates the measurements and masks PQC cryptographic overhead. **For PQC evaluation, use Scenarios A and C instead.** Scenario B is primarily useful for testing server load and async protocol behavior, not for comparing cryptographic performance.
 
 #### Scenario C: Synchronous Request-Response (Non-Confirmable)
 

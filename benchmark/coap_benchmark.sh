@@ -106,7 +106,7 @@ wait_for_port_free() {
     local remote_host=${3:-}
     local waited=0
     
-    while [ $waited -lt $max_wait ]; do
+    while (( $(echo "$waited < $max_wait" | bc -l) )); do
         if [ -n "$remote_host" ]; then
             # Remote check via SSH
             if ! ssh root@"$remote_host" "ss -tuln | grep -q ':${port} '" 2>/dev/null; then
@@ -132,7 +132,7 @@ wait_for_port_listen() {
     local remote_host=${3:-}
     local waited=0
     
-    while [ $waited -lt $max_wait ]; do
+    while (( $(echo "$waited < $max_wait" | bc -l) )); do
         if [ -n "$remote_host" ]; then
             # Remote check via SSH
             if ssh root@"$remote_host" "ss -tuln | grep -q ':${port} '" 2>/dev/null; then
@@ -158,7 +158,7 @@ wait_for_process_exit() {
     local remote_host=${3:-}
     local waited=0
     
-    while [ $waited -lt $max_wait ]; do
+    while (( $(echo "$waited < $max_wait" | bc -l) )); do
         if [ -n "$remote_host" ]; then
             # Remote check via SSH
             if ! ssh root@"$remote_host" "pgrep -f '$pattern'" > /dev/null 2>&1; then
@@ -179,6 +179,7 @@ wait_for_process_exit() {
 # Function to check if perf is available and working
 check_perf_availability() {
     local perf_cmd="${PERF_CMD:-perf}"
+    local sudo_cmd="${BENCH_SUDO_CMD-sudo}"
     local perf_available=false
     local perf_warning=""
     
@@ -186,12 +187,17 @@ check_perf_availability() {
     if ! command -v "$perf_cmd" &>/dev/null; then
         perf_warning="perf command not found"
     else
-        # Test if perf can actually run (needs sudo for the benchmark)
-        if sudo "$perf_cmd" stat -e cycles true 2>/dev/null; then
+        if { [ -n "$sudo_cmd" ] && $sudo_cmd "$perf_cmd" stat -e cycles true 2>/dev/null; } || \
+           { [ -z "$sudo_cmd" ] && "$perf_cmd" stat -e cycles true 2>/dev/null; }; then
             perf_available=true
         else
             # Check for common issues
-            local perf_output=$(sudo "$perf_cmd" --version 2>&1)
+            local perf_output
+            if [ -n "$sudo_cmd" ]; then
+                perf_output=$($sudo_cmd "$perf_cmd" --version 2>&1)
+            else
+                perf_output=$("$perf_cmd" --version 2>&1)
+            fi
             if echo "$perf_output" | grep -q "not found for kernel"; then
                 perf_warning="perf not installed for current kernel ($(uname -r))"
                 perf_warning+="\n\nTo fix this issue, run:"
@@ -216,9 +222,12 @@ check_perf_availability() {
         echo "============================================================================="
         echo ""
         
-        # Prompt user to continue
-        read -p "Do you want to continue without CPU cycle measurement? [y/N] " -n 1 -r
-        echo
+        if [ "${BENCH_ALLOW_NO_PERF:-false}" != "true" ] && [ "${LOCAL_MODE:-false}" != "true" ]; then
+            read -p "Do you want to continue without CPU cycle measurement? [y/N] " -n 1 -r
+            echo
+        else
+            REPLY="y"
+        fi
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
             echo "Benchmark aborted. Please fix perf and try again."
             exit 1
@@ -554,7 +563,13 @@ stop_server_and_cleanup() {
         # Stop local server gracefully
         echo "Stopping local server..."
         server_PID=$(ps -e -f | grep "coap-se" | tail -2 | head -1 | awk '{print $2}')
-        [ -n "$server_PID" ] && sudo kill -2 "$server_PID" 2>/dev/null
+        if [ -n "$server_PID" ]; then
+            if [ -n "${BENCH_SUDO_CMD-sudo}" ]; then
+                ${BENCH_SUDO_CMD-sudo} kill -2 "$server_PID" 2>/dev/null
+            else
+                kill -2 "$server_PID" 2>/dev/null
+            fi
+        fi
         
         # Wait for server process to exit
         if ! wait_for_process_exit "coap-server" "$TIMING_SERVER_STOP_LOCAL"; then

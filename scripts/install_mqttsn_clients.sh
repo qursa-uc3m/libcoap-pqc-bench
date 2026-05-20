@@ -40,6 +40,11 @@ if ! pkg-config --exists wolfmqtt; then
 fi
 
 # Clone clients if not present
+if [ -d "$CLIENTS_DIR" ] && [ ! -d "$CLIENTS_DIR/.git" ]; then
+    echo "Removing incomplete MQTT-SN clients directory..."
+    rm -rf "$CLIENTS_DIR"
+fi
+
 if [ ! -d "$CLIENTS_DIR" ]; then
     echo "Cloning MQTT-SN clients..."
     git clone --branch "$CLIENTS_BRANCH" "$CLIENTS_REPO" "$CLIENTS_DIR"

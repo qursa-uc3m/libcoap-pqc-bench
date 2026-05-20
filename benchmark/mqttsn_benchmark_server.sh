@@ -150,13 +150,19 @@ if [ "$SEC_MODE" == "pki" ]; then
     echo "  CA: $ca_file"
 fi
 
+if [ "$SEC_MODE" == "pki" ] && [ -x "${GATEWAY_DIR}/bin-dtls/MQTT-SNGateway" ]; then
+    GATEWAY_BIN="${GATEWAY_DIR}/bin-dtls"
+elif [ "$SEC_MODE" == "nosec" ] && [ -x "${GATEWAY_DIR}/bin-udp/MQTT-SNGateway" ]; then
+    GATEWAY_BIN="${GATEWAY_DIR}/bin-udp"
+fi
+
 echo "Creating benchmark data directory in ${DATA_DIR} ..."
 mkdir -p "${DATA_DIR}"
 
 # Check if gateway binary exists
 if [ ! -f "${GATEWAY_BIN}/MQTT-SNGateway" ]; then
     echo "Error: MQTT-SN Gateway not found at ${GATEWAY_BIN}/MQTT-SNGateway"
-    echo "Please run: ./scripts/install_paho_mqttsn_gateway.sh"
+    echo "Please run: ./scripts/install_paho_mqttsn_gateway.sh both"
     exit 1
 fi
 
@@ -231,9 +237,24 @@ cd "${GATEWAY_BIN}"
 
 # Determine output directory for perf stats
 PERF_OUTPUT_FILE="${DATA_DIR}/auxiliary_server.txt"
+USE_PERF="false"
+
+if command -v "$PERF" &>/dev/null; then
+    if [ -n "$BENCH_SUDO_CMD" ]; then
+        USE_PERF="true"
+    elif "$PERF" stat -e cycles -o /tmp/qursa_perf_test true >/dev/null 2>&1; then
+        USE_PERF="true"
+        rm -f /tmp/qursa_perf_test
+    else
+        rm -f /tmp/qursa_perf_test
+        echo "Warning: perf is not usable without sudo, running without CPU cycle measurement."
+    fi
+else
+    echo "Warning: perf not available, running without CPU cycle measurement."
+fi
 
 # Run gateway with perf for CPU cycle measurement
-if command -v "$PERF" &>/dev/null; then
+if [ "$USE_PERF" == "true" ]; then
     echo "Running with perf for CPU cycle measurement..."
     echo "Perf output will be saved to: $PERF_OUTPUT_FILE"
     if [ -n "$BENCH_SUDO_CMD" ]; then
@@ -242,7 +263,6 @@ if command -v "$PERF" &>/dev/null; then
         CMD="env LD_LIBRARY_PATH=$LD_LIBRARY_PATH $PERF stat -e cycles -o ${PERF_OUTPUT_FILE} ./MQTT-SNGateway -f \"${MQTT_SN_GATEWAY_CONF}\""
     fi
 else
-    echo "Warning: perf not available, running without CPU cycle measurement."
     if [ -n "$BENCH_SUDO_CMD" ]; then
         CMD="$BENCH_SUDO_CMD env LD_LIBRARY_PATH=$LD_LIBRARY_PATH ./MQTT-SNGateway -f \"${MQTT_SN_GATEWAY_CONF}\""
     else
