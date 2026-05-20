@@ -42,6 +42,8 @@ NUM_CLIENTS=""
 OBSERVE_TIME=""
 PARALLELIZATION=""
 CLIENT_AUTH="no"
+# Protocol selection: coap (default) or mqttsn
+PROTOCOL="coap"
 # Pause between benchmark runs (uses config values, can be overridden with -pause)
 if [ "$LOCAL_MODE" = "true" ]; then
     PAUSE_BETWEEN_RUNS=$TIMING_PAUSE_BETWEEN_RUNS_LOCAL
@@ -59,7 +61,7 @@ RESOURCES="time,async"  # Default resources to test
 ASYNC_DELAY=""          # Optional delay parameter for async resource
 ITERATIONS=1            # Default to 1 iteration (no iteration mode)
 SESSION_ID=""           # Unique identifier for this benchmark session
-SCENARIOS="A,B,C"       # Default scenarios to run (A=time+con, B=async, C=time+non)
+SCENARIOS="A,B,C"       # Default scenarios: A,B,C for CoAP; pub,sub for MQTT-SN
 NETWORK_CONDITION=""    # Network condition label for data organization
 
 # Algorithm configuration (new flags: -groups and -signatures)
@@ -70,7 +72,7 @@ SIGNATURES_LIST="DILITHIUM_LEVEL3"  # Default signature algorithm
 ALL_GROUPS="KYBER_LEVEL1,KYBER_LEVEL3,KYBER_LEVEL5,P256_KYBER_LEVEL1,P384_KYBER_LEVEL3,P521_KYBER_LEVEL5,P256,P384,P521,X25519"
 ALL_SIGNATURES="RSA_2048,EC_P256,EC_ED25519,DILITHIUM_LEVEL2,DILITHIUM_LEVEL3,DILITHIUM_LEVEL5,FALCON_LEVEL1,FALCON_LEVEL5"
 
-# Benchmark data directories - all data stored under libcoap-bench/data/
+# Benchmark data directories - all data stored under benchmark/data/
 DATA_BASE="${BENCHMARK_SCRIPT_DIR}/data"
 RAW_DATA_DIR="${DATA_BASE}/raw"
 BENCH_DATA_DIR="${DATA_BASE}/current"
@@ -82,12 +84,17 @@ export BENCH_DATA_DIR  # Export so coap_benchmark.sh can see it
 
 # Display help information
 show_help() {
-    echo -e "${BLUE}Benchmark Automation Script for libcoap PQC${NC}"
+    echo -e "${BLUE}Benchmark Automation Script for PQC Protocols${NC}"
     echo
     echo "Usage: $0 -n NUM_CLIENTS [OPTIONS]"
     echo
     echo "Required arguments:"
     echo "  -n NUM_CLIENTS        Number of clients for benchmarking"
+    echo
+    echo "Protocol selection:"
+    echo "  -protocol PROTOCOL    Protocol to benchmark [coap|mqttsn] (default: coap)"
+    echo "                        coap: CoAP over DTLS (libcoap)"
+    echo "                        mqttsn: MQTT-SN over DTLS (paho gateway + wolfMQTT clients)"
     echo
     echo "Optional arguments:"
     echo "  -s TIME               Time for observer mode in seconds (enables observer mode)"
@@ -100,12 +107,14 @@ show_help() {
     echo "  -energy               Enable energy measurements (requires RD-USB setup)"
     echo "  -cert-filter PATTERN  Only run certificate configs matching pattern (comma-separated)"
     echo "  -security MODES       Security modes to test (comma-separated: pki,psk,nosec)"
+    echo "                        Note: MQTT-SN only supports pki,nosec (no PSK)"
     echo "  -resources RES        Resources to test (comma-separated: time,async or async?2,example_data)"
     echo "                        For async, you can specify delay with async?N where N is seconds"
     echo "  -async-delay SECONDS  Set delay for async resource (alternative to async?N syntax)"
-    echo "  -scenarios SCENARIOS  Scenarios to run (comma-separated: A,B,C or any combination)"
-    echo "                        A = time+con (handshake test), B = async (separate response),"
-    echo "                        C = time+non (observe mode). Default: A,B,C"
+    echo "  -scenarios SCENARIOS  Scenarios to run (comma-separated):"
+    echo "                        CoAP: A,B,C (A=time+con, B=async, C=time+non)"
+    echo "                        MQTT-SN: pub,sub (pub=publisher, sub=subscriber)"
+    echo "                        Default: A,B,C (CoAP) or pub (MQTT-SN)"
     echo "  -iterations N         Run each test configuration N times (enables iteration mode)"
     echo "  -network CONDITION    Network condition label (e.g., fiducial, smart-home, smart-factory, public-transport)"
     echo "                        REQUIRED: This label is used in the session ID to identify data"
@@ -119,17 +128,14 @@ show_help() {
     echo "  -v                    Verbose output"
     echo "  -h, --help            Show this help message"
     echo
-    echo "Examples:"
-    echo "  $0 -n 100"
+    echo "CoAP Examples:"
+    echo "  $0 -n 100 -protocol coap"
     echo "  $0 -n 50 -s 30 -parallelization parallel -client-auth yes"
     echo "  $0 -n 20 -signatures DILITHIUM_LEVEL3,FALCON_LEVEL1 -security pki,psk -energy"
-    echo "  $0 -n 10 -resources time -v"
-    echo "  $0 -n 5 -resources async?3 -pause 30"
-    echo "  $0 -n 25 -iterations 10 -security psk -resources async"
-    echo "  $0 -n 15 -groups KYBER_LEVEL1,P256_KYBER_LEVEL1 -signatures all -security pki"
-    echo "  $0 -n 20 -groups all -signatures DILITHIUM_LEVEL2,FALCON_LEVEL5 -iterations 5"
-    echo "  $0 -n 30 -groups P256,P384,X25519 -signatures RSA_2048,EC_P256 -security pki"
-    echo "  $0 -n 10 -scenarios A,C -security pki -signatures DILITHIUM_LEVEL3"
+    echo
+    echo "MQTT-SN Examples:"
+    echo "  $0 -n 100 -protocol mqttsn -security pki -scenarios pub"
+    echo "  $0 -n 50 -protocol mqttsn -scenarios pub,sub -groups KYBER_LEVEL3"
     echo
 }
 
@@ -165,7 +171,7 @@ log() {
 
 # Check if required dependencies are installed
 check_dependencies() {
-    log "INFO" "Checking dependencies..."
+    log "INFO" "Checking dependencies for ${PROTOCOL} protocol..."
     
     # Check for tshark
     if ! command -v tshark &> /dev/null; then
@@ -179,21 +185,48 @@ check_dependencies() {
         return 1
     fi
     
-    # Check that libcoap is installed/built
-    if [ ! -d "${REPO_ROOT}/libcoap" ]; then
-        log "ERROR" "libcoap directory not found at ${REPO_ROOT}/libcoap"
-        return 1
-    fi
-    
-    if [ ! -x "${REPO_ROOT}/libcoap/build/bin/coap-client" ] || [ ! -x "${REPO_ROOT}/libcoap/build/bin/coap-server" ]; then
-        log "ERROR" "libcoap executables not found. Please build libcoap first."
-        return 1
-    fi
-    
-    # Check for PSK key if psk security mode is enabled
-    if [[ "$SECURITY_MODES" == *"psk"* ]] && [ ! -f "${REPO_ROOT}/pskeys/active_psk.txt" ]; then
-        log "WARNING" "No active PSK key found. Please run: ./pskeys/psk_manager.sh activate <key>"
-        return 1
+    # Protocol-specific checks
+    if [ "$PROTOCOL" == "coap" ]; then
+        # Check that libcoap is installed/built
+        if [ ! -d "${REPO_ROOT}/libcoap" ]; then
+            log "ERROR" "libcoap directory not found at ${REPO_ROOT}/libcoap"
+            return 1
+        fi
+        
+        if [ ! -x "${REPO_ROOT}/libcoap/build/bin/coap-client" ] || [ ! -x "${REPO_ROOT}/libcoap/build/bin/coap-server" ]; then
+            log "ERROR" "libcoap executables not found. Please build libcoap first."
+            return 1
+        fi
+        
+        # Check for PSK key if psk security mode is enabled
+        if [[ "$SECURITY_MODES" == *"psk"* ]] && [ ! -f "${REPO_ROOT}/pskeys/active_psk.txt" ]; then
+            log "WARNING" "No active PSK key found. Please run: ./pskeys/psk_manager.sh activate <key>"
+            return 1
+        fi
+    elif [ "$PROTOCOL" == "mqttsn" ]; then
+        # Check that MQTT-SN clients are built
+        if [ ! -x "${REPO_ROOT}/pq-mqtt-sn-clients/build/bin/sn-pub" ]; then
+            log "ERROR" "MQTT-SN clients not found. Please run: ./scripts/install_mqttsn_clients.sh"
+            return 1
+        fi
+        
+        # Check that MQTT-SN Gateway is built
+        if [ ! -x "${REPO_ROOT}/paho-mqttsn-gateway/MQTTSNGateway/bin/MQTT-SNGateway" ]; then
+            log "ERROR" "MQTT-SN Gateway not found. Please run: ./scripts/install_paho_mqttsn_gateway.sh"
+            return 1
+        fi
+        
+        # Check if Mosquitto broker is available
+        if ! command -v mosquitto &> /dev/null && ! pgrep -x "mosquitto" > /dev/null; then
+            log "WARNING" "Mosquitto broker not found. Please run: ./scripts/install_mosquitto.sh"
+            return 1
+        fi
+        
+        # MQTT-SN doesn't support PSK mode - filter it out
+        if [[ "$SECURITY_MODES" == *"psk"* ]]; then
+            log "WARNING" "MQTT-SN does not support PSK mode. Removing PSK from security modes."
+            SECURITY_MODES=$(echo "$SECURITY_MODES" | sed 's/psk//g' | tr -s ' ')
+        fi
     fi
     
     # Everything is fine
@@ -319,6 +352,15 @@ run_scenarios_for_config() {
     local cert_config="$2"
     local iteration="$3"
     
+    # MQTT-SN uses different scenarios (pub, sub) than CoAP (A, B, C)
+    if [ "$PROTOCOL" == "mqttsn" ]; then
+        # MQTT-SN scenarios: pub and sub
+        [[ "$SCENARIOS" == *"pub"* ]] && run_benchmark "$sec_mode" "pub" "" "$cert_config" "" "$iteration"
+        [[ "$SCENARIOS" == *"sub"* ]] && run_benchmark "$sec_mode" "sub" "" "$cert_config" "" "$iteration"
+        return
+    fi
+    
+    # CoAP scenarios: A, B, C
     for resource_item in "${RESOURCE_ARRAY[@]}"; do
         # Parse resource to extract name and parameters
         local parsed=$(parse_resource "$resource_item")
@@ -495,11 +537,22 @@ run_benchmark() {
             fi
         fi
         
-        log "INFO" "Executing: ${REPO_ROOT}/libcoap-bench/coap_benchmark.sh $cmd_args"
-        if [ "$VERBOSE" == "true" ]; then
-            ${REPO_ROOT}/libcoap-bench/coap_benchmark.sh $cmd_args
+        # Select benchmark script based on protocol
+        local benchmark_script
+        if [ "$PROTOCOL" == "mqttsn" ]; then
+            benchmark_script="${REPO_ROOT}/benchmark/mqttsn_benchmark.sh"
+            # For MQTT-SN, the resource parameter contains the role (pub/sub)
+            # Add the role to command args
+            cmd_args="$cmd_args -role $resource"
         else
-            ${REPO_ROOT}/libcoap-bench/coap_benchmark.sh $cmd_args > /tmp/benchmark_output.log 2>&1
+            benchmark_script="${REPO_ROOT}/benchmark/coap_benchmark.sh"
+        fi
+        
+        log "INFO" "Executing: ${benchmark_script} $cmd_args"
+        if [ "$VERBOSE" == "true" ]; then
+            ${benchmark_script} $cmd_args
+        else
+            ${benchmark_script} $cmd_args > /tmp/benchmark_output.log 2>&1
         fi
         
         local exit_code=$?
@@ -700,6 +753,14 @@ while [[ $# -gt 0 ]]; do
         -rasp)
             RASP_SERVER="true"
             shift
+            ;;
+        -protocol)
+            PROTOCOL="$2"
+            if [[ "$PROTOCOL" != "coap" && "$PROTOCOL" != "mqttsn" ]]; then
+                log "ERROR" "Protocol must be 'coap' or 'mqttsn'"
+                exit 1
+            fi
+            shift 2
             ;;
         -energy)
             MEASURE_ENERGY="true"

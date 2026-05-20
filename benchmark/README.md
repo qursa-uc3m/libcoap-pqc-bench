@@ -1,18 +1,45 @@
-# CoAP-PQC Benchmark Suite
+# PQC Protocol Benchmark Suite
 
-Step-by-step guide for running post-quantum CoAP benchmarks.
+Step-by-step guide for running post-quantum cryptography benchmarks for **CoAP** and **MQTT-SN** protocols.
+
+## Supported Protocols
+
+| Protocol | Transport | Implementation | Security Modes |
+|----------|-----------|----------------|----------------|
+| **CoAP** | DTLS 1.3 | libcoap + wolfSSL | PKI, PSK, nosec |
+| **MQTT-SN** | DTLS 1.3 | paho-gateway + wolfMQTT | PKI, nosec |
 
 ## Prerequisites
 
 - Python environment: `source .bench-env/bin/activate`
-- libcoap built with WolfSSL
-- PSK key generated and activated (see main README)
+- For CoAP: libcoap built with WolfSSL
+- For MQTT-SN: Gateway and clients built with wolfSSL/wolfMQTT
+- PSK key generated and activated (CoAP only - see main README)
 
 ## Step 1: Setup Environment
 
 ```bash
 cd /path/to/libcoap-pqc-bench
 source .bench-env/bin/activate
+```
+
+### Install Protocol Dependencies
+
+**For CoAP:**
+```bash
+./scripts/install_liboqs_for_wolfssl.sh
+./scripts/install_wolfssl.sh
+./scripts/install_libcoap.sh wolfssl
+```
+
+**For MQTT-SN:**
+```bash
+./scripts/install_liboqs_for_wolfssl.sh
+./scripts/install_wolfssl.sh
+./scripts/install_wolfmqtt.sh
+./scripts/install_mosquitto.sh
+./scripts/install_paho_mqttsn_gateway.sh dtls
+./scripts/install_mqttsn_clients.sh
 ```
 
 ## Step 2: Network Emulation (Optional)
@@ -57,17 +84,30 @@ See [network_emulation/README.md](../network_emulation/README.md) for detailed s
 
 From the repository root folder:
 
-### Basic Examples
+### CoAP Benchmarks
 
 ```bash
 # Simple benchmark (25 clients, PSK mode, scenarios A and C only - recommended for PQC)
-./libcoap-bench/run_benchmarks.sh -n 25 -security psk -scenarios A,C -y
+./benchmark/run_benchmarks.sh -protocol coap -n 25 -security psk -scenarios A,C -y
 
 # Observer mode (60 seconds)
-./libcoap-bench/run_benchmarks.sh -n 25 -s 60 -security psk -resources example_data -y
+./benchmark/run_benchmarks.sh -protocol coap -n 25 -s 60 -security psk -resources example_data -y
 
 # Parallel execution with energy monitoring (PQC-focused scenarios)
-./libcoap-bench/run_benchmarks.sh -n 25 -parallelization parallel -energy -security pki,psk,nosec -scenarios A,C -iterations 5 -y
+./benchmark/run_benchmarks.sh -protocol coap -n 25 -parallelization parallel -energy -security pki,psk,nosec -scenarios A,C -iterations 5 -y
+```
+
+### MQTT-SN Benchmarks
+
+```bash
+# Simple benchmark (25 clients, PKI mode)
+./benchmark/run_benchmarks.sh -protocol mqttsn -n 25 -security pki -scenarios A,C -y
+
+# With specific KEM and signature algorithms
+./benchmark/run_benchmarks.sh -protocol mqttsn -n 25 -groups KYBER_LEVEL3 -signatures DILITHIUM_LEVEL3 -security pki -y
+
+# Parallel execution with energy monitoring
+./benchmark/run_benchmarks.sh -protocol mqttsn -n 25 -parallelization parallel -energy -security pki,nosec -scenarios A,C -iterations 5 -y
 ```
 
 ### Complete Benchmark Suite
@@ -75,21 +115,19 @@ From the repository root folder:
 Run for each network condition (using recommended PQC scenarios):
 
 ```bash
-# 1. FIDUCIAL NETWORK
+# 1. FIDUCIAL NETWORK - CoAP
 sudo ./network_emulation/net_config.sh set fiducial
-./libcoap-bench/run_benchmarks.sh -n 25 -groups all -signatures all -parallelization parallel -security "pki,psk,nosec" -scenarios A,C -iterations 5 -energy -y
+./benchmark/run_benchmarks.sh -protocol coap -n 25 -groups all -signatures all -parallelization parallel -security "pki,psk,nosec" -scenarios A,C -iterations 5 -energy -y
 
-# 2. SMART HOME NETWORK
+# 1. FIDUCIAL NETWORK - MQTT-SN
+./benchmark/run_benchmarks.sh -protocol mqttsn -n 25 -groups all -signatures all -parallelization parallel -security "pki,nosec" -scenarios A,C -iterations 5 -energy -y
+
+# 2. SMART HOME NETWORK - CoAP
 sudo ./network_emulation/net_config.sh set smart-home
-./libcoap-bench/run_benchmarks.sh -n 25 -groups all -signatures all -parallelization parallel -security "pki,psk,nosec" -scenarios A,C -iterations 5 -energy -y
+./benchmark/run_benchmarks.sh -protocol coap -n 25 -groups all -signatures all -parallelization parallel -security "pki,psk,nosec" -scenarios A,C -iterations 5 -energy -y
 
-# 3. SMART FACTORY NETWORK
-sudo ./network_emulation/net_config.sh set smart-factory
-./libcoap-bench/run_benchmarks.sh -n 25 -groups all -signatures all -parallelization parallel -security "pki,psk,nosec" -scenarios A,C -iterations 5 -energy -y
-
-# 4. PUBLIC TRANSPORT NETWORK
-sudo ./network_emulation/net_config.sh set public-transport
-./libcoap-bench/run_benchmarks.sh -n 25 -groups all -signatures all -parallelization parallel -security "pki,psk,nosec" -scenarios A,C -iterations 5 -energy -y
+# 2. SMART HOME NETWORK - MQTT-SN
+./benchmark/run_benchmarks.sh -protocol mqttsn -n 25 -groups all -signatures all -parallelization parallel -security "pki,nosec" -scenarios A,C -iterations 5 -energy -y
 
 # Reset network after each set
 sudo ./network_emulation/net_config.sh reset
@@ -100,7 +138,7 @@ sudo ./network_emulation/net_config.sh reset
 ### Aggregate Data from Iterations
 
 ```bash
-cd libcoap-bench/data
+cd benchmark/data
 
 # Aggregate specific session (auto-detects iterations)
 python3 ../bench-data-manager.py aggregate --data-dir . --session-id local_1219_fiducial_x7
@@ -118,11 +156,11 @@ cd libcoap-plots
 
 # Single session scatter plot
 python3 bench-data-plots.py "duration" 1 --scatter --scenarios A \
-    --data-dir ../libcoap-bench/data --custom-suffix "local_1219_fiducial_x7" --p "parallel"
+    --data-dir ../benchmark/data --custom-suffix "local_1219_fiducial_x7" --p "parallel"
 
 # Bar plot comparing scenarios
 python3 bench-data-plots.py "Energy (Wh)" 1 --barplot --scenarios A,C \
-    --data-dir ../libcoap-bench/data --custom-suffix "local_1219_fiducial_x7"
+    --data-dir ../benchmark/data --custom-suffix "local_1219_fiducial_x7"
 
 # Or use the wrapper script
 ./plots_wrapper.sh "duration,Energy (Wh)" scatter A --session local_1219_fiducial_x7
@@ -135,7 +173,7 @@ See [libcoap-plots/README.md](../libcoap-plots/README.md) for all visualization 
 The benchmark creates a hierarchical folder structure with clear session identification:
 
 ```text
-libcoap-bench/data/
+benchmark/data/
 ├── current/                  # Temporary working directory
 ├── raw/                      # Raw iteration data (organized by session)
 │   └── local_1219_fiducial_x7/     # Session folder (local_MMDD_NETWORK_RANDOM)
@@ -179,13 +217,13 @@ sudo ./network_emulation/net_config.sh test
 pgrep -f 'libcoap' | xargs -r kill -9
 
 # Check energy monitor
-python3 libcoap-bench/energy_monitor.py --backend codecarbon --list-devices
+python3 benchmark/energy_monitor.py --backend codecarbon --list-devices
 ```
 
 ## Command Reference
 
 ```bash
-./libcoap-bench/run_benchmarks.sh -n NUM_CLIENTS [OPTIONS]
+./benchmark/run_benchmarks.sh -n NUM_CLIENTS [OPTIONS]
 ```
 
 ```text
@@ -217,9 +255,11 @@ Options:
 
 ## Benchmark Scenarios
 
-The benchmark supports three test scenarios with different CoAP message patterns:
+Both protocols use the `-scenarios` flag to select which tests to run, but with protocol-specific options.
 
-### Scenario A: Synchronous Request-Response (Confirmable)
+### CoAP Scenarios (A, B, C)
+
+#### Scenario A: Synchronous Request-Response (Confirmable)
 
 - **Resource**: `time`
 - **Message Type**: Confirmable (CON)
@@ -227,7 +267,7 @@ The benchmark supports three test scenarios with different CoAP message patterns
 - **Use Case**: Reliable communication with acknowledgments
 - **Recommended for**: **PQC handshake overhead measurement**
 
-### Scenario B: Asynchronous/Observer Mode
+#### Scenario B: Asynchronous/Observer Mode
 
 - **Resource**: `async` or `example_data`
 - **Message Type**: Confirmable (CON)
@@ -239,7 +279,7 @@ The benchmark supports three test scenarios with different CoAP message patterns
 
 ⚠️ **Important Note for PQC Benchmarking**: The `async` resource has a built-in server-side delay (default 4 seconds) and limited thread pool (3 threads), which causes significant queueing with multiple clients. This delay dominates the measurements and masks PQC cryptographic overhead. **For PQC evaluation, use Scenarios A and C instead.** Scenario B is primarily useful for testing server load and async protocol behavior, not for comparing cryptographic performance.
 
-### Scenario C: Synchronous Request-Response (Non-Confirmable)
+#### Scenario C: Synchronous Request-Response (Non-Confirmable)
 
 - **Resource**: `time`
 - **Message Type**: Non-confirmable (NON)
@@ -247,22 +287,57 @@ The benchmark supports three test scenarios with different CoAP message patterns
 - **Use Case**: Best-effort communication without acknowledgments
 - **Recommended for**: **PQC session maintenance and throughput measurement**
 
+---
+
+### MQTT-SN Scenarios (pub, sub)
+
+#### Scenario pub: Publisher
+
+- **Client**: `sn-pub`
+- **Pattern**: Client connects → Registers topic → Publishes message → Disconnects
+- **Use Case**: Testing publish path including DTLS handshake with PQC
+- **Recommended for**: **PQC handshake and publish overhead measurement**
+
+#### Scenario sub: Subscriber
+
+- **Client**: `sn-sub`
+- **Pattern**: Client connects → Registers topic → Subscribes → Disconnects
+- **Use Case**: Testing subscribe path including DTLS handshake with PQC
+- **Recommended for**: **PQC handshake and subscribe overhead measurement**
+
+---
+
 ### Selecting Scenarios
 
-By default, `run_benchmarks.sh` runs all three scenarios (A, B, C). You can control which scenarios to run using the `-scenarios` flag:
+Use the `-scenarios` flag with protocol-appropriate values:
 
+**CoAP Examples:**
 ```bash
 # Run only Scenarios A and C (recommended for PQC evaluation)
-./run_benchmarks.sh -n 10 -security pki -scenarios A,C
+./run_benchmarks.sh -protocol coap -n 10 -security pki -scenarios A,C
 
 # Run only Scenario A
-./run_benchmarks.sh -n 25 -security pki -scenarios A
+./run_benchmarks.sh -protocol coap -n 25 -security pki -scenarios A
 
-# Run all scenarios (default)
-./run_benchmarks.sh -n 10 -security pki -scenarios A,B,C
+# Run all CoAP scenarios (default)
+./run_benchmarks.sh -protocol coap -n 10 -security pki -scenarios A,B,C
 ```
 
-**Recommendation for PQC Benchmarking**: Use `-scenarios A,C` to focus on meaningful cryptographic performance metrics and avoid the artificial delays and queueing effects of Scenario B.
+**MQTT-SN Examples:**
+```bash
+# Run publisher scenario only (default for MQTT-SN)
+./run_benchmarks.sh -protocol mqttsn -n 25 -security pki -scenarios pub
+
+# Run both publisher and subscriber scenarios
+./run_benchmarks.sh -protocol mqttsn -n 25 -security pki -scenarios pub,sub
+
+# Run subscriber scenario only
+./run_benchmarks.sh -protocol mqttsn -n 25 -security pki -scenarios sub
+```
+
+**Recommendation for PQC Benchmarking**:
+- **CoAP**: Use `-scenarios A,C` to focus on meaningful cryptographic performance metrics
+- **MQTT-SN**: Use `-scenarios pub` for typical IoT publish workflows
 
 ## Related Documentation
 

@@ -7,7 +7,7 @@ PLOT_TYPE="$2"
 SCENARIO="${3:-A}"
 
 # Default directory (relative to libcoap-plots)
-DATA_DIR="../libcoap-bench/data"
+DATA_DIR="../benchmark/data"
 SESSION=""
 LOCAL_MODE="false"
 N=""  # Will be auto-detected if not provided
@@ -90,7 +90,7 @@ else
     echo "  --session SESSION_ID  Session identifier (required)"
     echo "  --local               Use for local benchmarks (no rasp prefix in filenames)"
     echo "  --filtered            Use filtered data files"
-    echo "  --data-dir DIR        Data directory (default: ../libcoap-bench/data)"
+    echo "  --data-dir DIR        Data directory (default: ../benchmark/data)"
     echo "  -n N                  Number of clients (auto-detected from filenames if not provided)"
     exit 1
 fi

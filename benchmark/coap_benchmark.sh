@@ -34,7 +34,7 @@ TIMING_ENERGY_FLUSH="${TIMING_ENERGY_FLUSH:-1.0}"
 TIMING_CLIENT_DELAY="${TIMING_CLIENT_DELAY:-0.5}"
 TIMING_CLIENT_POLL="${TIMING_CLIENT_POLL:-0.1}"
 
-BENCH_DIR="${REPO_ROOT}/libcoap-bench"
+BENCH_DIR="${REPO_ROOT}/benchmark"
 COAP_BIN="${REPO_ROOT}/libcoap/build/bin"
 PSK_DIR="${REPO_ROOT}/pskeys"
 ACTIVE_PSK="${PSK_DIR}/active_psk.txt"
@@ -486,7 +486,7 @@ setup_network_and_server() {
         # Start the server on the Raspberry Pi
         echo "-----------------------------------------------------------------------------------------"
         echo "Starting server on $server_ip..."
-        ssh root@$server_ip "cd ~/libcoap-pqc-bench && ./libcoap-bench/coap_benchmark_server.sh -sec-mode $sec_mode -rasp -cert-config $cert_config -client-auth $client_auth" &
+        ssh root@$server_ip "cd ~/libcoap-pqc-bench && ./benchmark/coap_benchmark_server.sh -sec-mode $sec_mode -rasp -cert-config $cert_config -client-auth $client_auth" &
         SERVER_SSH_PID=$!
         
         # Wait for server to be ready on remote (check port is listening)
@@ -514,7 +514,7 @@ setup_network_and_server() {
         # Start the local server
         echo "-----------------------------------------------------------------------------------------"
         echo "Starting local server..."
-        ${REPO_ROOT}/libcoap-bench/coap_benchmark_server.sh -sec-mode $sec_mode -cert-config $cert_config -client-auth $client_auth &
+        ${REPO_ROOT}/benchmark/coap_benchmark_server.sh -sec-mode $sec_mode -cert-config $cert_config -client-auth $client_auth &
         SERVER_PID=$!
         
         # Wait for server to be ready (check port is listening)
@@ -568,7 +568,7 @@ stop_server_and_cleanup() {
 get_cpu_cycles() {
     if [ -n "$rasp_param" ]; then
         # Get CPU cycles from remote server
-        cpu_cycles=$(ssh root@$server_ip "awk '/cycles/ {print \$1}' ~/libcoap-pqc-bench/libcoap-bench/data/current/auxiliary_server.txt")
+        cpu_cycles=$(ssh root@$server_ip "awk '/cycles/ {print \$1}' ~/libcoap-pqc-bench/benchmark/data/current/auxiliary_server.txt")
     else
         # Get CPU cycles from local server
         cpu_cycles=$(awk '/cycles/ {print $1}' "${DATA_DIR}/auxiliary_server.txt" 2>/dev/null || echo "0")

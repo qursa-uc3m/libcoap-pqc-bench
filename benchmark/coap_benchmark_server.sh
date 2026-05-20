@@ -12,7 +12,7 @@ elif [ -f "${REPO_ROOT}/config.env" ]; then
     source "${REPO_ROOT}/config.env"
 fi
 
-BENCH_DIR="${REPO_ROOT}/libcoap-bench"
+BENCH_DIR="${REPO_ROOT}/benchmark"
 COAP_BIN="${REPO_ROOT}/libcoap/build/bin"
 PSK_DIR="${REPO_ROOT}/pskeys"
 ACTIVE_PSK="${PSK_DIR}/active_psk.txt"

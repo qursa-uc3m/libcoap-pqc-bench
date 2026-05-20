@@ -62,10 +62,10 @@ chmod +x plots_wrapper.sh
 
 ### Directory Structure
 
-**Benchmark data location:** `libcoap-bench/data/`
+**Benchmark data location:** `benchmark/data/`
 
 ```text
-libcoap-bench/data/
+benchmark/data/
 ├── current/                      # Temporary working directory
 ├── raw/                          # Raw iteration data (organized by session)
 │   └── local_1219_fiducial_x7/   # Session folder (local_MMDD_NETWORK_RANDOM)
@@ -94,11 +94,11 @@ libcoap-bench/data/
 ```bash
 # From libcoap-plots directory
 python bench-data-plots.py "duration" 1 --scatter --scenarios A \
-    --data-dir ../libcoap-bench/data --custom-suffix "local_1205_w7" --p "parallel"
+    --data-dir ../benchmark/data --custom-suffix "local_1205_w7" --p "parallel"
 
 # Bar plot comparing scenarios
 python bench-data-plots.py "Energy (Wh)" 1 --barplot --scenarios A,C \
-    --data-dir ../libcoap-bench/data --custom-suffix "local_1205_w7" --p "parallel"
+    --data-dir ../benchmark/data --custom-suffix "local_1205_w7" --p "parallel"
 ```
 
 ### Path Parameters
@@ -110,9 +110,9 @@ python bench-data-plots.py "Energy (Wh)" 1 --barplot --scenarios A,C \
 
 # Example:
 python bench-data-plots.py "duration" 1 --scatter --scenarios A \
-    --data-dir ../libcoap-bench/data --custom-suffix "local_1205_w7"
-# Input:  ../libcoap-bench/data/aggregated/local_1205_w7/*.csv
-# Output: ../libcoap-bench/data/plots/local_1205_w7/*.pdf
+    --data-dir ../benchmark/data --custom-suffix "local_1205_w7"
+# Input:  ../benchmark/data/aggregated/local_1205_w7/*.csv
+# Output: ../benchmark/data/plots/local_1205_w7/*.pdf
 ```
 
 ### Batch Processing

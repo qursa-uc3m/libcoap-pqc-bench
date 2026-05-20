@@ -45,7 +45,7 @@ void append_time_to_file(unsigned long long total_time_ns) {
          snprintf(filepath, sizeof(filepath), "%s/time_output.txt", bench_data_dir);
      } else if (repo_root != NULL) {
          // Fallback to default data/current directory
-         snprintf(filepath, sizeof(filepath), "%s/libcoap-bench/data/current/time_output.txt", repo_root);
+         snprintf(filepath, sizeof(filepath), "%s/benchmark/data/current/time_output.txt", repo_root);
      } else {
          // Fallback to current directory
          strcpy(filepath, "time_output.txt");

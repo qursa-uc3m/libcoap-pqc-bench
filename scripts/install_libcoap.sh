@@ -99,14 +99,14 @@ fi
 
 # default client or not
 sudo rm $libcoap_dir/examples/coap-client.c
-cp $libcoap_dir/../libcoap-bench/libcoap-patches/coap-client.c $libcoap_dir/examples/
+cp $libcoap_dir/../benchmark/libcoap-patches/coap-client.c $libcoap_dir/examples/
 
 read -p "Do you want to install CUSTOM SERVER (y|n):" is_custom_server
 
 if [ "$is_custom_server" = "y" ] || [ "$is_custom_server" = "Y" ]; then
     echo "Creating custom server ..."
     sudo rm $libcoap_dir/examples/coap-server.c
-    cp $libcoap_dir/../libcoap-bench/libcoap-patches/coap-server.c $libcoap_dir/examples/
+    cp $libcoap_dir/../benchmark/libcoap-patches/coap-server.c $libcoap_dir/examples/
 fi
 
 # Configure based on custom_install flag

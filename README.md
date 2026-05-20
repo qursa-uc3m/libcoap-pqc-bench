@@ -1,16 +1,25 @@
-# Benchmarking Post-Quantum Cryptography in libcoap
+# Benchmarking Post-Quantum Cryptography in IoT Protocols
 
-This repository provides a tool for benchmarking Post-Quantum Cryptography (PQC) algorithms within the CoAP protocol. It integrates **liboqs** (for PQC algorithms), **wolfSSL** (for SSL/TLS support), and **libcoap** (for CoAP implementation) to enable performance testing across different security modes, algorithms, and network conditions.
+This repository provides a tool for benchmarking Post-Quantum Cryptography (PQC) algorithms within IoT protocols. It supports **CoAP** and **MQTT-SN** protocols, integrating **liboqs** (for PQC algorithms), **wolfSSL** (for TLS/DTLS support), **libcoap** (for CoAP), and **paho-mqtt-sn-gateway** + **wolfMQTT** (for MQTT-SN).
 
 The goal is to evaluate the impact of PQC on constrained IoT environments, measuring metrics like handshake duration, energy consumption, and data overhead.
+
+## Supported Protocols
+
+| Protocol | Transport | Implementation | Security Modes |
+|----------|-----------|----------------|----------------|
+| **CoAP** | DTLS 1.3 | libcoap + wolfSSL | PKI, PSK, nosec |
+| **MQTT-SN** | DTLS 1.3 | paho-gateway + wolfMQTT | PKI, nosec |
 
 ## Benchmark Architecture
 
 The tool runs in two main configurations. **Local Mode** runs the Client and Server on the same machine, which is useful for development. **Remote Mode** runs the Client on a PC and the Server on a constrained device (e.g., Raspberry Pi), optionally with a Network Emulation VM in between to simulate real-world conditions.
 
-- The **`libcoap-bench/run_benchmarks.sh`** script is the main orchestrator. It manages the entire benchmark session, iterating through algorithms, security modes, and repetition counts, launching the client and server processes automatically.
+- The **`benchmark/run_benchmarks.sh`** script is the main orchestrator. It manages the entire benchmark session, iterating through protocols, algorithms, security modes, and repetition counts.
 
-- The **`libcoap-bench/coap_benchmark.sh`** script wraps the client execution, while **`libcoap-bench/coap_benchmark_server.sh`** wraps the server execution, ensuring the correct security configurations are applied on the target device.
+- For **CoAP**: `benchmark/coap_benchmark.sh` and `benchmark/coap_benchmark_server.sh` wrap client/server execution.
+
+- For **MQTT-SN**: `benchmark/mqttsn_benchmark.sh` and `benchmark/mqttsn_benchmark_server.sh` wrap client/gateway execution.
 
 ## Quick Start (Local Mode)
 
@@ -27,10 +36,10 @@ sudo apt install tshark parallel linux-tools-$(uname -r)
 ```bash
 python3 -m venv .bench-env
 source .bench-env/bin/activate
-pip install -r ./libcoap-bench/requirements.txt
+pip install -r ./benchmark/requirements.txt
 ```
 
-### 3. Install Libraries
+### 3. Install Libraries (CoAP or MQTT-SN)
 
 First, install the PQC dependencies.
 
@@ -38,7 +47,7 @@ First, install the PQC dependencies.
 ./scripts/install_liboqs_for_wolfssl.sh
 ```
 
-Then build wolfssl.
+Then build wolfSSL.
 
 ```bash
 ./scripts/install_wolfssl.sh [--fork | --release [version]]
@@ -49,16 +58,13 @@ Options:
 - `--fork`: Clone from dasobral/wolfssl-liboqs.git (default). This version fixes issues with DILITHIUM and FALCON certificates across different security levels.
 - `--release [ver]`: Clone from wolfSSL/wolfssl.git with specified version (default: v5.7.6-stable)
 
-Finally, install libcoap dependencies and build the library.
+#### For CoAP Protocol
+
+Install libcoap dependencies and build the library.
 
 ```bash
 sudo apt-get install -y autoconf automake libtool make gcc
 sudo apt-get install autoconf-archive libwolfssl-dev libcunit1-dev pkg-config
-```
-
-Run the installation script with the desired options:
-
-```bash
 ./scripts/install_libcoap.sh [wolfssl] [--install-dir=PATH]
 ```
 
@@ -67,7 +73,20 @@ Options:
 - `wolfssl`: Configure libcoap with WolfSSL as the underlying crypto library (otherwise uses OpenSSL)
 - `--install-dir=PATH`: Specify a custom installation directory
 
-### 4. Prepare Security Material (PSK)
+#### For MQTT-SN Protocol
+
+Install wolfMQTT, Mosquitto broker, paho-mqttsn-gateway, and MQTT-SN clients:
+
+```bash
+./scripts/install_wolfmqtt.sh
+./scripts/install_mosquitto.sh
+./scripts/install_paho_mqttsn_gateway.sh
+./scripts/install_mqttsn_clients.sh
+```
+
+### 4. Prepare Security Material
+
+#### For PSK Mode (CoAP only)
 
 Generate a Pre-Shared Key for the simplest security mode.
 
@@ -76,25 +95,55 @@ Generate a Pre-Shared Key for the simplest security mode.
 ./pskeys/psk_manager.sh activate $(ls pskeys/psk_256_*.key | head -1 | xargs basename)
 ```
 
-### 5. Run a Benchmark
+#### For PKI Mode (CoAP and MQTT-SN)
 
-Run a simple test with 5 clients using PSK security and recommended PQC scenarios.
+Generate certificates (required for MQTT-SN PKI mode):
 
 ```bash
-./libcoap-bench/run_benchmarks.sh -n 5 -security psk -scenarios A,C -y
+cd certs
+./generate_certs.sh all
+cd ..
 ```
 
-**Note**: The `-scenarios A,C` flag runs only Scenarios A and C, which are recommended for PQC evaluation as they focus on cryptographic performance. Scenario B has artificial delays that mask PQC overhead.
+### 5. Run a Benchmark
 
-**→ For detailed benchmark instructions, see [libcoap-bench/README.md](./libcoap-bench/README.md)**
+#### CoAP Benchmark
+
+Run a simple CoAP test with 5 clients using PSK security and recommended PQC scenarios.
+
+```bash
+./benchmark/run_benchmarks.sh -protocol coap -n 5 -security psk -scenarios A,C -y
+```
+
+#### MQTT-SN Benchmark
+
+Run a simple MQTT-SN test with 5 clients using PKI security.
+
+```bash
+./benchmark/run_benchmarks.sh -protocol mqttsn -n 5 -security pki -scenarios pub -y
+```
+
+**Note**: Each protocol has different scenarios:
+- **CoAP**: `A,B,C` (A=time+con, B=async, C=time+non)
+- **MQTT-SN**: `pub,sub` (pub=publisher, sub=subscriber)
+
+The `-scenarios A,C` flag for CoAP runs only Scenarios A and C, which focus on cryptographic performance. For MQTT-SN, use `-scenarios pub` or `-scenarios pub,sub`.
+
+**→ For detailed benchmark instructions, see [benchmark/README.md](./benchmark/README.md)**
 
 ---
 
 ## Security Modes & Setup
 
-The framework supports three security modes.
+The framework supports three security modes. Note that MQTT-SN only supports PKI and NoSec modes.
 
-### 1. Pre-Shared Keys (PSK)
+| Security Mode | CoAP | MQTT-SN | Description |
+|---------------|------|---------|-------------|
+| **PSK** | ✅ | ❌ | Pre-Shared Keys - simplest secure mode |
+| **PKI** | ✅ | ✅ | X.509 certificates - PQC algorithms |
+| **NoSec** | ✅ | ✅ | No encryption - baseline |
+
+### 1. Pre-Shared Keys (PSK) - CoAP Only
 
 This is the simplest secure mode, ideal for constrained devices. Use the `pskeys/` tools to generate and manage keys.
 
@@ -117,7 +166,7 @@ Use `./certs/config_certs.sh` to switch between active certificate types (e.g., 
 
 ### 3. No Security (NoSec)
 
-Baseline CoAP over UDP without encryption. No setup is required.
+Baseline CoAP/MQTT-SN over UDP without encryption. No setup is required.
 
 ## Supported Algorithms
 
@@ -146,7 +195,7 @@ You can benchmark the following algorithms (controlled via `-groups` and `-signa
 
 The framework can measure energy consumption of the handshake and data transfer. It supports FNIRSI USB meters (FNB48/58) for physical measurement and CodeCarbon (Intel RAPL) for local estimation.
 
-See [libcoap-bench/energy/README.md](./libcoap-bench/energy/README.md) for setup instructions.
+See [benchmark/energy/README.md](./benchmark/energy/README.md) for setup instructions.
 
 ### Network Emulation
 
@@ -209,7 +258,12 @@ sudo usermod -aG wireshark $USER
 If a benchmark crashes, you can cleanup old processes with:
 
 ```bash
+# For CoAP
 pgrep -f 'libcoap' | xargs -r kill -9
+
+# For MQTT-SN
+pgrep -f 'MQTT-SNGateway|mqttsn_client' | xargs -r kill -9
+pgrep -f 'mosquitto' | xargs -r kill -9
 ```
 
 To analyze PQC traffic using the OQS-enabled Wireshark docker image:
@@ -217,7 +271,6 @@ To analyze PQC traffic using the OQS-enabled Wireshark docker image:
 ```bash
 sudo ./scripts/oqs_wireshark.sh
 ```
-
 and filter by
 
 ```text

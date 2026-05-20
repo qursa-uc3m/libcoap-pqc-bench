@@ -1,5 +1,12 @@
 .vscode/
+
+# External code repositories (cloned by scripts/install_*.sh)
 libcoap/
+wolfssl/
+wolfMQTT/
+paho-mqttsn-gateway/
+pq-mqtt-sn-clients/
+
 check_*
 config.local.env
 __pycache__/
@@ -15,17 +22,17 @@ __pycache__/
 # Runtime coordination and state files
 algorithm.txt
 pskeys/active_psk.txt
-libcoap-bench/data/sessions.txt
-libcoap-bench/.energy_monitor_pid
+benchmark/data/sessions.txt
+benchmark/.energy_monitor_pid
 *.pid
 
 # Benchmark data (keep structure via .gitkeep, ignore contents)
-libcoap-bench/data/raw/*
-libcoap-bench/data/aggregated/*
-libcoap-bench/data/plots/*
-libcoap-bench/data/summaries/*
-libcoap-bench/data/current/
-!libcoap-bench/data/**/.gitkeep
+benchmark/data/raw/*
+benchmark/data/aggregated/*
+benchmark/data/plots/*
+benchmark/data/summaries/*
+benchmark/data/current/
+!benchmark/data/**/.gitkeep
 
 # Certs data
 certs/data/
