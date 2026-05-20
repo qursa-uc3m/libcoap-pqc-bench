@@ -474,37 +474,49 @@ run_benchmark() {
     local retry_count=0
     local max_retries=$MAX_RETRIES
     local cmd_args=""
-    
+
     # Construct the common command arguments
-    cmd_args="-n $NUM_CLIENTS -sec-mode $sec_mode -r $resource"
+    # Protocol-specific: CoAP uses -r <resource>, MQTT-SN uses -role <pub|sub>
+    if [ "$PROTOCOL" == "mqttsn" ]; then
+        cmd_args="-n $NUM_CLIENTS -sec-mode $sec_mode -role $resource"
+    else
+        cmd_args="-n $NUM_CLIENTS -sec-mode $sec_mode -r $resource"
+    fi
 
     if [ "$RASP_SERVER" == "true" ]; then
         cmd_args="$cmd_args -rasp"
     else
-        # Local server mode - no additional flags needed as coap_benchmark.sh handles local by default
+        # Local server mode - no additional flags needed; benchmark scripts default to local
         log "INFO" "Using local server mode"
     fi
-    
-    # Add resource-specific arguments
-    if [ "$resource" == "time" ]; then
-        cmd_args="$cmd_args -confirm $confirm"
-    elif [ "$resource" == "async" ] && [ -n "$delay_param" ]; then
-        # For async with delay parameter, modify the resource
-        cmd_args=$(echo "$cmd_args" | sed "s/-r async/-r async?$delay_param/")
+
+    # Add resource-specific arguments (CoAP only; MQTT-SN has no per-resource flags)
+    if [ "$PROTOCOL" != "mqttsn" ]; then
+        if [ "$resource" == "time" ]; then
+            cmd_args="$cmd_args -confirm $confirm"
+        elif [ "$resource" == "async" ] && [ -n "$delay_param" ]; then
+            # For async with delay parameter, modify the resource
+            cmd_args=$(echo "$cmd_args" | sed "s/-r async/-r async?$delay_param/")
+        fi
     fi
-    
-    # Add optional arguments
-    if [ -n "$OBSERVE_TIME" ]; then
+
+    # Add optional arguments (CoAP-only flags)
+    if [ "$PROTOCOL" != "mqttsn" ] && [ -n "$OBSERVE_TIME" ]; then
         cmd_args="$cmd_args -s $OBSERVE_TIME"
     fi
 
     if  [ -n "$PARALLELIZATION" ]; then
         cmd_args="$cmd_args -parallelization $PARALLELIZATION"
     fi
-    
+
     # Add certificate config for PKI mode
     if [ "$sec_mode" == "pki" ] && [ -n "$cert_config" ]; then
-        cmd_args="$cmd_args -cert-config $cert_config -client-auth $CLIENT_AUTH"
+        if [ "$PROTOCOL" == "mqttsn" ]; then
+            # MQTT-SN doesn't support -client-auth (server-only DTLS auth)
+            cmd_args="$cmd_args -cert-config $cert_config"
+        else
+            cmd_args="$cmd_args -cert-config $cert_config -client-auth $CLIENT_AUTH"
+        fi
     fi
     
     # Set environment variables for energy measurements and local mode
@@ -541,9 +553,6 @@ run_benchmark() {
         local benchmark_script
         if [ "$PROTOCOL" == "mqttsn" ]; then
             benchmark_script="${REPO_ROOT}/benchmark/mqttsn_benchmark.sh"
-            # For MQTT-SN, the resource parameter contains the role (pub/sub)
-            # Add the role to command args
-            cmd_args="$cmd_args -role $resource"
         else
             benchmark_script="${REPO_ROOT}/benchmark/coap_benchmark.sh"
         fi
@@ -642,12 +651,19 @@ create_summary_report() {
         
         # Create a temp file list to avoid subshell issues
         local file_list="/tmp/benchmark_files.txt"
-        # Look for both local and remote benchmark files
-        if [ "$RASP_SERVER" == "true" ]; then
-            find "$BENCH_DATA_DIR" -name "udp_rasp_conv_stats_*.csv" -type f | sort > "$file_list"
+        # Protocol-aware stats filename pattern
+        local stats_pattern
+        if [ "$PROTOCOL" == "mqttsn" ]; then
+            stats_pattern="udp${RASP_SERVER:+_rasp}_mqttsn_stats_*.csv"
+            [ "$RASP_SERVER" != "true" ] && stats_pattern="udp_mqttsn_stats_*.csv"
         else
-            find "$BENCH_DATA_DIR" -name "udp_conv_stats_*.csv" -type f | sort > "$file_list"
+            if [ "$RASP_SERVER" == "true" ]; then
+                stats_pattern="udp_rasp_conv_stats_*.csv"
+            else
+                stats_pattern="udp_conv_stats_*.csv"
+            fi
         fi
+        find "$BENCH_DATA_DIR" -name "$stats_pattern" -type f | sort > "$file_list"
         
         # Check if any files were found
         if [ ! -s "$file_list" ]; then
@@ -792,6 +808,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -scenarios)
             SCENARIOS="$2"
+            SCENARIOS_USER_SET=1
             shift 2
             ;;
         -groups)
@@ -871,17 +888,40 @@ if ! [[ "$ITERATIONS" =~ ^[0-9]+$ ]] || [ "$ITERATIONS" -lt 1 ]; then
     exit 1
 fi
 
+# Apply protocol-aware scenario default
+if [ -z "${SCENARIOS_USER_SET:-}" ] && [ "$PROTOCOL" == "mqttsn" ]; then
+    SCENARIOS="pub,sub"
+fi
+
 # Validate and normalize SCENARIOS
 if [ -n "$SCENARIOS" ]; then
-    # Convert to uppercase and remove spaces
-    SCENARIOS=$(echo "$SCENARIOS" | tr '[:lower:]' '[:upper:]' | tr -d ' ')
-    # Validate that only A, B, C are present
-    if ! [[ "$SCENARIOS" =~ ^[A-C,]+$ ]]; then
-        log "ERROR" "Invalid scenarios specified. Use comma-separated list of A, B, and/or C"
-        log "ERROR" "  A = time+con (handshake test)"
-        log "ERROR" "  B = async (separate response)"
-        log "ERROR" "  C = time+non (observe mode)"
-        exit 1
+    # Remove spaces
+    SCENARIOS=$(echo "$SCENARIOS" | tr -d ' ')
+    if [ "$PROTOCOL" == "mqttsn" ]; then
+        # MQTT-SN scenarios are lowercase pub/sub
+        SCENARIOS=$(echo "$SCENARIOS" | tr '[:upper:]' '[:lower:]')
+        # Validate that only pub, sub are present
+        _valid=1
+        IFS=',' read -ra _scn_arr <<< "$SCENARIOS"
+        for _s in "${_scn_arr[@]}"; do
+            [[ "$_s" != "pub" && "$_s" != "sub" ]] && _valid=0 && break
+        done
+        if [ $_valid -eq 0 ]; then
+            log "ERROR" "Invalid MQTT-SN scenarios. Use comma-separated list of pub, sub"
+            log "ERROR" "  pub = publisher client (handshake + publish)"
+            log "ERROR" "  sub = subscriber client (handshake + subscribe)"
+            exit 1
+        fi
+    else
+        # CoAP scenarios are uppercase A/B/C
+        SCENARIOS=$(echo "$SCENARIOS" | tr '[:lower:]' '[:upper:]')
+        if ! [[ "$SCENARIOS" =~ ^[A-C,]+$ ]]; then
+            log "ERROR" "Invalid scenarios specified. Use comma-separated list of A, B, and/or C"
+            log "ERROR" "  A = time+con (handshake test)"
+            log "ERROR" "  B = async (separate response)"
+            log "ERROR" "  C = time+non (observe mode)"
+            exit 1
+        fi
     fi
     # Remove duplicates and sort
     SCENARIOS=$(echo "$SCENARIOS" | tr ',' '\n' | sort -u | tr '\n' ',' | sed 's/,$//')

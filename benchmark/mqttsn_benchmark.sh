@@ -464,6 +464,30 @@ fi
 # Generate filename for results
 filename=$(generate_filenames "udp" false)
 
+# Extract per-conversation UDP stats from the pcap (mirrors coap_benchmark.sh)
+# Filter for the gateway host so we only keep flows to/from the MQTT-SN gateway.
+rm -f "${DATA_DIR}/${filename}.txt"
+if [ -n "$rasp_param" ]; then
+    tshark -r "${DATA_DIR}/udp_conversations.pcapng" -z conv,udp 2>/dev/null \
+        | grep "<-> $server_ip" > "${DATA_DIR}/${filename}.txt" || true
+else
+    # Local case: match both IPv4 (127.0.0.1:GATEWAY_PORT) and IPv6 loopback (::1:GATEWAY_PORT)
+    tshark -r "${DATA_DIR}/udp_conversations.pcapng" -z conv,udp 2>/dev/null \
+        | grep -E "127\.0\.0\.1:${GATEWAY_PORT}|::1:${GATEWAY_PORT}" > "${DATA_DIR}/${filename}.txt" || true
+fi
+
+# Collect CPU cycles measured by perf on the gateway side
+cpu_cycles=0
+if [ -n "$rasp_param" ] && [ -n "$server_ip" ]; then
+    cpu_cycles=$(ssh root@"$server_ip" "awk '/cycles/ {print \$1}' ~/libcoap-pqc-bench/benchmark/data/current/auxiliary_server.txt" 2>/dev/null || echo 0)
+elif [ -f "${DATA_DIR}/auxiliary_server.txt" ]; then
+    cpu_cycles=$(awk '/cycles/ {print $1}' "${DATA_DIR}/auxiliary_server.txt" 2>/dev/null || echo 0)
+fi
+# Normalize thousands separators
+cpu_cycles=$(echo "$cpu_cycles" | tr -d ',' | sed 's/\.//g' | tr -d ' ')
+[ -z "$cpu_cycles" ] && cpu_cycles=0
+echo "$cpu_cycles" > "${DATA_DIR}/cycles_output.txt"
+
 # Save timing data
 timing_file="${DATA_DIR}/timing_${sec_mode}_${cert_config}_${n}clients_${role}.txt"
 echo "duration=${duration}" > "$timing_file"
@@ -479,6 +503,7 @@ if [ -f "${DATA_DIR}/time_output.txt" ]; then
     python3 "${BENCH_DIR}/bench-data-manager.py" process \
         --stats-file "${DATA_DIR}/${filename}.txt" \
         --time-file "${DATA_DIR}/time_output.txt" \
+        --cycles-file "${DATA_DIR}/cycles_output.txt" \
         --output-file "${DATA_DIR}/${filename}.csv" 2>/dev/null || {
             echo "Note: bench-data-manager.py processing skipped (some files may be missing)"
         }

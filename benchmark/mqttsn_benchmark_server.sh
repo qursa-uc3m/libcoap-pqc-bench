@@ -35,8 +35,8 @@ rasp_option=""
 cert_config="DEFAULT"
 SEC_MODE=""
 
-# Broker configuration (avoid local Mosquitto by default)
-BROKER_HOST="${MQTTSN_BROKER_HOST:-mqtt.eclipseprojects.io}"
+# Broker configuration (local mosquitto by default; override via env if needed)
+BROKER_HOST="${MQTTSN_BROKER_HOST:-127.0.0.1}"
 BROKER_PORT="${MQTTSN_BROKER_PORT:-1883}"
 BROKER_SECURE_PORT="${MQTTSN_BROKER_SECURE_PORT:-8883}"
 

@@ -99,15 +99,28 @@ From the repository root folder:
 
 ### MQTT-SN Benchmarks
 
-```bash
-# Simple benchmark (25 clients, PKI mode)
-./benchmark/run_benchmarks.sh -protocol mqttsn -n 25 -security pki -scenarios A,C -y
+> **Scenario mapping**: MQTT-SN uses two scenarios that mirror the CoAP
+> connection-establishment workload (CoAP scenario A): `pub` measures a
+> publisher's full session (DTLS handshake + CONNECT + REGISTER + PUBLISH
+> + DISCONNECT); `sub` measures a subscriber's full session (DTLS handshake
+> + CONNECT + SUBSCRIBE + DISCONNECT). Async-reply and observe variants
+> (CoAP B/C) are CoAP-specific and have no MQTT-SN equivalent.
+>
+> **Gateway lifecycle**: the gateway is started/stopped automatically by
+> `mqttsn_benchmark.sh` per run, mirroring how `coap_benchmark.sh` manages
+> the CoAP server. A local Mosquitto MQTT broker must already be running
+> on `127.0.0.1:1883` (started by `scripts/install_mosquitto.sh` or by
+> hand). Override the broker with `MQTTSN_BROKER_HOST` if remote.
 
-# With specific KEM and signature algorithms
+```bash
+# Simple benchmark (25 clients, PKI mode, both pub and sub)
+./benchmark/run_benchmarks.sh -protocol mqttsn -n 25 -security pki -scenarios pub,sub -y
+
+# With specific KEM and signature algorithms (default scenarios = pub,sub)
 ./benchmark/run_benchmarks.sh -protocol mqttsn -n 25 -groups KYBER_LEVEL3 -signatures DILITHIUM_LEVEL3 -security pki -y
 
 # Parallel execution with energy monitoring
-./benchmark/run_benchmarks.sh -protocol mqttsn -n 25 -parallelization parallel -energy -security pki,nosec -scenarios A,C -iterations 5 -y
+./benchmark/run_benchmarks.sh -protocol mqttsn -n 25 -parallelization parallel -energy -security pki,nosec -scenarios pub,sub -iterations 5 -y
 ```
 
 ### Complete Benchmark Suite
@@ -120,14 +133,14 @@ sudo ./network_emulation/net_config.sh set fiducial
 ./benchmark/run_benchmarks.sh -protocol coap -n 25 -groups all -signatures all -parallelization parallel -security "pki,psk,nosec" -scenarios A,C -iterations 5 -energy -y
 
 # 1. FIDUCIAL NETWORK - MQTT-SN
-./benchmark/run_benchmarks.sh -protocol mqttsn -n 25 -groups all -signatures all -parallelization parallel -security "pki,nosec" -scenarios A,C -iterations 5 -energy -y
+./benchmark/run_benchmarks.sh -protocol mqttsn -n 25 -groups all -signatures all -parallelization parallel -security "pki,nosec" -scenarios pub,sub -iterations 5 -energy -y
 
 # 2. SMART HOME NETWORK - CoAP
 sudo ./network_emulation/net_config.sh set smart-home
 ./benchmark/run_benchmarks.sh -protocol coap -n 25 -groups all -signatures all -parallelization parallel -security "pki,psk,nosec" -scenarios A,C -iterations 5 -energy -y
 
 # 2. SMART HOME NETWORK - MQTT-SN
-./benchmark/run_benchmarks.sh -protocol mqttsn -n 25 -groups all -signatures all -parallelization parallel -security "pki,nosec" -scenarios A,C -iterations 5 -energy -y
+./benchmark/run_benchmarks.sh -protocol mqttsn -n 25 -groups all -signatures all -parallelization parallel -security "pki,nosec" -scenarios pub,sub -iterations 5 -energy -y
 
 # Reset network after each set
 sudo ./network_emulation/net_config.sh reset
