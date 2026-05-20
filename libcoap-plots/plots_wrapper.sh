@@ -13,6 +13,7 @@ LOCAL_MODE="false"
 N=""  # Will be auto-detected if not provided
 PARALLELIZATION=""
 LATEX_FLAG=""
+FILTERING=""
 
 # Parse optional named arguments
 shift 3
@@ -37,10 +38,25 @@ BACKEND=""
 IFS=',' read -ra METRICS <<< "$METRICS_STR"
 
 # Function to auto-detect N from aggregated CSV filenames
+infer_session_protocol() {
+    local session="$1"
+    if [[ "$session" == *_mqttsn_* ]]; then
+        echo "mqttsn"
+    elif [[ "$session" == *_coap_* ]]; then
+        echo "coap"
+    fi
+}
+
 auto_detect_n() {
     local data_path="$1"
     local session="$2"
     local agg_dir="${data_path}/aggregated/${session}"
+    local protocol
+    protocol=$(infer_session_protocol "$session")
+
+    if [ -n "$protocol" ] && [ -d "${data_path}/aggregated/${protocol}/${session}" ]; then
+        agg_dir="${data_path}/aggregated/${protocol}/${session}"
+    fi
     
     if [ -d "$agg_dir" ]; then
         # Find a CSV file and extract N from filename pattern: *_n{N}_*
@@ -54,13 +70,14 @@ auto_detect_n() {
             fi
         fi
     fi
-    P_FLAG=""
-    if [ -n "$PARALLELIZATION" ]; then
-        P_FLAG="--p $PARALLELIZATION"
-    fi
     echo "1"  # Default fallback
     return 1
 }
+
+P_FLAG=""
+if [ -n "$PARALLELIZATION" ]; then
+    P_FLAG="--p $PARALLELIZATION"
+fi
 
 if [ -n "$SESSION" ]; then
     # Auto-detect N if not provided

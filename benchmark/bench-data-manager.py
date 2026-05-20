@@ -557,6 +557,31 @@ class BenchmarkDataManager:
     
     def __init__(self, base_dir: str = None):
         self.base_dir = base_dir or os.path.join(os.getcwd(), "raw")
+
+    @staticmethod
+    def infer_protocol(session_id: str) -> Optional[str]:
+        if "_mqttsn_" in session_id:
+            return "mqttsn"
+        if "_coap_" in session_id:
+            return "coap"
+        return None
+
+    def session_raw_dir(self, raw_dir: str, session_id: str) -> str:
+        protocol = self.infer_protocol(session_id)
+        candidates = []
+        if protocol:
+            candidates.append(os.path.join(raw_dir, protocol, session_id))
+        candidates.append(os.path.join(raw_dir, session_id))
+        for candidate in candidates:
+            if os.path.isdir(candidate):
+                return candidate
+        return candidates[0]
+
+    def session_agg_dir(self, agg_base: str, session_id: str) -> str:
+        protocol = self.infer_protocol(session_id)
+        if protocol:
+            return os.path.join(agg_base, protocol, session_id)
+        return os.path.join(agg_base, session_id)
         
     def process_benchmark(self, time_file: str = None, cycles_file: str = None,
                          stats_file: str = None, energy_file: str = None,
@@ -757,8 +782,8 @@ class BenchmarkDataManager:
         
         iterations = 0
         
-        # Try new format first: raw/{session_id}/iter_N/
-        session_dir = os.path.join(raw_dir, session_id)
+        # Try protocol-scoped and flat formats: raw/{protocol}/{session_id}/iter_N/ or raw/{session_id}/iter_N/
+        session_dir = self.session_raw_dir(raw_dir, session_id)
         if os.path.isdir(session_dir):
             iter_dirs = glob.glob(os.path.join(session_dir, "iter_*"))
             if iter_dirs:
@@ -815,7 +840,7 @@ class BenchmarkDataManager:
         # Determine input (raw) and output (aggregated) directories
         raw_dir = os.path.join(base_data_dir, "raw") if os.path.isdir(os.path.join(base_data_dir, "raw")) else base_data_dir
         agg_base = os.path.join(base_data_dir, "aggregated") if os.path.isdir(os.path.join(base_data_dir, "raw")) else base_data_dir
-        output_dir = output_dir or os.path.join(agg_base, session_id)
+        output_dir = output_dir or self.session_agg_dir(agg_base, session_id)
         
         # Make sure output directory exists
         os.makedirs(output_dir, exist_ok=True)
@@ -827,8 +852,8 @@ class BenchmarkDataManager:
         # Find and group files from each iteration
         # Support both new format (session_id/iter_N/) and old format (session_id-N/)
         for i in range(1, iterations + 1):
-            # Try new format first: raw/{session_id}/iter_{N}/
-            iteration_dir = os.path.join(raw_dir, session_id, f"iter_{i}")
+            session_dir = self.session_raw_dir(raw_dir, session_id)
+            iteration_dir = os.path.join(session_dir, f"iter_{i}")
             
             # Fall back to old format: raw/{session_id}-{N}/
             if not os.path.exists(iteration_dir):
@@ -836,7 +861,7 @@ class BenchmarkDataManager:
             
             if not os.path.exists(iteration_dir):
                 print(f"Warning: Iteration directory not found for iteration {i}")
-                print(f"  Tried: {os.path.join(raw_dir, session_id, f'iter_{i}')}")
+                print(f"  Tried: {os.path.join(session_dir, f'iter_{i}')}")
                 print(f"  Tried: {os.path.join(raw_dir, f'{session_id}-{i}')}")
                 continue
             
@@ -1137,15 +1162,16 @@ class BenchmarkDataManager:
                 # Look for energy file in the first raw iteration
                 energy_merged = False
                 for i in range(1, iterations + 1):
+                    session_dir = self.session_raw_dir(raw_dir, session_id)
                     candidates = [
-                        os.path.join(raw_dir, session_id, f"iter_{i}", energy_file_name),
-                        os.path.join(raw_dir, session_id, f"iter_{i}", "energy-data", energy_file_name),
+                        os.path.join(session_dir, f"iter_{i}", energy_file_name),
+                        os.path.join(session_dir, f"iter_{i}", "energy-data", energy_file_name),
                         os.path.join(raw_dir, f"{session_id}-{i}", energy_file_name),
                         os.path.join(raw_dir, f"{session_id}-{i}", "energy-data", energy_file_name),
                     ]
                     for energy_path in candidates:
                         if os.path.exists(energy_path):
-                            print(f"  Merging energy data from iter_{i}/{os.path.relpath(energy_path, os.path.join(raw_dir, session_id, f'iter_{i}'))}...")
+                            print(f"  Merging energy data from {os.path.relpath(energy_path, session_dir)}...")
                             if self.merge_energy_data(energy_path, output_path):
                                 energy_merged = True
                             break

@@ -552,6 +552,31 @@ def get_certificate_colors(cert_types_list):
 def scenario_file_suffix(scenario):
     return f"_{scenario}" if scenario in ["pub", "sub"] else f"_scenario{scenario}"
 
+def scenario_protocol(scenario):
+    return "mqttsn" if scenario in ["pub", "sub"] else "coap"
+
+def scenario_protocol_label(scenario):
+    return "MQTT-SN" if scenario_protocol(scenario) == "mqttsn" else "CoAP"
+
+def scenarios_protocol(scenarios):
+    protocols = {scenario_protocol(scenario) for scenario in scenarios}
+    return protocols.pop() if len(protocols) == 1 else "mixed"
+
+def scenarios_protocol_label(scenarios):
+    protocol = scenarios_protocol(scenarios)
+    if protocol == "mqttsn":
+        return "MQTT-SN"
+    if protocol == "coap":
+        return "CoAP"
+    return "Mixed protocols"
+
+def infer_session_protocol(session_id):
+    if session_id and "_mqttsn_" in session_id:
+        return "mqttsn"
+    if session_id and "_coap_" in session_id:
+        return "coap"
+    return None
+
 def get_file_patterns(algorithm, cert_type, n, s, p, scenario, rasp=False, filtering=False):
     """
     Generate file patterns for various security modes.
@@ -606,8 +631,13 @@ def setup_output_dirs(data_dir, custom_suffix=None):
         tuple: (data_dir, plots_dir) directory names.
     """
     if custom_suffix:
-        data_dir_ = f"{data_dir}/aggregated/{custom_suffix}"
-        plots_dir = f"{data_dir}/plots/{custom_suffix}"
+        protocol = infer_session_protocol(custom_suffix)
+        if protocol:
+            data_dir_ = f"{data_dir}/aggregated/{protocol}/{custom_suffix}"
+            plots_dir = f"{data_dir}/plots/{protocol}/{custom_suffix}"
+        else:
+            data_dir_ = f"{data_dir}/aggregated/{custom_suffix}"
+            plots_dir = f"{data_dir}/plots/{custom_suffix}"
     else:
         data_dir_ = f"{data_dir}/aggregated"
         plots_dir = f"{data_dir}/plots"
@@ -800,7 +830,9 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
     ax.set_xlabel('Algorithms')
     # Pass target_unit to format_labels to display correct units
     ax.set_ylabel(format_labels(metric, target_unit))
-    title = f'{format_labels(metric, target_unit)} by algorithm and security mode - n={n}, scenario={scenario}'
+    protocol_slug = scenario_protocol(scenario)
+    protocol_label = scenario_protocol_label(scenario)
+    title = f'{protocol_label} {format_labels(metric, target_unit)} by algorithm and security mode - n={n}, scenario={scenario}'
     if s is not None:
         title += f', s={s}'
     if p is not None:
@@ -848,7 +880,7 @@ def create_scatter_plot(metric, algorithms_list, cert_types_list, n, scenario, r
     # Create the directory if it doesn't exist
     os.makedirs(f'./{plots_dir}', exist_ok=True)
     
-    output_file = f'./{plots_dir}/scatter_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}{filtered}.png'
+    output_file = f'./{plots_dir}/scatter_{protocol_slug}_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}{filtered}.png'
     
     plt.savefig(output_file, dpi=300)
     print(f"Plot saved to {output_file}")
@@ -1081,7 +1113,10 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
     ax.set_xlabel(r'Algorithm - Scenario - Mode')
     
     # Format title
-    title = f'{format_labels(metric, target_unit)} by algorithm and security mode - n={n}, scenario={scenario}'
+    protocol_slug = scenarios_protocol(scenarios)
+    protocol_label = scenarios_protocol_label(scenarios)
+    scenarios_str = "".join(scenarios)
+    title = f'{protocol_label} {format_labels(metric, target_unit)} by algorithm and security mode - n={n}, scenarios={scenarios_str}'
     if s is not None:
         title += f', s={s}'
     if p is not None:
@@ -1118,12 +1153,11 @@ def create_bar_plot(metric, algorithms_list, cert_types_list, n, scenarios, rasp
     # Use the display metric name for the output filename
     display_metric = get_display_metric_label(metric, target_unit)
     clean_metric = display_metric.replace(' ', '_').replace('(', '').replace(')', '')
-    scenarios_str = "".join(scenarios)
     
     # Create the plots directory if it doesn't exist
     os.makedirs(f'./{plots_dir}', exist_ok=True)
     
-    output_file = f'./{plots_dir}/barplot_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}_{scenarios_str}{filtered}.png'
+    output_file = f'./{plots_dir}/barplot_{protocol_slug}_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}_{scenarios_str}{filtered}.png'
 
     plt.savefig(output_file, dpi=300)
     print(f"Plot saved to {output_file}")
@@ -1246,7 +1280,9 @@ def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     ax.set_ylabel(r'Algorithms')
     
     # Format title - use format_labels to get proper unit display
-    title = f'Heat Map of {format_labels(metric, target_unit)} - n={n}, scenario={scenario}'
+    protocol_slug = scenario_protocol(scenario)
+    protocol_label = scenario_protocol_label(scenario)
+    title = f'{protocol_label} heat map of {format_labels(metric, target_unit)} - n={n}, scenario={scenario}'
     if s is not None:
         title += f', s={s}'
     if p is not None:
@@ -1264,7 +1300,7 @@ def create_heat_map(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     # Create the directory if it doesn't exist
     os.makedirs(f'./{plots_dir}', exist_ok=True)
     
-    output_file = f'./{plots_dir}/heatmap_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}.png'
+    output_file = f'./{plots_dir}/heatmap_{protocol_slug}_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}.png'
     
     plt.savefig(output_file, dpi=300)
     print(f"Plot saved to {output_file}")
@@ -1551,7 +1587,9 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     
     # Pass target_unit to format_labels to display correct units
     ax.set_ylabel(format_labels(metric, target_unit))
-    title = f'Variability of {format_labels(metric, target_unit)} across configurations - n={n}, scenario={scenario}'
+    protocol_slug = scenario_protocol(scenario)
+    protocol_label = scenario_protocol_label(scenario)
+    title = f'{protocol_label} variability of {format_labels(metric, target_unit)} across configurations - n={n}, scenario={scenario}'
     if s is not None:
         title += f', s={s}'
     if p is not None:
@@ -1593,7 +1631,7 @@ def create_box_plot(metric, algorithms_list, cert_types_list, n, scenario, rasp=
     # Create the directory if it doesn't exist
     os.makedirs(f'./{plots_dir}', exist_ok=True)
     
-    output_file = f'./{plots_dir}/boxplot_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}{filtered}.png'
+    output_file = f'./{plots_dir}/boxplot_{protocol_slug}_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}{filtered}.png'
     
     plt.savefig(output_file)
     print(f"Plot saved to {output_file}")
@@ -1998,7 +2036,9 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
     ax.set_ylabel(format_labels(metric, target_unit))
     ax.set_xlabel(r'Algorithm / Configuration')
     ax.margins(x=0.02)
-    title = f'{format_labels(metric, target_unit)} - n={n}, scenario={scenario}'
+    protocol_slug = scenario_protocol(scenario)
+    protocol_label = scenario_protocol_label(scenario)
+    title = f'{protocol_label} {format_labels(metric, target_unit)} - n={n}, scenario={scenario}'
     if s is not None:
         title += f', s={s}'
     if p is not None:
@@ -2047,7 +2087,7 @@ def create_discrete_candlestick_plot(metric, algorithms_list, cert_types_list, n
     display_metric = get_display_metric_label(metric, target_unit)
     clean_metric = display_metric.replace(' ', '_').replace('(', '').replace(')', '')
     os.makedirs(f'./{plots_dir}', exist_ok=True)
-    output_file = f'./{plots_dir}/candlestick_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}{filtered}.png'
+    output_file = f'./{plots_dir}/candlestick_{protocol_slug}_{rasp_prefix}_{clean_metric}_n{n}{s_suffix}{p_suffix}{scenario_suffix}{filtered}.png'
     
     plt.tight_layout(rect=[0, 0.02, 0.95, 0.98])
     plt.savefig(output_file, bbox_inches='tight')

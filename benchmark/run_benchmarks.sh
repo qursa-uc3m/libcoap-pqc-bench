@@ -644,7 +644,7 @@ create_summary_report() {
         echo "- Iterations per test: $ITERATIONS" >> "$output_file"
         echo "- Iteration directories:" >> "$output_file"
         for ((i=1; i<=ITERATIONS; i++)); do
-            echo "  - raw/${SESSION_ID}/iter_${i}" >> "$output_file"
+            echo "  - raw/${PROTOCOL}/${SESSION_ID}/iter_${i}" >> "$output_file"
         done
     fi
     echo "" >> "$output_file"
@@ -725,10 +725,11 @@ create_iteration_summary() {
     local summary_file="${DATA_BASE}/sessions.txt"
     
     echo "Session: ${SESSION_ID}" >> "$summary_file"
+    echo "Protocol: ${PROTOCOL}" >> "$summary_file"
     echo "Network Condition: ${NETWORK_CONDITION}" >> "$summary_file"
     echo "Timestamp: $(date)" >> "$summary_file"
     echo "Iterations: ${ITERATIONS}" >> "$summary_file"
-    echo "Directory: raw/${SESSION_ID}/" >> "$summary_file"
+    echo "Directory: raw/${PROTOCOL}/${SESSION_ID}/" >> "$summary_file"
     echo "Iteration folders:" >> "$summary_file"
     for ((i=1; i<=ITERATIONS; i++)); do
         echo "  - iter_${i}/" >> "$summary_file"
@@ -1062,12 +1063,12 @@ if [ -z "$NETWORK_CONDITION" ]; then
     fi
 fi
 
-# Generate session ID: local_MMDD_NETCOND_RANDOM
-# Folder structure: raw/local_1219_fiducial_ab/iter_1/, iter_2/, etc.
+# Generate session ID: local_PROTOCOL_MMDD_NETCOND_RANDOM
+# Folder structure: raw/PROTOCOL/local_protocol_1219_fiducial_ab/iter_1/, iter_2/, etc.
 RANDOM_STR=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 2 | head -n 1)
 SESSION_PREFIX="$([ "$RASP_SERVER" == "true" ] && echo "rasp" || echo "local")"
-SESSION_ID="${SESSION_PREFIX}_$(date +%m%d)_${NETWORK_CONDITION}_${RANDOM_STR}"
-SESSION_DIR="${RAW_DATA_DIR}/${SESSION_ID}"
+SESSION_ID="${SESSION_PREFIX}_${PROTOCOL}_$(date +%m%d)_${NETWORK_CONDITION}_${RANDOM_STR}"
+SESSION_DIR="${RAW_DATA_DIR}/${PROTOCOL}/${SESSION_ID}"
 
 log "INFO" "Session ID: $SESSION_ID"
 log "INFO" "Network condition: $NETWORK_CONDITION ($NETWORK_CONDITION_SOURCE)"
@@ -1080,6 +1081,7 @@ mkdir -p "$SESSION_DIR"
 METADATA_FILE="${SESSION_DIR}/session_metadata.txt"
 {
     echo "Session ID: $SESSION_ID"
+    echo "Protocol: $PROTOCOL"
     echo "Network Condition: $NETWORK_CONDITION"
     echo "Start Time: $(date -Iseconds)"
     echo "Number of Clients: $NUM_CLIENTS"
