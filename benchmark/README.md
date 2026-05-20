@@ -338,7 +338,7 @@ Use the `-scenarios` flag with protocol-appropriate values:
 
 **MQTT-SN Examples:**
 ```bash
-# Run publisher scenario only (default for MQTT-SN)
+# Run publisher scenario only
 ./run_benchmarks.sh -protocol mqttsn -n 25 -security pki -scenarios pub
 
 # Run both publisher and subscriber scenarios
@@ -350,7 +350,7 @@ Use the `-scenarios` flag with protocol-appropriate values:
 
 **Recommendation for PQC Benchmarking**:
 - **CoAP**: Use `-scenarios A,C` to focus on meaningful cryptographic performance metrics
-- **MQTT-SN**: Use `-scenarios pub` for typical IoT publish workflows
+- **MQTT-SN**: Use `-scenarios pub,sub` to cover both gateway-facing client roles
 
 ## Related Documentation
 

@@ -1,10 +1,6 @@
 #!/bin/bash
 
-# ==============================================
-# mqttsn_benchmark.sh
-# MQTT-SN client benchmark script
-# Mirrors coap_benchmark.sh functionality
-# ==============================================
+# mqttsn_benchmark.sh - MQTT-SN client benchmark runner
 
 # Import certificate configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -50,11 +46,15 @@ export BENCH_DATA_DIR="$DATA_DIR"
 # MQTT-SN Gateway configuration
 GATEWAY_HOST="${MQTTSN_GATEWAY_HOST:-127.0.0.1}"
 GATEWAY_PORT="${MQTTSN_GATEWAY_PORT:-10000}"
+RASPBERRY_PI_USER="${RASPBERRY_PI_USER:-root}"
+RASPBERRY_PI_PATH="${RASPBERRY_PI_PATH:-~/libcoap-pqc-bench}"
 
 # Global variables
 bridge_interface="${BRIDGE_INTERFACE:-br0}"
 server_ip="${RASPBERRY_PI_IP}"
 tshark_pid=""
+server_pid=""
+server_ssh_pid=""
 
 # Default values
 n=""
@@ -91,6 +91,7 @@ usage() {
 cleanup() {
     echo "Script interrupted. Cleaning up..."
     [ -n "$tshark_pid" ] && kill -9 "$tshark_pid" 2>/dev/null
+    stop_gateway
     
     # Stop energy monitoring if active
     if [ "${MEASURE_ENERGY:-false}" == "true" ] && [ -f "${BENCH_DIR}/.energy_monitor_pid" ]; then
@@ -103,11 +104,6 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM
 
-# ============================================================================
-# Energy Monitoring Functions (mirrored from coap_benchmark.sh)
-# ============================================================================
-
-# Function to start energy monitoring with guaranteed initialization using a named pipe
 start_energy_monitoring() {
     energy_filename=$(generate_filenames "energy" false)
     energy_name="$energy_filename"
@@ -169,7 +165,6 @@ start_energy_monitoring() {
     return 1
 }
 
-# Function to stop energy monitoring and ensure completion
 stop_energy_monitoring() {
     if [ ! -f ${BENCH_DIR}/.energy_monitor_pid ]; then
         echo "No energy monitoring process found"
@@ -213,7 +208,6 @@ stop_energy_monitoring() {
     sleep $TIMING_ENERGY_FLUSH
 }
 
-# Filenames generation function
 generate_filenames() {
     local prefix="$1"
     local add_udp_prefix="$2"
@@ -342,10 +336,45 @@ if [ "$sec_mode" == "pki" ]; then
     echo "  CA: $ca_file"
 fi
 
+# Start the MQTT-SN gateway for this run
+start_gateway() {
+    local server_args="-sec-mode $sec_mode"
+    [ "$sec_mode" == "pki" ] && server_args="$server_args -cert-config $cert_config"
+
+    if [ "$rasp_param" == "true" ]; then
+        echo "Cleaning up existing MQTT-SN gateway processes on $server_ip..."
+        ssh "${RASPBERRY_PI_USER}@${server_ip}" "pkill -9 -f 'MQTT-SNGateway|mqttsn_benchmark_server.sh' || true" 2>/dev/null || true
+        echo "Starting MQTT-SN gateway on $server_ip..."
+        ssh "${RASPBERRY_PI_USER}@${server_ip}" "cd ${RASPBERRY_PI_PATH} && BENCH_DATA_DIR=\"\$PWD/benchmark/data/current\" ./benchmark/mqttsn_benchmark_server.sh $server_args -rasp" &
+        server_ssh_pid=$!
+        sleep "$TIMING_SERVER_START_REMOTE"
+    else
+        echo "Cleaning up existing local MQTT-SN gateway processes..."
+        pkill -9 -f 'MQTT-SNGateway|mqttsn_benchmark_server.sh' 2>/dev/null || true
+        echo "Starting local MQTT-SN gateway..."
+        "${BENCH_DIR}/mqttsn_benchmark_server.sh" $server_args &
+        server_pid=$!
+        sleep "$TIMING_SERVER_START_LOCAL"
+    fi
+}
+
+stop_gateway() {
+    if [ "$rasp_param" == "true" ]; then
+        [ -n "$server_ip" ] && ssh "${RASPBERRY_PI_USER}@${server_ip}" "pkill -2 -f MQTT-SNGateway || pkill -2 -f mqttsn_benchmark_server.sh || true" 2>/dev/null || true
+        [ -n "$server_ssh_pid" ] && wait "$server_ssh_pid" 2>/dev/null || true
+    else
+        pkill -2 -f MQTT-SNGateway 2>/dev/null || true
+        [ -n "$server_pid" ] && wait "$server_pid" 2>/dev/null || true
+    fi
+}
+
 # Determine target address and interface
 if [ "$rasp_param" == "true" ]; then
     target_host="$server_ip"
     capture_interface="$bridge_interface"
+    if [ -z "${MQTTSN_GATEWAY_HOST:-}" ]; then
+        GATEWAY_HOST="$target_host"
+    fi
 else
     target_host="$LOCAL_SERVER_ADDRESS"
     capture_interface="$LOCAL_CAPTURE_INTERFACE"
@@ -387,6 +416,8 @@ tshark -i "$capture_interface" -w "${DATA_DIR}/udp_conversations.pcapng" \
     -f "udp port ${GATEWAY_PORT}" &
 tshark_pid=$!
 sleep 1
+
+start_gateway
 
 # Build client command
 build_client_cmd() {
@@ -456,6 +487,8 @@ sleep 1  # Allow final packets to be captured
 kill "$tshark_pid" 2>/dev/null
 tshark_pid=""
 
+stop_gateway
+
 # Stop energy monitoring if it was started
 if [ "${MEASURE_ENERGY:-false}" == "true" ]; then
     stop_energy_monitoring
@@ -479,7 +512,7 @@ fi
 # Collect CPU cycles measured by perf on the gateway side
 cpu_cycles=0
 if [ -n "$rasp_param" ] && [ -n "$server_ip" ]; then
-    cpu_cycles=$(ssh root@"$server_ip" "awk '/cycles/ {print \$1}' ~/libcoap-pqc-bench/benchmark/data/current/auxiliary_server.txt" 2>/dev/null || echo 0)
+    cpu_cycles=$(ssh "${RASPBERRY_PI_USER}@${server_ip}" "cd ${RASPBERRY_PI_PATH} && awk '/cycles/ {print \$1}' benchmark/data/current/auxiliary_server.txt" 2>/dev/null || echo 0)
 elif [ -f "${DATA_DIR}/auxiliary_server.txt" ]; then
     cpu_cycles=$(awk '/cycles/ {print $1}' "${DATA_DIR}/auxiliary_server.txt" 2>/dev/null || echo 0)
 fi

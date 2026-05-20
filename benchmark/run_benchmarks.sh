@@ -1,9 +1,6 @@
 #!/bin/bash
 
-# ==============================================
-# run_benchmarks.sh
-# Automated benchmarking script for libcoap with PQC support
-# ==============================================
+# run_benchmarks.sh - automated PQC protocol benchmark runner
 
 # Script directory and repository root
 BENCHMARK_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -114,7 +111,7 @@ show_help() {
     echo "  -scenarios SCENARIOS  Scenarios to run (comma-separated):"
     echo "                        CoAP: A,B,C (A=time+con, B=async, C=time+non)"
     echo "                        MQTT-SN: pub,sub (pub=publisher, sub=subscriber)"
-    echo "                        Default: A,B,C (CoAP) or pub (MQTT-SN)"
+    echo "                        Default: A,B,C (CoAP) or pub,sub (MQTT-SN)"
     echo "  -iterations N         Run each test configuration N times (enables iteration mode)"
     echo "  -network CONDITION    Network condition label (e.g., fiducial, smart-home, smart-factory, public-transport)"
     echo "                        REQUIRED: This label is used in the session ID to identify data"
@@ -871,7 +868,7 @@ if [ -n "$OBSERVE_TIME" ] && { ! [[ "$OBSERVE_TIME" =~ ^[0-9]+$ ]] || [ "$OBSERV
 fi
 
 # Validate PARALLELIZATION
-if [ -z parallelization ] && [ "$PARALLELIZATION" != "background" ] && [ "$PARALLELIZATION" != "parallel" ]; then
+if [ -n "$PARALLELIZATION" ] && [ "$PARALLELIZATION" != "background" ] && [ "$PARALLELIZATION" != "parallel" ]; then
     log "ERROR" "Parallelization must be either 'background' or 'parallel'"
     exit 1
 fi
@@ -965,7 +962,11 @@ log "INFO" "Local mode config: $LOCAL_MODE"
 log "INFO" "Parallelization mode: $PARALLELIZATION"
 log "INFO" "KEM groups to test: $GROUPS_LIST"
 log "INFO" "Signature filter: $SIGNATURES_LIST"
-log "INFO" "Scenarios to run: $SCENARIOS (A=time+con, B=async, C=time+non)"
+if [ "$PROTOCOL" == "mqttsn" ]; then
+    log "INFO" "Scenarios to run: $SCENARIOS (pub=publish session, sub=subscribe session)"
+else
+    log "INFO" "Scenarios to run: $SCENARIOS (A=time+con, B=async, C=time+non)"
+fi
 [ -n "$ASYNC_DELAY" ] && log "INFO" "Async delay parameter: $ASYNC_DELAY seconds"
 
 if [ -n "$CERT_CONFIGS_FILTER" ]; then

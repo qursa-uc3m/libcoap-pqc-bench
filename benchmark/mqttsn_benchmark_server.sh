@@ -49,7 +49,7 @@ PERF_CMD_RPI="${PERF_CMD_RPI:-perf_5.10}"
 # Note: use ${var-default} (no ':') so empty is respected.
 BENCH_SUDO_CMD="${BENCH_SUDO_CMD-sudo -E}"
 
-sudo rm -f "${REPO_ROOT}/cycles_output.txt"
+rm -f "${REPO_ROOT}/cycles_output.txt"
 
 # Function to display usage/help
 show_usage() {
